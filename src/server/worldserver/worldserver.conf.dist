@@ -1186,10 +1186,10 @@ BeepAtStart = 1
 #
 #    Motd
 #        Description: Message of the Day, displayed at login. Use '@' for a newline.
-#        Example:     "Welcome to John's Server!@This server is proud to be powered by Trinity Core."
-#        Default:     "Welcome to a Trinity Core server."
+#        Example:     "Welcome to John's Server!@This server is proud to be powered by ShatterCore."
+#        Default:     "Welcome to a ShatterCore server."
 
-Motd = "Welcome to a Trinity Core server."
+Motd = "Welcome to a ShatterCore server."
 
 #
 #    Server.LoginInfo
