@@ -718,6 +718,255 @@ public:
         return true;
     }
 };
+
+enum MountainHorse
+{
+    SPELL_ROUND_UP_HORSE  = 68903,
+    SPELL_ROPE_CHANNEL    = 68940,
+    SPELL_ROPE_IN_HORSE   = 68908,  
+    NPC_MOUNTAIN_HORSE    = 36540,
+    NPC_MOUNTAIN_HORSE_FOLLOWER = 36555  
+};
+
+struct npc_mountain_horse : public ScriptedAI
+{
+    npc_mountain_horse(Creature* creature) : ScriptedAI(creature) { }
+
+    void Reset() override { }
+
+    void SpellHit(WorldObject* caster, SpellInfo const* spell) override
+    {
+        
+        if (spell->Id == SPELL_ROUND_UP_HORSE)
+        {
+            if (Player* player = caster->ToPlayer())
+            {
+                
+                std::list<Creature*> followerList;
+                player->GetCreatureListWithEntryInGrid(followerList, NPC_MOUNTAIN_HORSE_FOLLOWER, 100.0f);
+                
+                
+                if (followerList.empty())
+                {
+                    
+                    if (Creature* follower = player->SummonCreature(NPC_MOUNTAIN_HORSE_FOLLOWER, 
+                                                                   me->GetPositionX(), 
+                                                                   me->GetPositionY(), 
+                                                                   me->GetPositionZ(), 
+                                                                   me->GetOrientation(), 
+                                                                   TEMPSUMMON_TIMED_DESPAWN, 1200000)) // 20 minutes
+                    {
+                        
+                        if (follower->AI())
+                            follower->AI()->SetGUID(player->GetGUID());
+                    }
+                }
+                
+                
+                me->DespawnOrUnsummon(100); 
+            }
+        }
+    }
+};
+
+
+struct npc_mountain_horse_follower : public ScriptedAI
+{
+    npc_mountain_horse_follower(Creature* creature) : ScriptedAI(creature)
+    {
+        Initialize();
+    }
+
+    void Initialize()
+    {
+        _playerGUID.Clear();
+        _followUpdateTimer = 0;
+        _pathfindingTimer = 0;
+        _lastZ = 0.0f;
+        _stuckCount = 0;
+    }
+
+    void Reset() override
+    {
+        Initialize();
+    }
+
+    void IsSummonedBy(Unit* summoner) override
+    {
+        if (Player* player = summoner->ToPlayer())
+        {
+            _playerGUID = player->GetGUID();
+            
+            DoCast(player, SPELL_ROPE_CHANNEL, true);
+            
+            _lastZ = me->GetPositionZ();
+
+            SetupFollow(player);
+            
+            _followUpdateTimer = 1000; 
+            _pathfindingTimer = 500;   
+        }
+    }
+    
+    void SetGUID(ObjectGuid const& guid, int32 /*id*/) override
+    {
+        _playerGUID = guid;
+        
+        if (Player* player = ObjectAccessor::GetPlayer(*me, _playerGUID))
+        {
+            DoCast(player, SPELL_ROPE_CHANNEL, true);
+            
+            _lastZ = me->GetPositionZ();
+
+            SetupFollow(player);
+            
+            _followUpdateTimer = 1000; 
+            _pathfindingTimer = 500;   
+        }
+    }
+    
+    void SetupFollow(Player* player)
+    {
+        me->GetMotionMaster()->Clear();
+        me->SetWalk(false);
+        
+        Unit* followTarget = player;
+        if (player->IsMounted())
+        {
+            if (Unit* vehicle = player->GetVehicleBase())
+            {
+                followTarget = vehicle;
+            }
+        }
+        
+        me->SetSpeedRate(MOVE_RUN, followTarget->GetSpeedRate(MOVE_RUN) * 1.1f); 
+        
+        me->GetMotionMaster()->MoveFollow(followTarget, 3.0f, DEFAULT_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE, 0, true);
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        if (_playerGUID.IsEmpty())
+            return;
+
+        if (Player* player = ObjectAccessor::GetPlayer(*me, _playerGUID))
+        {
+            Unit* followTarget = player;
+            if (player->IsMounted() || player->GetVehicle())
+            {
+                if (Unit* vehicle = player->GetVehicleBase())
+                {
+                    followTarget = vehicle;
+                    me->SetSpeedRate(MOVE_RUN, vehicle->GetSpeedRate(MOVE_RUN) * 1.1f);
+                }
+            }
+
+            float maxDistance = 25.0f;
+
+            if (me->GetDistance(followTarget) > maxDistance)
+            {
+                float x = followTarget->GetPositionX() - 3.0f * cos(followTarget->GetOrientation());
+                float y = followTarget->GetPositionY() - 3.0f * sin(followTarget->GetOrientation());
+                float z = followTarget->GetPositionZ();
+                
+                me->NearTeleportTo(x, y, z, me->GetOrientation());
+
+                me->GetMotionMaster()->Clear();
+                me->GetMotionMaster()->MoveFollow(followTarget, 3.0f, DEFAULT_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE, 0, true);
+            }
+
+            if (_pathfindingTimer <= diff)
+            {
+                float currentZ = me->GetPositionZ();
+                
+                if (std::abs(followTarget->GetPositionZ() - currentZ) > 2.0f && 
+                    std::abs(currentZ - _lastZ) < 0.1f)
+                {
+                    _stuckCount++;
+                    
+                    if (_stuckCount >= 3)
+                    {
+                        float x = followTarget->GetPositionX() - 2.0f * cos(followTarget->GetOrientation());
+                        float y = followTarget->GetPositionY() - 2.0f * sin(followTarget->GetOrientation());
+                        float z = followTarget->GetPositionZ();
+                        
+                        me->NearTeleportTo(x, y, z, me->GetOrientation());
+                        
+                        me->GetMotionMaster()->Clear();
+                        me->GetMotionMaster()->MoveFollow(followTarget, 3.0f, DEFAULT_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE, 0, true);
+                        
+                        _stuckCount = 0;
+                    }
+                }
+                else
+                {
+                    _stuckCount = 0;
+                }
+                
+                _lastZ = currentZ;
+                _pathfindingTimer = 500;
+            }
+            else
+            {
+                _pathfindingTimer -= diff;
+            }
+
+            if (_followUpdateTimer <= diff)
+            {
+                me->GetMotionMaster()->Clear();
+                me->GetMotionMaster()->MoveFollow(followTarget, 3.0f, DEFAULT_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE, 0, true);
+                _followUpdateTimer = 1000;
+            }
+            else
+            {
+                _followUpdateTimer -= diff;
+            }
+        }
+        else
+        {
+            me->DespawnOrUnsummon();
+        }
+    }
+
+private:
+    ObjectGuid _playerGUID;
+    uint32 _followUpdateTimer;
+    uint32 _pathfindingTimer;
+    float _lastZ;
+    uint8 _stuckCount;
+};
+
+class spell_round_up_horse : public SpellScript
+{
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* caster = GetCaster())
+        {
+            if (Player* player = caster->ToPlayer())
+            {
+                if (Unit* target = GetHitUnit())
+                {
+                    if (target->GetEntry() == NPC_MOUNTAIN_HORSE)
+                    {
+                        std::list<Creature*> followerList;
+                        player->GetCreatureListWithEntryInGrid(followerList, NPC_MOUNTAIN_HORSE_FOLLOWER, 100.0f);
+                        
+                        if (!followerList.empty())
+                        {
+                            if (Creature* horse = target->ToCreature())
+                                horse->DespawnOrUnsummon(100);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget.Register(&spell_round_up_horse::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
 }
 
 void AddSC_gilneas_chapter_2()
@@ -737,4 +986,7 @@ void AddSC_gilneas_chapter_2()
     RegisterSpellScript(spell_gilneas_drowning_vehicle_exit_dummy);
     RegisterSpellScript(spell_gilneas_rescue_drowning_watchman);
     new at_gasping_for_breath();
+    RegisterCreatureAI(npc_mountain_horse);
+    RegisterCreatureAI(npc_mountain_horse_follower);
+    RegisterSpellScript(spell_round_up_horse);
 }
