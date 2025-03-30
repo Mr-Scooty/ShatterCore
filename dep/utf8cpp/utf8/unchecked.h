@@ -176,7 +176,7 @@ namespace utf8
 
         // The iterator class
         template <typename octet_iterator>
-          class iterator : public std::iterator <std::bidirectional_iterator_tag, uint32_t> { 
+          class iterator {
             octet_iterator it;
             public:
             iterator () {}
@@ -218,6 +218,11 @@ namespace utf8
                 utf8::unchecked::prior(it);
                 return temp;
             }
+            using iterator_category = std::bidirectional_iterator_tag;
+            using value_type = uint32_t;
+            using difference_type = std::ptrdiff_t;
+            using pointer = value_type*;
+            using reference = value_type&;
           }; // class iterator
 
     } // namespace utf8::unchecked
