@@ -724,51 +724,303 @@ enum MountainHorse
     SPELL_ROUND_UP_HORSE  = 68903,
     SPELL_ROPE_CHANNEL    = 68940,
     SPELL_ROPE_IN_HORSE   = 68908,  
+    SPELL_MOUNTAIN_HORSE_CREDIT = 68917,
     NPC_MOUNTAIN_HORSE    = 36540,
-    NPC_MOUNTAIN_HORSE_FOLLOWER = 36555  
+    NPC_MOUNTAIN_HORSE_FOLLOWER = 36555,
+    NPC_MOUNTAIN_HORSE_RESCUED = 36560,  
+    QUEST_THE_HUNGRY_ETTIN = 14416,       
+    NPC_LORNA_CROWLEY     = 36457,
+    NPC_LORNA_HORSE_TRIGGER = 800100, 
+    REQUIRED_HORSE_COUNT   = 5
 };
+
+const float LORNA_CREDIT_RADIUS = 10.0f;
 
 struct npc_mountain_horse : public ScriptedAI
 {
-    npc_mountain_horse(Creature* creature) : ScriptedAI(creature) { }
+    npc_mountain_horse(Creature* creature) : ScriptedAI(creature) 
+    { 
+        if (!me->GetVehicleKit())
+            me->CreateVehicleKit(36540, 36540); 
+        _checkTimer = 500;
+        _currentRider = ObjectGuid::Empty;
+        _followerGUID = ObjectGuid::Empty;
+    }
 
-    void Reset() override { }
+    void Reset() override 
+    {
+        if (!me->GetVehicleKit())
+            me->CreateVehicleKit(36540, 36540); 
+        _checkTimer = 500;
+        _currentRider = ObjectGuid::Empty;
+        _followerGUID = ObjectGuid::Empty;
+    }
+
+    void OnSpellClick(Unit* clicker, bool& result) override
+    {
+        if (!result)
+            return;
+
+        if (Player* player = clicker->ToPlayer())
+        {
+            if (me->GetVehicleKit())
+            {
+                me->SetFaction(player->GetFaction());
+                
+                player->CastSpell(player, SPELL_MOUNTAIN_HORSE_CREDIT, true);
+                
+                _currentRider = player->GetGUID();
+                
+                me->SetRespawnDelay(60);
+                me->SaveRespawnTime();
+            }
+        }
+    }
+
+    void PassengerBoarded(Unit* passenger, int8 /*seatId*/, bool apply) override
+    {
+        if (!passenger)
+            return;
+
+        if (passenger->GetTypeId() == TYPEID_PLAYER)
+        {
+            if (Player* player = passenger->ToPlayer())
+            {
+                if (apply)
+                {
+                    if (!player->HasAura(SPELL_MOUNTAIN_HORSE_CREDIT))
+                        player->CastSpell(player, SPELL_MOUNTAIN_HORSE_CREDIT, true);
+                    
+                    _currentRider = player->GetGUID();
+                    
+                    me->SetFaction(player->GetFaction());
+                    
+                    if (player->GetPetGUID().IsEmpty() && !me->IsPet())
+                    {
+                        me->SetOwnerGUID(player->GetGUID());
+                        
+                        if (!me->GetVehicleKit())
+                            me->CreateVehicleKit(36540, 36540);
+                    }
+
+                    // Spawn an invisible horse follower
+                    // Check if player already has horse followers
+                    std::list<Creature*> followerList;
+                    player->GetCreatureListWithEntryInGrid(followerList, NPC_MOUNTAIN_HORSE_FOLLOWER, 100.0f);
+                    
+                    // Only spawn a new follower if the player doesn't already have one
+                    if (followerList.empty())
+                    {
+                        // Create an invisible follower at the horse's position
+                        if (Creature* follower = player->SummonCreature(NPC_MOUNTAIN_HORSE_FOLLOWER, 
+                                                                       me->GetPositionX(), 
+                                                                       me->GetPositionY(), 
+                                                                       me->GetPositionZ(), 
+                                                                       me->GetOrientation(), 
+                                                                       TEMPSUMMON_TIMED_DESPAWN, 1200000)) 
+                        {
+                            // Make it completely invisible (stealth display ID)
+                            follower->SetDisplayId(11686);  // Completely invisible bunny model
+                            follower->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE);
+                            
+                            // Set AI flags in correct order
+                            if (follower->AI())
+                            {
+                                // Set the flag to prevent rope display FIRST
+                                follower->AI()->SetData(1, 1);
+                                // Then set the GUID
+                                follower->AI()->SetGUID(player->GetGUID());
+                            }
+                                
+                            // Store the follower's GUID for later cleanup
+                            _followerGUID = follower->GetGUID();
+                        }
+                    }
+                }
+                else if (!apply)
+                {
+                    if (Creature* lorna = me->FindNearestCreature(NPC_LORNA_CROWLEY, LORNA_CREDIT_RADIUS))
+                    {
+                        if (player->GetQuestStatus(QUEST_THE_HUNGRY_ETTIN) == QUEST_STATUS_INCOMPLETE)
+                        {
+                            player->KilledMonsterCredit(NPC_MOUNTAIN_HORSE_RESCUED);
+                            
+                            uint16 questSlot = player->FindQuestSlot(QUEST_THE_HUNGRY_ETTIN);
+                            if (questSlot != MAX_QUEST_LOG_SIZE)
+                            {
+                                uint16 kills = player->GetQuestSlotCounter(questSlot, 0);
+                                if (kills >= REQUIRED_HORSE_COUNT)
+                                    player->CompleteQuest(QUEST_THE_HUNGRY_ETTIN);
+                            }
+                        }
+                        
+                        me->SetRespawnDelay(60); 
+                        me->SaveRespawnTime();
+                        me->DespawnOrUnsummon(500); 
+                    }
+                    
+                    if (!_followerGUID.IsEmpty())
+                    {
+                        if (Creature* follower = ObjectAccessor::GetCreature(*me, _followerGUID))
+                            follower->DespawnOrUnsummon();
+                        _followerGUID = ObjectGuid::Empty;
+                    }
+                    
+                    _currentRider = ObjectGuid::Empty;
+                    
+                    player->RemoveAurasDueToSpell(SPELL_MOUNTAIN_HORSE_CREDIT);
+                }
+            }
+        }
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        if (_checkTimer <= diff)
+        {
+            if (!me->GetVehicleKit())
+                me->CreateVehicleKit(36540, 36540);
+            
+            Player* rider = nullptr;
+            if (!_currentRider.IsEmpty())
+                rider = ObjectAccessor::GetPlayer(*me, _currentRider);
+                
+            if (rider)
+            {
+                if (!rider->HasAura(SPELL_MOUNTAIN_HORSE_CREDIT))
+                    rider->CastSpell(rider, SPELL_MOUNTAIN_HORSE_CREDIT, true);
+                
+                bool nearLorna = false;
+
+                if (Creature* lorna = me->FindNearestCreature(NPC_LORNA_CROWLEY, LORNA_CREDIT_RADIUS))
+                    nearLorna = true;
+                
+                if (!nearLorna)
+                {
+                    float lornaX = -2059.699951f;
+                    float lornaY = 2254.169922f;
+                    float lornaZ = 22.573099f;
+                    
+                    float distToLorna = me->GetDistance(lornaX, lornaY, lornaZ);
+                    if (distToLorna < 10.0f)
+                        nearLorna = true;
+                }
+                
+                if (nearLorna)
+                {
+                    if (rider->GetQuestStatus(QUEST_THE_HUNGRY_ETTIN) == QUEST_STATUS_INCOMPLETE)
+                    {
+                        rider->KilledMonsterCredit(NPC_MOUNTAIN_HORSE_RESCUED);
+                        
+                        uint16 questSlot = rider->FindQuestSlot(QUEST_THE_HUNGRY_ETTIN);
+                        if (questSlot != MAX_QUEST_LOG_SIZE)
+                        {
+                            uint16 kills = rider->GetQuestSlotCounter(questSlot, 0);
+                            if (kills >= REQUIRED_HORSE_COUNT)
+                                rider->CompleteQuest(QUEST_THE_HUNGRY_ETTIN);
+                        }
+                    }
+                    
+                    if (Vehicle* vehicle = me->GetVehicleKit())
+                        if (vehicle->GetPassenger(0))
+                            vehicle->RemovePassenger(vehicle->GetPassenger(0));
+                    
+                    rider->ExitVehicle();
+                    
+                    rider->RemoveAurasByType(SPELL_AURA_CONTROL_VEHICLE);
+                    
+                    if (rider->IsMounted())
+                    {
+                        rider->Dismount();
+                        rider->RemoveAurasByType(SPELL_AURA_MOUNTED);
+                    }
+                    
+                    rider->RemoveAurasDueToSpell(SPELL_MOUNTAIN_HORSE_CREDIT);
+                    
+                    _currentRider = ObjectGuid::Empty;
+                    
+                    me->SetRespawnDelay(60);
+                    me->SaveRespawnTime();
+                    me->DespawnOrUnsummon(500); 
+                    return;
+                }
+            }
+            
+            if (Vehicle* vehicle = me->GetVehicleKit())
+            {
+                if (Unit* passenger = vehicle->GetPassenger(0))
+                {
+                    if (Player* player = passenger->ToPlayer())
+                    {
+                        _currentRider = player->GetGUID();
+                        
+                        if (!player->HasAura(SPELL_MOUNTAIN_HORSE_CREDIT))
+                            player->CastSpell(player, SPELL_MOUNTAIN_HORSE_CREDIT, true);
+                    }
+                }
+            }
+            
+            _checkTimer = 500;
+        }
+        else
+        {
+            _checkTimer -= diff;
+        }
+    }
 
     void SpellHit(WorldObject* caster, SpellInfo const* spell) override
     {
-        
         if (spell->Id == SPELL_ROUND_UP_HORSE)
         {
             if (Player* player = caster->ToPlayer())
             {
-                
                 std::list<Creature*> followerList;
                 player->GetCreatureListWithEntryInGrid(followerList, NPC_MOUNTAIN_HORSE_FOLLOWER, 100.0f);
                 
-                
                 if (followerList.empty())
                 {
-                    
                     if (Creature* follower = player->SummonCreature(NPC_MOUNTAIN_HORSE_FOLLOWER, 
                                                                    me->GetPositionX(), 
                                                                    me->GetPositionY(), 
                                                                    me->GetPositionZ(), 
                                                                    me->GetOrientation(), 
-                                                                   TEMPSUMMON_TIMED_DESPAWN, 1200000)) // 20 minutes
+                                                                   TEMPSUMMON_TIMED_DESPAWN, 1200000)) 
                     {
+                        // Make it completely invisible (stealth display ID)
+                        follower->SetDisplayId(11686);  // Completely invisible bunny model
+                        follower->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE);
                         
                         if (follower->AI())
+                        {
+                            // Set the flag to prevent rope display FIRST
+                            follower->AI()->SetData(1, 1);
+                            // Then set the GUID
                             follower->AI()->SetGUID(player->GetGUID());
+                        }
                     }
                 }
                 
-                
-                me->DespawnOrUnsummon(100); 
+                me->SetRespawnDelay(60); 
+                me->SaveRespawnTime();
+                me->RemoveFromWorld();
             }
         }
     }
-};
 
+    void JustSummoned(Creature* summon) override
+    {
+        if (summon->GetEntry() == NPC_MOUNTAIN_HORSE)
+        {
+            if (!summon->GetVehicleKit())
+                summon->CreateVehicleKit(36540, 36540);
+        }
+    }
+
+private:
+    uint32 _checkTimer;
+    ObjectGuid _currentRider;  
+    ObjectGuid _followerGUID; 
+};
 
 struct npc_mountain_horse_follower : public ScriptedAI
 {
@@ -784,11 +1036,40 @@ struct npc_mountain_horse_follower : public ScriptedAI
         _pathfindingTimer = 0;
         _lastZ = 0.0f;
         _stuckCount = 0;
+        _questCreditCheckTimer = 2000; 
+        _dismountCheckTimer = 1000;    
+        _noRopeDisplay = false;  
     }
 
     void Reset() override
     {
         Initialize();
+    }
+
+    void SetData(uint32 id, uint32 value) override
+    {
+        if (id == 1) // 1 = flag for no rope display
+        {
+            _noRopeDisplay = value != 0; 
+            
+            // Immediately remove any existing rope auras
+            if (_noRopeDisplay)
+            {
+                me->RemoveAurasDueToSpell(SPELL_ROPE_CHANNEL);
+                
+                // Also ensure any attempt to reapply the aura is interrupted
+                if (me->HasUnitState(UNIT_STATE_CASTING))
+                    me->InterruptNonMeleeSpells(false);
+            }
+        }
+    }
+
+    uint32 GetData(uint32 id) const override
+    {
+        if (id == 1) 
+            return _noRopeDisplay ? 1 : 0;
+        
+        return 0;
     }
 
     void IsSummonedBy(Unit* summoner) override
@@ -797,14 +1078,16 @@ struct npc_mountain_horse_follower : public ScriptedAI
         {
             _playerGUID = player->GetGUID();
             
-            DoCast(player, SPELL_ROPE_CHANNEL, true);
+            // Skip rope visualization completely if the flag is set
+            if (!_noRopeDisplay)
+                DoCast(player, SPELL_ROPE_CHANNEL, true);
             
             _lastZ = me->GetPositionZ();
 
             SetupFollow(player);
             
             _followUpdateTimer = 1000; 
-            _pathfindingTimer = 500;   
+            _pathfindingTimer = 500;  
         }
     }
     
@@ -814,7 +1097,9 @@ struct npc_mountain_horse_follower : public ScriptedAI
         
         if (Player* player = ObjectAccessor::GetPlayer(*me, _playerGUID))
         {
-            DoCast(player, SPELL_ROPE_CHANNEL, true);
+            // Skip rope visualization completely if the flag is set
+            if (!_noRopeDisplay)
+                DoCast(player, SPELL_ROPE_CHANNEL, true);
             
             _lastZ = me->GetPositionZ();
 
@@ -824,31 +1109,28 @@ struct npc_mountain_horse_follower : public ScriptedAI
             _pathfindingTimer = 500;   
         }
     }
-    
-    void SetupFollow(Player* player)
+
+    void SetupFollow(Unit* target)
     {
+        if (!target)
+            return;
+
         me->GetMotionMaster()->Clear();
-        me->SetWalk(false);
+        me->GetMotionMaster()->MoveFollow(target, 3.0f, DEFAULT_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE, 0, true);
         
-        Unit* followTarget = player;
-        if (player->IsMounted())
+        if (target->IsMounted() || target->GetVehicle())
         {
-            if (Unit* vehicle = player->GetVehicleBase())
-            {
-                followTarget = vehicle;
-            }
+            if (Unit* vehicle = target->GetVehicleBase())
+                me->SetSpeedRate(MOVE_RUN, vehicle->GetSpeedRate(MOVE_RUN) * 1.1f);
         }
-        
-        me->SetSpeedRate(MOVE_RUN, followTarget->GetSpeedRate(MOVE_RUN) * 1.1f); 
-        
-        me->GetMotionMaster()->MoveFollow(followTarget, 3.0f, DEFAULT_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE, 0, true);
+        else
+        {
+            me->SetSpeedRate(MOVE_RUN, target->GetSpeedRate(MOVE_RUN) * 1.1f);
+        }
     }
 
     void UpdateAI(uint32 diff) override
     {
-        if (_playerGUID.IsEmpty())
-            return;
-
         if (Player* player = ObjectAccessor::GetPlayer(*me, _playerGUID))
         {
             Unit* followTarget = player;
@@ -870,7 +1152,7 @@ struct npc_mountain_horse_follower : public ScriptedAI
                 float z = followTarget->GetPositionZ();
                 
                 me->NearTeleportTo(x, y, z, me->GetOrientation());
-
+                
                 me->GetMotionMaster()->Clear();
                 me->GetMotionMaster()->MoveFollow(followTarget, 3.0f, DEFAULT_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE, 0, true);
             }
@@ -878,22 +1160,16 @@ struct npc_mountain_horse_follower : public ScriptedAI
             if (_pathfindingTimer <= diff)
             {
                 float currentZ = me->GetPositionZ();
-                
-                if (std::abs(followTarget->GetPositionZ() - currentZ) > 2.0f && 
-                    std::abs(currentZ - _lastZ) < 0.1f)
+                if (fabs(currentZ - _lastZ) < 0.2f && me->GetDistance(followTarget) > 10.0f)
                 {
                     _stuckCount++;
-                    
-                    if (_stuckCount >= 3)
+                    if (_stuckCount >= 5) 
                     {
-                        float x = followTarget->GetPositionX() - 2.0f * cos(followTarget->GetOrientation());
-                        float y = followTarget->GetPositionY() - 2.0f * sin(followTarget->GetOrientation());
+                        float x = followTarget->GetPositionX() - 3.0f * cos(followTarget->GetOrientation());
+                        float y = followTarget->GetPositionY() - 3.0f * sin(followTarget->GetOrientation());
                         float z = followTarget->GetPositionZ();
                         
                         me->NearTeleportTo(x, y, z, me->GetOrientation());
-                        
-                        me->GetMotionMaster()->Clear();
-                        me->GetMotionMaster()->MoveFollow(followTarget, 3.0f, DEFAULT_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE, 0, true);
                         
                         _stuckCount = 0;
                     }
@@ -904,22 +1180,122 @@ struct npc_mountain_horse_follower : public ScriptedAI
                 }
                 
                 _lastZ = currentZ;
-                _pathfindingTimer = 500;
+                
+                _pathfindingTimer = 500; 
             }
             else
             {
                 _pathfindingTimer -= diff;
             }
-
+            
             if (_followUpdateTimer <= diff)
             {
                 me->GetMotionMaster()->Clear();
                 me->GetMotionMaster()->MoveFollow(followTarget, 3.0f, DEFAULT_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE, 0, true);
+                
+                // For normal followers with rope visuals, make sure the rope stays connected
+                if (!_noRopeDisplay && !me->HasAura(SPELL_ROPE_CHANNEL))
+                {
+                    DoCast(player, SPELL_ROPE_CHANNEL, true);
+                }
+                else if (_noRopeDisplay && me->HasAura(SPELL_ROPE_CHANNEL))
+                {
+                    // If we should not display the rope but it's showing, remove it
+                    me->RemoveAurasDueToSpell(SPELL_ROPE_CHANNEL);
+                }
+                
                 _followUpdateTimer = 1000;
             }
             else
             {
                 _followUpdateTimer -= diff;
+            }
+
+            // Check for dismount near Lorna Crowley's position
+            if (_dismountCheckTimer <= diff)
+            {
+                float lornaX = -2059.699951f;
+                float lornaY = 2254.169922f;
+                float lornaZ = 22.573099f;
+            
+                float distToLorna = player->GetDistance(lornaX, lornaY, lornaZ);
+                
+                if (distToLorna < 8.0f)
+                {
+                    bool wasInVehicle = false;
+                    
+                    if (player->GetVehicle() || player->GetVehicleBase())
+                    {
+                        wasInVehicle = true;
+                        
+                        if (Unit* vehicleBase = player->GetVehicleBase())
+                        {
+                            if (vehicleBase->GetEntry() == NPC_MOUNTAIN_HORSE)
+                            {
+                                vehicleBase->ToCreature()->SetRespawnDelay(60);
+                                vehicleBase->ToCreature()->SaveRespawnTime();
+                                vehicleBase->ToCreature()->RemoveFromWorld();
+                            }
+                        }
+                        
+                        player->ExitVehicle();
+                    }
+                    
+                    if (player->IsMounted())
+                    {
+                        player->Dismount();
+                        player->RemoveAurasByType(SPELL_AURA_MOUNTED);
+                    }
+                    
+                    player->RemoveAurasByType(SPELL_AURA_CONTROL_VEHICLE);
+                    
+                    if (player->GetQuestStatus(QUEST_THE_HUNGRY_ETTIN) == QUEST_STATUS_INCOMPLETE)
+                    {
+                        player->KilledMonsterCredit(NPC_MOUNTAIN_HORSE_FOLLOWER);
+                        
+                        uint16 questSlot = player->FindQuestSlot(QUEST_THE_HUNGRY_ETTIN);
+                        if (questSlot != MAX_QUEST_LOG_SIZE)
+                        {
+                            uint16 kills = player->GetQuestSlotCounter(questSlot, 0);
+                            if (kills >= REQUIRED_HORSE_COUNT)
+                                player->CompleteQuest(QUEST_THE_HUNGRY_ETTIN);
+                        }
+                    }
+                }
+                
+                _dismountCheckTimer = 1000; 
+            }
+            else
+            {
+                _dismountCheckTimer -= diff;
+            }
+
+            if (_questCreditCheckTimer <= diff)
+            {
+                if (player->GetQuestStatus(QUEST_THE_HUNGRY_ETTIN) == QUEST_STATUS_INCOMPLETE)
+                {
+                    if (Creature* lorna = player->FindNearestCreature(NPC_LORNA_CROWLEY, LORNA_CREDIT_RADIUS))
+                    {
+                        player->KilledMonsterCredit(NPC_MOUNTAIN_HORSE_RESCUED);
+                        
+                        uint16 questSlot = player->FindQuestSlot(QUEST_THE_HUNGRY_ETTIN);
+                        if (questSlot != MAX_QUEST_LOG_SIZE)
+                        {
+                            uint16 kills = player->GetQuestSlotCounter(questSlot, 0);
+                            if (kills >= REQUIRED_HORSE_COUNT)
+                                player->CompleteQuest(QUEST_THE_HUNGRY_ETTIN);
+                        }
+                            
+                        me->RemoveAurasDueToSpell(SPELL_ROPE_CHANNEL);
+                        me->DespawnOrUnsummon(1000);
+                    }
+                }
+                
+                _questCreditCheckTimer = 2000;
+            }
+            else
+            {
+                _questCreditCheckTimer -= diff;
             }
         }
         else
@@ -928,12 +1304,24 @@ struct npc_mountain_horse_follower : public ScriptedAI
         }
     }
 
+    void SpellHit(WorldObject* /*caster*/, SpellInfo const* spell) override
+    {
+        // Prevent rope channel spell from being applied if _noRopeDisplay is set
+        if (spell->Id == SPELL_ROPE_CHANNEL && _noRopeDisplay)
+        {
+            me->RemoveAurasDueToSpell(SPELL_ROPE_CHANNEL);
+        }
+    }
+
 private:
     ObjectGuid _playerGUID;
     uint32 _followUpdateTimer;
     uint32 _pathfindingTimer;
+    uint32 _questCreditCheckTimer;
+    uint32 _dismountCheckTimer;
     float _lastZ;
     uint8 _stuckCount;
+    bool _noRopeDisplay;
 };
 
 class spell_round_up_horse : public SpellScript
@@ -954,7 +1342,12 @@ class spell_round_up_horse : public SpellScript
                         if (!followerList.empty())
                         {
                             if (Creature* horse = target->ToCreature())
-                                horse->DespawnOrUnsummon(100);
+                            {
+                                horse->SetRespawnDelay(60);
+                                horse->SaveRespawnTime();
+                                
+                                horse->RemoveFromWorld();
+                            }
                         }
                     }
                 }
@@ -967,6 +1360,257 @@ class spell_round_up_horse : public SpellScript
         OnEffectHitTarget.Register(&spell_round_up_horse::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
+
+struct npc_lorna_crowley_gilneas : public ScriptedAI
+{
+    npc_lorna_crowley_gilneas(Creature* creature) : ScriptedAI(creature)
+    {
+        _checkTimer = 500;
+    }
+
+    void Reset() override
+    {
+        _checkTimer = 500;
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        if (_checkTimer <= diff)
+        {
+            std::list<Player*> playerList;
+            me->GetPlayerListInGrid(playerList, 15.0f);
+            
+            for (Player* player : playerList)
+            {
+                if (player->GetQuestStatus(QUEST_THE_HUNGRY_ETTIN) == QUEST_STATUS_INCOMPLETE)
+                {
+                    std::list<Creature*> followerList;
+                    player->GetCreatureListWithEntryInGrid(followerList, NPC_MOUNTAIN_HORSE_FOLLOWER, 50.0f);
+                    
+                    if (!followerList.empty())
+                    {
+                        for (uint8 i = 0; i < followerList.size(); i++)
+                            player->KilledMonsterCredit(NPC_MOUNTAIN_HORSE_RESCUED);
+                        
+                        uint16 questSlot = player->FindQuestSlot(QUEST_THE_HUNGRY_ETTIN);
+                        if (questSlot != MAX_QUEST_LOG_SIZE)
+                        {
+                            uint16 updatedKills = player->GetQuestSlotCounter(questSlot, 0);
+                            if (updatedKills >= REQUIRED_HORSE_COUNT)
+                                player->CompleteQuest(QUEST_THE_HUNGRY_ETTIN);
+                        }
+                            
+                        for (Creature* follower : followerList)
+                        {
+                            follower->RemoveAurasDueToSpell(SPELL_ROPE_CHANNEL);
+                            follower->DespawnOrUnsummon(1000);
+                        }
+                    }
+                    
+                    if (player->HasAura(SPELL_MOUNTAIN_HORSE_CREDIT))
+                    {
+                        bool isInRecognizedVehicle = false;
+                        
+                        if (player->GetVehicle() && player->GetVehicleBase())
+                        {
+                            Unit* vehicleBase = player->GetVehicleBase();
+                            if (vehicleBase->GetEntry() == NPC_MOUNTAIN_HORSE)
+                            {
+                                isInRecognizedVehicle = true;
+                                player->ExitVehicle();
+                                
+                                vehicleBase->ToCreature()->SetRespawnDelay(60);
+                                vehicleBase->ToCreature()->SaveRespawnTime();
+                                vehicleBase->ToCreature()->DespawnOrUnsummon(500); 
+                            }
+                        }
+                        
+                        if (!isInRecognizedVehicle)
+                        {
+                            std::list<Creature*> nearbyHorses;
+                            player->GetCreatureListWithEntryInGrid(nearbyHorses, NPC_MOUNTAIN_HORSE, 5.0f);
+                            
+                            for (Creature* horse : nearbyHorses)
+                            {
+                                if (horse->GetFaction() == player->GetFaction() || 
+                                    horse->GetCharmerGUID() == player->GetGUID() || 
+                                    horse->GetOwnerGUID() == player->GetGUID())
+                                {
+                                    player->KilledMonsterCredit(NPC_MOUNTAIN_HORSE_RESCUED);
+                                    
+                                    uint16 questSlot = player->FindQuestSlot(QUEST_THE_HUNGRY_ETTIN);
+                                    if (questSlot != MAX_QUEST_LOG_SIZE)
+                                    {
+                                        uint16 kills = player->GetQuestSlotCounter(questSlot, 0);
+                                        if (kills >= REQUIRED_HORSE_COUNT)
+                                            player->CompleteQuest(QUEST_THE_HUNGRY_ETTIN);
+                                    }
+                                    
+                                    if (player->IsMounted())
+                                    {
+                                        player->Dismount();
+                                        player->RemoveAurasByType(SPELL_AURA_MOUNTED);
+                                    }
+                                    
+                                    player->RemoveAurasByType(SPELL_AURA_CONTROL_VEHICLE);
+                                    
+                                    horse->SetRespawnDelay(60);
+                                    horse->SaveRespawnTime();
+                                    horse->DespawnOrUnsummon(500); 
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        player->RemoveAurasDueToSpell(SPELL_MOUNTAIN_HORSE_CREDIT);
+                    }
+                }
+            }
+            
+            _checkTimer = 500; 
+        }
+        else
+        {
+            _checkTimer -= diff;
+        }
+    }
+
+private:
+    uint32 _checkTimer;
+};
+
+struct npc_lorna_horse_trigger : public ScriptedAI
+{
+    npc_lorna_horse_trigger(Creature* creature) : ScriptedAI(creature)
+    {
+        me->SetReactState(REACT_PASSIVE);
+        me->SetDisplayId(11686); 
+        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE);
+        me->AddUnitState(UNIT_STATE_ROOT);
+        _checkTimer = 100; 
+    }
+
+    void Reset() override
+    {
+        _checkTimer = 100; 
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        if (_checkTimer <= diff)
+        {
+            std::list<Player*> playerList;
+            me->GetPlayerListInGrid(playerList, 20.0f); 
+            
+            for (Player* player : playerList)
+            {
+                bool checkedVehicle = false;
+                
+                if (Unit* vehicle = player->GetVehicleBase())
+                {
+                    checkedVehicle = true;
+                    if (vehicle->GetEntry() == NPC_MOUNTAIN_HORSE)
+                    {
+                        if (player->GetQuestStatus(QUEST_THE_HUNGRY_ETTIN) == QUEST_STATUS_INCOMPLETE)
+                        {
+                            player->KilledMonsterCredit(NPC_MOUNTAIN_HORSE_RESCUED);
+                            
+                            if (Vehicle* veh = vehicle->GetVehicleKit())
+                                if (veh->GetPassenger(0))
+                                    veh->RemovePassenger(veh->GetPassenger(0));
+                            
+                            player->ExitVehicle();
+                            
+                            player->RemoveAurasByType(SPELL_AURA_CONTROL_VEHICLE);
+                             
+                            if (player->IsMounted())
+                            {
+                                player->Dismount();
+                                player->RemoveAurasByType(SPELL_AURA_MOUNTED);
+                            }
+                            
+                            player->RemoveAurasDueToSpell(SPELL_MOUNTAIN_HORSE_CREDIT);
+                            
+                            if (Map* map = me->GetMap())
+                            {
+                                Creature* horseVehicle = vehicle->ToCreature();
+                                if (horseVehicle)
+                                {
+                                    // Set respawn time and despawn the horse
+                                    horseVehicle->SetRespawnDelay(60);
+                                    horseVehicle->SaveRespawnTime();
+                                    horseVehicle->DespawnOrUnsummon(100); 
+                                }
+                            }
+                            
+                            // Check if player has completed the quest
+                            uint16 questSlot = player->FindQuestSlot(QUEST_THE_HUNGRY_ETTIN);
+                            if (questSlot != MAX_QUEST_LOG_SIZE)
+                            {
+                                uint16 kills = player->GetQuestSlotCounter(questSlot, 0);
+                                if (kills >= REQUIRED_HORSE_COUNT)
+                                    player->CompleteQuest(QUEST_THE_HUNGRY_ETTIN);
+                            }
+                        }
+                    }
+                }
+                
+                // Check for credit aura even if not in a recognized vehicle
+                if (!checkedVehicle && player->HasAura(SPELL_MOUNTAIN_HORSE_CREDIT))
+                {
+                    
+                    // Check if player has the quest
+                    if (player->GetQuestStatus(QUEST_THE_HUNGRY_ETTIN) == QUEST_STATUS_INCOMPLETE)
+                    {
+                        // Give quest credit
+                        player->KilledMonsterCredit(NPC_MOUNTAIN_HORSE_RESCUED);
+                        
+                        // Check for nearby horses that might be the player's
+                        std::list<Creature*> nearbyHorses;
+                        player->GetCreatureListWithEntryInGrid(nearbyHorses, NPC_MOUNTAIN_HORSE, 10.0f);
+                        
+                        for (Creature* horse : nearbyHorses)
+                        {
+                            // Set respawn time and despawn the horse
+                            horse->SetRespawnDelay(60);
+                            horse->SaveRespawnTime();
+                            horse->DespawnOrUnsummon(100);
+                        }
+                        
+                        // Remove mount auras
+                        if (player->IsMounted())
+                        {
+                            player->Dismount();
+                            player->RemoveAurasByType(SPELL_AURA_MOUNTED);
+                        }
+                        
+                        // Remove the credit aura
+                        player->RemoveAurasDueToSpell(SPELL_MOUNTAIN_HORSE_CREDIT);
+                        
+                        // Check if player has completed the quest
+                        uint16 questSlot = player->FindQuestSlot(QUEST_THE_HUNGRY_ETTIN);
+                        if (questSlot != MAX_QUEST_LOG_SIZE)
+                        {
+                            uint16 kills = player->GetQuestSlotCounter(questSlot, 0);
+                            if (kills >= REQUIRED_HORSE_COUNT)
+                                player->CompleteQuest(QUEST_THE_HUNGRY_ETTIN);
+                        }
+                    }
+                }
+            }
+            
+            _checkTimer = 100; 
+        }
+        else
+        {
+            _checkTimer -= diff;
+        }
+    }
+
+private:
+    uint32 _checkTimer;
+};
+
 }
 
 void AddSC_gilneas_chapter_2()
@@ -976,6 +1620,8 @@ void AddSC_gilneas_chapter_2()
     RegisterCreatureAI(npc_gilneas_horrid_abomination);
     RegisterCreatureAI(npc_gilneas_save_the_children);
     RegisterCreatureAI(npc_gilneas_forsaken_catapult);
+    RegisterCreatureAI(npc_lorna_crowley_gilneas);
+    RegisterCreatureAI(npc_lorna_horse_trigger); 
     RegisterSpellScript(spell_gilneas_quest_save_the_children);
     RegisterSpellScript(spell_gilneas_launch);
     RegisterSpellScript(spell_gilneas_fiery_boulder);
