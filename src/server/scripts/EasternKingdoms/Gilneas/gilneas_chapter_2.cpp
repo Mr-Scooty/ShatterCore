@@ -839,7 +839,7 @@ struct npc_mountain_horse : public ScriptedAI
                 }
                 else if (!apply)
                 {
-                    if (Creature* lorna = me->FindNearestCreature(NPC_LORNA_CROWLEY, LORNA_CREDIT_RADIUS))
+                    if (me->FindNearestCreature(NPC_LORNA_CROWLEY, LORNA_CREDIT_RADIUS))
                     {
                         if (player->GetQuestStatus(QUEST_THE_HUNGRY_ETTIN) == QUEST_STATUS_INCOMPLETE)
                         {
@@ -892,7 +892,7 @@ struct npc_mountain_horse : public ScriptedAI
                 
                 bool nearLorna = false;
 
-                if (Creature* lorna = me->FindNearestCreature(NPC_LORNA_CROWLEY, LORNA_CREDIT_RADIUS))
+                if (me->FindNearestCreature(NPC_LORNA_CROWLEY, LORNA_CREDIT_RADIUS))
                     nearLorna = true;
                 
                 if (!nearLorna)
@@ -1222,12 +1222,8 @@ struct npc_mountain_horse_follower : public ScriptedAI
                 
                 if (distToLorna < 8.0f)
                 {
-                    bool wasInVehicle = false;
-                    
                     if (player->GetVehicle() || player->GetVehicleBase())
                     {
-                        wasInVehicle = true;
-                        
                         if (Unit* vehicleBase = player->GetVehicleBase())
                         {
                             if (vehicleBase->GetEntry() == NPC_MOUNTAIN_HORSE)
@@ -1274,7 +1270,7 @@ struct npc_mountain_horse_follower : public ScriptedAI
             {
                 if (player->GetQuestStatus(QUEST_THE_HUNGRY_ETTIN) == QUEST_STATUS_INCOMPLETE)
                 {
-                    if (Creature* lorna = player->FindNearestCreature(NPC_LORNA_CROWLEY, LORNA_CREDIT_RADIUS))
+                    if (player->FindNearestCreature(NPC_LORNA_CROWLEY, LORNA_CREDIT_RADIUS))
                     {
                         player->KilledMonsterCredit(NPC_MOUNTAIN_HORSE_RESCUED);
                         
@@ -1531,7 +1527,8 @@ struct npc_lorna_horse_trigger : public ScriptedAI
                             
                             player->RemoveAurasDueToSpell(SPELL_MOUNTAIN_HORSE_CREDIT);
                             
-                            if (Map* map = me->GetMap())
+                            //if (Map* map = me->GetMap())
+                            if (me->GetMap())
                             {
                                 Creature* horseVehicle = vehicle->ToCreature();
                                 if (horseVehicle)
