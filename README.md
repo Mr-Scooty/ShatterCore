@@ -3,7 +3,7 @@
 ## Introduction
 ShatterCore is an open-source game server application and framework designed for hosting massively multiplayer online role-playing games (MMORPGs), and it is based on the popular MMORPG, World of Warcraft (WoW) and seeks to recreate the gameplay experience of the Cataclysm expansion. 
 
-The original code is based on [TrinityCore](https://github.com/TrinityCore/TrinityCore) and [The-Cataclysm-Preservation-Project](https://github.com/The-Cataclysm-Preservation-Project), and this project serves as a continuation of their work up to game patch 4.3.4.15595.
+This project builds upon the work of [TrinityCore](https://github.com/TrinityCore/TrinityCore) and [The-Cataclysm-Preservation-Project](https://github.com/The-Cataclysm-Preservation-Project), continuing their efforts on patch 4.3.4. 
 
 ## Long-term Goals
 
@@ -31,7 +31,7 @@ TODO: Add installation instructions.
 
 ## Contributing
 
-Fixes are submitted as pull request through GitHub. When creating a pull request, please use the provided [pull request template](.github/pull_request_template.md) to ensure all necessary information is included.
+Fixes are submitted as pull request through GitHub. When creating a pull request, please use the provided [pull request template](https://github.com/Mr-Scooty/ShatterCore/blob/main/README.md) to ensure all necessary information is included.
 
 ## Reporting Issues
 
