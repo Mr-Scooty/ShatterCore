@@ -36,6 +36,7 @@ public:
     void Initialize();
     zmqpp::socket* CreateInprocSubscriber();
     void Close();
+    void PublishKillMessage();
 
 private:
     ZmqContext();

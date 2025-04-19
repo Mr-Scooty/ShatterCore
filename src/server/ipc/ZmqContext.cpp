@@ -55,7 +55,22 @@ zmqpp::socket* ZmqContext::CreateInprocSubscriber()
 
 void ZmqContext::Close()
 {
-    _inproc->send("internalmq.kill");
+    // Send kill message (may not be necessary if PublishKillMessage is called first,
+    // but doesn't hurt to keep for now)
+    if (_inproc)
+        _inproc->send("internalmq.kill");
+        
     delete _inproc;
     _inproc = nullptr;
+}
+
+void ZmqContext::PublishKillMessage()
+{
+    std::unique_lock<std::mutex> lock(_mutex); // Lock for thread safety
+    if (_inproc) // Check if socket exists
+    {
+        zmqpp::message msg;
+        msg << "internalmq.kill";
+        _inproc->send(msg); // Send the message
+    }
 }

@@ -76,12 +76,6 @@ public:
             for (int32 i = 0; i < _threadCount; ++i)
                 _threads[i].Stop();
 
-        delete _acceptor;
-        _acceptor = nullptr;
-        delete[] _threads;
-        _threads = nullptr;
-        _threadCount = 0;
-
         Wait();
 
         delete _acceptor;

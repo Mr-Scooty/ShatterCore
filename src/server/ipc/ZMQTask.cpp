@@ -43,9 +43,23 @@ void ZMQTask::Start()
 
 void ZMQTask::End()
 {
-    _thread->join();
-    _poller->remove(*_inproc);
-    _inproc->close();
+    // Signal the thread to exit *before* joining
+    if (_inproc) // Ensure _inproc was initialized (it should be if Start was called)
+    {
+        zmqpp::message msg;
+        msg << "internalmq.kill";
+        sIpcContext->PublishKillMessage(); // Use the new method
+    }
+
+    if (_thread && _thread->joinable()) // Check if thread exists and is joinable
+        _thread->join();
+
+    if (_poller && _inproc) // Check if poller and _inproc exist before removing
+        _poller->remove(*_inproc);
+        
+    if (_inproc) // Check before closing
+        _inproc->close();
+        
     HandleClose();
 }
 

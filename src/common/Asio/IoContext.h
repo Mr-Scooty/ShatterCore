@@ -28,6 +28,9 @@ namespace Trinity
         class IoContext
         {
         public:
+            // Expose the underlying executor type
+            using executor_type = boost::asio::io_context::executor_type;
+
             IoContext() : _impl() { }
             explicit IoContext(int concurrency_hint) : _impl(concurrency_hint) { }
 
@@ -37,7 +40,8 @@ namespace Trinity
             std::size_t run() { return _impl.run(); }
             void stop() { _impl.stop(); }
 
-            boost::asio::io_context::executor_type get_executor() noexcept { return _impl.get_executor(); }
+            // Expose the underlying executor
+            executor_type get_executor() noexcept { return _impl.get_executor(); }
 
         private:
             boost::asio::io_context _impl;
