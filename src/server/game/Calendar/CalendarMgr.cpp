@@ -198,8 +198,8 @@ void CalendarMgr::RemoveEvent(uint64 eventId, ObjectGuid remover)
     trans->Append(stmt);
     CharacterDatabase.CommitTransaction(trans);
 
-    delete calendarEvent;
     _events.erase(calendarEvent);
+    delete calendarEvent;
 }
 
 void CalendarMgr::RemoveInvite(uint64 inviteId, uint64 eventId, ObjectGuid /*remover*/)
