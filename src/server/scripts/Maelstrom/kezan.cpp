@@ -20,6 +20,7 @@
 #include "SpellScript.h"
 #include "SpellAuraEffects.h"
 #include "Vehicle.h"
+#include "Log.h"
 
 enum HotRodSpells
 {
@@ -85,20 +86,28 @@ public:
 
     void OnLogin(Player* player, bool firstLogin) override
     {
+        TC_LOG_ERROR("scripts.players", "player_script_rolling_with_homies: OnLogin triggered for player %s (GUID: %u).", player->GetName().c_str(), player->GetGUID().GetCounter());
         (void)firstLogin; // Mark as unused
+
+        QuestStatus status = player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES);
+        TC_LOG_ERROR("scripts.players", "player_script_rolling_with_homies: Player %u Quest %u Status: %u", player->GetGUID().GetCounter(), QUEST_ROLLING_WITH_MY_HOMIES, status);
+
         // Check if player has the quest and is in the right state (not completed)
-        if (player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES) == QUEST_STATUS_INCOMPLETE)
+        if (status == QUEST_STATUS_INCOMPLETE)
         {
-            bool needsItem = !player->HasItemCount(ITEM_KEYS_TO_HOT_ROD, 1);
+            TC_LOG_ERROR("scripts.players", "player_script_rolling_with_homies: Player %u has quest %u incomplete.", player->GetGUID().GetCounter(), QUEST_ROLLING_WITH_MY_HOMIES);
+
             bool needsBuff = !player->HasAura(SPELL_KEYS_TO_HOT_ROD);
+
+            TC_LOG_ERROR("scripts.players", "player_script_rolling_with_homies: Player %u - Needs Buff: %d", player->GetGUID().GetCounter(), needsBuff);
             
             // Add the buff if missing
             if (needsBuff)
+            {
+                 TC_LOG_ERROR("scripts.players", "player_script_rolling_with_homies: Player %u attempting to cast spell %u.", player->GetGUID().GetCounter(), SPELL_KEYS_TO_HOT_ROD);
                 player->CastSpell(player, SPELL_KEYS_TO_HOT_ROD, true);
-            
-            // Add the item if missing
-            if (needsItem)
-                player->AddItem(ITEM_KEYS_TO_HOT_ROD, 1);
+                 TC_LOG_ERROR("scripts.players", "player_script_rolling_with_homies: Player %u finished attempting spell cast.", player->GetGUID().GetCounter());
+            }
         }
     }
     
@@ -109,6 +118,23 @@ public:
         {
             if (!player->HasItemCount(ITEM_KEYS_TO_HOT_ROD, 1))
                 player->AddItem(ITEM_KEYS_TO_HOT_ROD, 1);
+        }
+    }
+
+    // Remove the buff if the quest is abandoned or status changes
+    void OnQuestStatusChange(Player* player, uint32 questId) override
+    {
+        if (questId == QUEST_ROLLING_WITH_MY_HOMIES)
+        {
+            QuestStatus status = player->GetQuestStatus(questId);
+            TC_LOG_ERROR("scripts.players", "player_script_rolling_with_homies: Player %u Quest %u Status Changed: %u", player->GetGUID().GetCounter(), questId, status);
+
+            // If the quest is no longer active (abandoned, completed, failed etc.), remove the buff.
+            if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_COMPLETE || status == QUEST_STATUS_FAILED)
+            {
+                 TC_LOG_ERROR("scripts.players", "player_script_rolling_with_homies: Player %u quest %u no longer active, removing buff %u.", player->GetGUID().GetCounter(), questId, SPELL_KEYS_TO_HOT_ROD);
+                player->RemoveAurasDueToSpell(SPELL_KEYS_TO_HOT_ROD);
+            }
         }
     }
 };
