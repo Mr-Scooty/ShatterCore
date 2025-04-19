@@ -1676,7 +1676,7 @@ void Spell::EffectOpenLock(SpellEffIndex effIndex)
     ObjectGuid guid;
 
     // Get lockId
-    GameObjectTemplate const* goInfo;
+    GameObjectTemplate const* goInfo = nullptr; // Initialize to nullptr
     if (gameObjTarget)
     {
         goInfo = gameObjTarget->GetGOInfo();
@@ -1766,7 +1766,8 @@ void Spell::EffectOpenLock(SpellEffIndex effIndex)
                         player->UpdateGatherSkill(skillId, pureSkillValue, reqSkillValue);
 
             // Some chests do grant experience when opened
-            if (goInfo->type == GAMEOBJECT_TYPE_CHEST)
+            // Ensure we have a gameObjTarget and thus a valid goInfo before checking its type
+            if (gameObjTarget && goInfo && goInfo->type == GAMEOBJECT_TYPE_CHEST)
             {
                 // Chests, such as gathering nodes and treasure chests calculate their XP rewards just like quests
                 if (uint8 xpDifficulty = goInfo->chest.xpDifficulty)
@@ -3640,7 +3641,7 @@ void Spell::EffectDuel(SpellEffIndex effIndex)
     }
 
     //CREATE DUEL FLAG OBJECT
-    GameObject* pGameObj = new GameObject();
+    GameObject* pGameObj = new GameObject;
 
     uint32 gameobject_id = m_spellInfo->Effects[effIndex].MiscValue;
 
@@ -4107,7 +4108,7 @@ void Spell::EffectSummonObject(SpellEffIndex effIndex)
         unitCaster->m_ObjectSlot[slot].Clear();
     }
 
-    GameObject* go = new GameObject();
+    GameObject* go = new GameObject;
 
     float x, y, z, o;
     // If dest location if present
