@@ -31,7 +31,7 @@ TODO: Add installation instructions.
 
 ## Contributing
 
-Fixes are submitted as pull request through GitHub. When creating a pull request, please use the provided [pull request template](https://github.com/Mr-Scooty/ShatterCore/blob/main/README.md) to ensure all necessary information is included.
+Fixes are submitted as pull request through GitHub. When creating a pull request, please use the provided [pull request template](https://github.com/Mr-Scooty/ShatterCore/blob/main/issue_template.md) to ensure all necessary information is included.
 
 ## Reporting Issues
 
