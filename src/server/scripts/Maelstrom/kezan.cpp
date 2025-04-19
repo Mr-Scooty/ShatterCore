@@ -85,6 +85,7 @@ public:
 
     void OnLogin(Player* player, bool firstLogin) override
     {
+        (void)firstLogin; // Mark as unused
         // Check if player has the quest and is in the right state (not completed)
         if (player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES) == QUEST_STATUS_INCOMPLETE)
         {
