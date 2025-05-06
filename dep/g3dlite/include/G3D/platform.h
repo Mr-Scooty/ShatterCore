@@ -360,10 +360,26 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR szCmdLine, int sw) {\
 
 // Bring in shared_ptr and weak_ptr
 #if (defined(__GNUC__) && defined(__APPLE__)) || defined(__linux__)
-#if __cplusplus < 201703L // Only include ciso646 for C++14 or earlier
-#include <ciso646> // Defines _LIBCC_VERSION if linking against libc++ or does nothing
+// Check for libc++ without using ciso646 header which is deprecated in C++17
+#if defined(__has_include)
+#  if __has_include(<__config>)
+#    include <__config>
+#  endif
 #endif
 #endif
+
+// Define _LIBCPP_VERSION for compatibility on systems where we can't detect it
+#if (defined(__GNUC__) && defined(__APPLE__)) || defined(__linux__)
+#  if defined(__clang__) && !defined(_LIBCPP_VERSION)
+#    if __has_include(<cstddef>) 
+#      include <cstddef>
+#      if __cplusplus >= 201103L && defined(_LIBCPP_CSTDDEF)
+#        define _LIBCPP_VERSION 1
+#      endif
+#    endif
+#  endif
+#endif
+
 #if (!defined(_LIBCPP_VERSION) && defined(__APPLE__)) || (!defined(_LIBCPP_VERSION) && defined(__linux__))
 #   include <tr1/memory>
 #else
@@ -422,3 +438,4 @@ namespace G3D {
 #define __LINE_AS_STRING__ NUMBER_TO_STRING(__LINE__)
 
 #endif // Header guard
+

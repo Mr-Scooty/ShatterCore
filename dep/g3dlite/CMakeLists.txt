@@ -55,6 +55,7 @@ set(g3dlib_STAT_SRCS
 )
 
 add_library(g3dlib STATIC ${g3dlib_STAT_SRCS})
+target_compile_options(g3dlib PRIVATE -Wno-cpp)
 
 target_include_directories(g3dlib
   PUBLIC
