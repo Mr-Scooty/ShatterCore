@@ -1,9 +1,9 @@
 # ShatterCore
 
 ## Introduction
-ShatterCore is an open-source game server application and framework designed for hosting massively multiplayer online role-playing games (MMORPGs), and it is based on the popular MMORPG, World of Warcraft (WoW) and seeks to recreate the gameplay experience of the Cataclysm expansion. 
+ShatterCore is an open-source game server application and framework designed for hosting massively multiplayer online role-playing games (MMORPGs), and it is based on the popular MMORPG, World of Warcraft (WoW) and seeks to recreate the gameplay experience of the Cataclysm expansion - patch 4.3.4 (15595).
 
-This project builds upon the work of [TrinityCore](https://github.com/TrinityCore/TrinityCore) and [The-Cataclysm-Preservation-Project](https://github.com/The-Cataclysm-Preservation-Project), continuing their efforts on patch 4.3.4. 
+The project is a fork of [The-Cataclysm-Preservation-Project](https://github.com/The-Cataclysm-Preservation-Project) and is based on [TrinityCore](https://github.com/TrinityCore/TrinityCore).
 
 ## Long-term Goals
 
@@ -14,28 +14,28 @@ Our main goal is to create a playable game server, offering a fully working in-g
 Here are the main points we focus on:
 
 - **Stability**
-    - We make sure all changes pass the CIs before being merged into the master branch.
+    - Making sure all changes pass the CIs before being merged into the master branch.
 
 - **Blizzlike content**
-    - We strive to make all in-game content to be blizzlike. Therefore we have a high standard of fixes being made.
+    - Striving to make all in-game content to be blizzlike. Therefore we have a high standard of fixes being made.
 
 - **Customization**
     - It is easy to customize your experience using modules.
 
 - **Community driven**
-    - ShatterCore aims to build an active community of developers, contributors, and users who collaborate, share knowledge, and provide support through forums, Discord channels, and other communication platforms.
+    - Aims to build an active community of developers, contributors, and users who collaborate, share knowledge, and provide support through forums, Discord channels, and other communication platforms.
 
 ## Installation
 
-TODO: Add installation instructions.
+TODO.
 
 ## Contributing
 
-Fixes are submitted as pull request through GitHub. When creating a pull request, please use the provided [pull request template](https://github.com/Mr-Scooty/ShatterCore/blob/main/issue_template.md) to ensure all necessary information is included.
+TODO. 
 
 ## Reporting Issues
 
-Issues can be reported through GitHub's issue tracker. 
+Issues can be reported through GitHub's issue tracker.  TODO.
 
 ## License
 
