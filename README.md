@@ -39,7 +39,6 @@ Issues can be reported through GitHub's issue tracker.  TODO.
 
 ## License
 
-- ShatterCore's source components are released under the [GNU AGPL v3](https://www.gnu.org/licenses/agpl-3.0.en.html)
-- The old sources based on MaNGOS/TrinityCore are released under the [GNU GPL v2](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+- The old sources based on MaNGOS/TrinityCore and ShatterCore's source components are released under the [GNU GPL v2](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 
 It's important to note that ShatterCore is not an official Blizzard Entertainment product, and it is not affiliated with or endorsed by World of Warcraft or Blizzard Entertainment. ShatterCore does not, in any case, sponsor nor support illegal public servers. If you use this project to run an illegal public server, rather than for testing and learning, it is your own personal choice.
