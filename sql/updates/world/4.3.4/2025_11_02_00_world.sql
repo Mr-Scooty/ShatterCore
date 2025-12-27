@@ -11,7 +11,7 @@ SET @NPC_GOBBER_CREDIT := 34958;
 SET @NPC_IZZY := 34890;
 SET @NPC_ACE := 34892;
 SET @NPC_GOBBER := 34954;
-UPDATE `creature_template` SET `VehicleId` = 181 WHERE `entry` IN (34840, 37676, 49131, 49132);
+UPDATE `creature_template` SET `VehicleId` = 448 WHERE `entry` IN (34840, 37676, 49131, 49132);
 UPDATE `creature_template` SET `unit_flags` = `unit_flags` | 16777216 WHERE `entry` IN (34840, 37676, 49131, 49132);
 DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` IN (34840, 37676, 49131, 49132);
 INSERT INTO `npc_spellclick_spells` (`npc_entry`, `spell_id`, `cast_flags`, `user_type`) VALUES
@@ -41,6 +41,7 @@ INSERT INTO `creature_text` (`CreatureID`, `GroupID`, `ID`, `Text`, `Type`, `Lan
 UPDATE `quest_template` SET `Flags` = 3276800 WHERE `ID` = @QUEST;
 DELETE FROM `spell_script_names` WHERE `spell_id` = @SPELL_KEYS;
 INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES (@SPELL_KEYS, 'spell_item_keys_to_the_hot_rod');
+DELETE FROM `vehicle_template_accessory` WHERE `entry` IN (34840, 37676, 49131, 49132);
 INSERT INTO vehicle_template_accessory (entry, accessory_entry, seat_id, minion, description, summontype, summontimer) VALUES
 (34840, 0, 1, 0, 'Hot Rod Passenger Seat 1', 6, 30000),
 (34840, 0, 2, 0, 'Hot Rod Passenger Seat 2', 6, 30000),
@@ -115,7 +116,7 @@ UPDATE `creature_template` SET `npcflag` = `npcflag` | 1 WHERE `entry` IN (34957
 
 UPDATE `creature_template` SET `ScriptName` = 'npc_izzy_test', `AIName` = '' WHERE `entry` = 34959;
 
-UPDATE `creature_template` SET `VehicleId` = 181 WHERE `entry` IN (34840, 37676, 49131, 49132);
+UPDATE `creature_template` SET `VehicleId` = 448 WHERE `entry` IN (34840, 37676, 49131, 49132);
 UPDATE `creature_template` SET `unit_flags` = 524288 WHERE `entry` IN (34840, 37676);
 UPDATE `creature_template` SET `unit_flags` = (`unit_flags` | 524288) WHERE `entry` IN (49131, 49132);
 UPDATE `creature_template` SET `npcflag` = (`npcflag` | 16777216) WHERE `entry` IN (34840, 37676, 49131, 49132);
@@ -160,7 +161,7 @@ INSERT INTO `creature_text` (`CreatureID`, `GroupID`, `ID`, `Text`, `Type`, `Lan
 (34954, 0, 0, 'Finally, some action! Let''s ride!', 12, 0, 100, 1, 0, 0, 0, 0, 'Gobber - Picked Up'),
 (34890, 0, 0, 'Woohoo! I love parties! Let''s go!', 12, 0, 100, 1, 0, 0, 0, 0, 'Izzy - Picked Up');
 
-UPDATE `creature_template` SET `VehicleId` = 181 WHERE `entry` IN (34840, 37676, 49131, 49132);
+UPDATE `creature_template` SET `VehicleId` = 448 WHERE `entry` IN (34840, 37676, 49131, 49132);
 DELETE FROM `vehicle_template_accessory` WHERE `entry` IN (34840, 37676, 49131, 49132);
 DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` IN (34840, 37676, 49131, 49132);
 INSERT INTO `npc_spellclick_spells` (`npc_entry`, `spell_id`, `cast_flags`, `user_type`) VALUES
@@ -179,7 +180,7 @@ UPDATE `creature_template` SET
 WHERE `entry` IN (34890, 34892, 34954);
 
 DELETE FROM `vehicle_template_accessory` WHERE `entry` IN (34840, 37676, 49131, 49132);
-UPDATE `creature_template` SET `VehicleId` = 181 WHERE `entry` IN (34840, 37676, 49131, 49132);
+UPDATE `creature_template` SET `VehicleId` = 448 WHERE `entry` IN (34840, 37676, 49131, 49132);
 UPDATE `creature_template` SET
 `unit_flags` = 524288,
 `unit_flags2` = 2048
@@ -221,7 +222,7 @@ INSERT INTO `conditions` (`SourceTypeOrReferenceId`, `SourceGroup`, `SourceEntry
 
 DELETE FROM `vehicle_template_accessory` WHERE `entry` IN (34840, 37676, 49131, 49132);
 UPDATE `creature_template` SET
-`VehicleId` = 181,
+`VehicleId` = 448,
 `ScriptName` = 'npc_hot_rod_vehicle',
 `AIName` = ''
 WHERE `entry` IN (34840, 37676, 49131, 49132);
@@ -287,7 +288,7 @@ UPDATE `creature_template` SET
 `npcflag` = `npcflag` | 1
 WHERE `entry` IN (34890, 34892, 34954);
 UPDATE `creature_template` SET
-`VehicleId` = 181,
+`VehicleId` = 448,
 `ScriptName` = 'npc_hot_rod_vehicle',
 `AIName` = ''
 WHERE `entry` IN (34840, 37676, 49131, 49132);
@@ -326,7 +327,7 @@ INSERT INTO `smart_scripts` (`entryorguid`, `source_type`, `id`, `link`, `event_
 (34892, 0, 0, 0, 62, 0, 100, 0, 11360, 0, 0, 0, 0, 100, 66597, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 'Ace - On gossip select (option 0): Cast spell 66597');
 
 UPDATE `creature_template` SET
-`VehicleId` = 181,
+`VehicleId` = 448,
 `ScriptName` = 'npc_hot_rod_vehicle',
 `AIName` = ''
 WHERE `entry` IN (34840, 37676, 49131, 49132);

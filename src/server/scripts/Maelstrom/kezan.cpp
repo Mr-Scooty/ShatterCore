@@ -413,7 +413,8 @@ public:
 
     void OnLogin(Player* player, bool /*firstLogin*/) override
     {
-        if (player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES) == QUEST_STATUS_INCOMPLETE)
+        QuestStatus status = player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES);
+        if (status == QUEST_STATUS_INCOMPLETE || status == QUEST_STATUS_COMPLETE)
         {
             if (!player->HasAura(SPELL_KEYS_TO_HOT_ROD))
                 player->CastSpell(player, SPELL_KEYS_TO_HOT_ROD, true);
@@ -434,7 +435,7 @@ public:
         if (questId == QUEST_ROLLING_WITH_MY_HOMIES)
         {
             QuestStatus status = player->GetQuestStatus(questId);
-            if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_COMPLETE || status == QUEST_STATUS_FAILED)
+            if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
             {
                 player->RemoveAurasDueToSpell(SPELL_KEYS_TO_HOT_ROD);
                 CleanupQuestFollowers(player);
@@ -810,12 +811,7 @@ struct npc_rolling_with_homies_gossipAI : public ScriptedAI
                     me->StopMoving();
                     me->SetFacingToObject(vehicle);
 
-                    if (!veh->AddVehiclePassenger(me, seat))
-                    {
-                        boardingInProgress = false;
-                        _events.ScheduleEvent(EVENT_BOARD_VEHICLE, 750);
-                        break;
-                    }
+                    me->EnterVehicle(vehicle, seat);
 
                     boardingInProgress = false;
                     _events.ScheduleEvent(EVENT_GRANT_CREDIT, 800);
