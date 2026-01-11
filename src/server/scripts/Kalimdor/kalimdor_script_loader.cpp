@@ -133,6 +133,7 @@ void AddSC_boss_baleroc();
 void AddSC_boss_lord_rhyolith();
 void AddSC_boss_majordomo_staghelm();
 void AddSC_boss_ragnaros_firelands();
+void AddSC_boss_shannox();
 
 void AddSC_ashenvale();
 void AddSC_azuremyst_isle();
@@ -273,6 +274,7 @@ void AddKalimdorScripts()
     AddSC_boss_lord_rhyolith();
     AddSC_boss_majordomo_staghelm();
     AddSC_boss_ragnaros_firelands();
+    AddSC_boss_shannox();
 
     AddSC_ashenvale();
     AddSC_azuremyst_isle();
