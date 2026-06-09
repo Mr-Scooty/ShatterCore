@@ -132,6 +132,16 @@ enum BoTCreatures
     NPC_MALFORMATION                    = 43888,
     NPC_SPIKED_TENTACLE_TRIGGER         = 50265,
 
+    /*Sinestra*/
+    NPC_TWILIGHT_WHELP_25H              = 47265,
+    NPC_TWILIGHT_WHELP_25N              = 48049,
+    NPC_TWILIGHT_WHELP_10H              = 48048,
+    NPC_TWILIGHT_WHELP_10N              = 48047,
+    NPC_SINESTRA_SHADOW_ORB             = 49863,  // Shadow Orb for Twilight Slicer mechanic
+    NPC_TWILIGHT_ESSENCE_POOL           = 48018,
+    NPC_CALEN                           = 46277,
+    NPC_PULSING_TWILIGHT_EGG            = 46842,
+
     // Generic Creatures
     NPC_CHOGALL                         = 46965,
     NPC_INVISIBLE_STALKER               = 42098,
@@ -149,7 +159,8 @@ enum BoTGameObjects
     GO_CHOGALL_ENTRANCE                 = 205228,
     GO_WHELP_CAGE                       = 205087,
     GO_WHELP_CAGE_BASE                  = 205088,
-    GO_GRIM_BATOL_RAID_TRAP_DOOR        = 205898
+    GO_GRIM_BATOL_RAID_TRAP_DOOR        = 205898,
+    GO_CACHE_OF_THE_BROODMOTHER         = 208045
 };
 
 enum BoTActions
@@ -224,3 +235,4 @@ AI* GetBastionOfTwilightAI(GameObject* go)
 }
 
 #endif
+

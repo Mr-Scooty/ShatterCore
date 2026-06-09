@@ -93,6 +93,7 @@ class instance_bastion_of_twilight final : public InstanceMapScript
                 LoadDoorData(doorData);
                 LoadObjectData(creatureData, gameobjectData);
                 _activeDragonFlags = DRAGON_FLAG_ALL_ACTIVE;
+                _fullHeroicCompleted = false;
 
                 if (!map->IsHeroic())
                 {
@@ -209,7 +210,12 @@ class instance_bastion_of_twilight final : public InstanceMapScript
                                     creature->DespawnOrUnsummon();
 
                             events.ScheduleEvent(EVENT_CHOGALL_TALK_THERALION_AND_VALIONA_DEAD, 6s);
+                            CheckFullHeroicCompleted();
                         }
+                        break;
+                    case DATA_CHOGALL:
+                        if (state == DONE)
+                            CheckFullHeroicCompleted();
                         break;
                     default:
                         break;
@@ -292,7 +298,7 @@ class instance_bastion_of_twilight final : public InstanceMapScript
                         return portalCount;
                     }
                     case DATA_FULL_HEROIC_ID:
-                        return false;
+                        return _fullHeroicCompleted;
                     case DATA_ACTIVE_DRAGON_FLAGS:
                         return _activeDragonFlags;
                     default:
@@ -366,6 +372,21 @@ class instance_bastion_of_twilight final : public InstanceMapScript
                 }
             }
 
+            void CheckFullHeroicCompleted()
+            {
+                if (!instance->IsHeroic())
+                    return;
+
+                // Check if all 4 normal bosses are defeated
+                if (GetBossState(DATA_HALFUS_WYRMBREAKER) == DONE &&
+                    GetBossState(DATA_THERALION_AND_VALIONA) == DONE &&
+                    GetBossState(DATA_ASCENDANT_COUNCIL) == DONE &&
+                    GetBossState(DATA_CHOGALL) == DONE)
+                {
+                    _fullHeroicCompleted = true;
+                }
+            }
+
         private:
             EventMap events;
             GuidSet _dancingFlamesInvisibleStalkerGUIDs;
@@ -374,6 +395,7 @@ class instance_bastion_of_twilight final : public InstanceMapScript
             GuidSet _collapsingTwilightPortalGUIDs;
             ObjectGuid _valionaAuraDummyGUID;
             uint8 _activeDragonFlags;
+            bool _fullHeroicCompleted;
         };
 
         InstanceScript* GetInstanceScript(InstanceMap* map) const override
@@ -388,3 +410,4 @@ void AddSC_instance_bastion_of_twilight()
     using namespace BastionOfTwilight;
     new instance_bastion_of_twilight();
 }
+

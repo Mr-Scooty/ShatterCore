@@ -311,7 +311,8 @@ struct boss_chogall final : public BossAI
         events.ScheduleEvent(EVENT_CONVERSION, 11s, 0, PHASE_1);
         events.ScheduleEvent(EVENT_BERSERK, 10min);
 
-        if (instance->GetData(DATA_FULL_HEROIC_ID) && IsHeroic())
+        // On Heroic mode, prevent normal death to trigger floor collapse sequence
+        if (IsHeroic())
             _allowDeath = false;
     }
 
