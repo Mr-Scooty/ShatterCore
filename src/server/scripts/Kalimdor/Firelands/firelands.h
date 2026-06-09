@@ -66,6 +66,12 @@ enum FLCreatureIds
     BOSS_MAJORDOMO_STAGHELM                 = 52571,
     BOSS_RAGNAROS                           = 52409,
 
+    // Beth'tilac
+    NPC_CINDERWEB_SPINNER                   = 53178,
+    NPC_CINDERWEB_DRONE                     = 53102,
+    NPC_CINDERWEB_SPIDERLING                = 53141,
+    NPC_WEB_FILAMENT                        = 53082,
+
     //Lord Rhyolith
     NPC_MOVEMENT_CONTROLLER_LORD_RHYOLITH   = 52659,
     NPC_LEFT_FOOT                           = 52577,
@@ -1122,3 +1128,4 @@ inline AI* GetFirelandsAI(T* obj)
 }
 
 #endif // FIRELANDS_H_
+
