@@ -28,6 +28,7 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "SpellMgr.h"
 #include "SpellHistory.h"
 #include "TemporarySummon.h"
@@ -236,6 +237,8 @@ void CreatureAI::EnterEvadeMode(EvadeReason why)
     }
 
     Reset();
+
+    sScriptMgr->OnUnitEnterEvadeMode(me, why);
 }
 
 bool CreatureAI::UpdateVictim()

@@ -23,6 +23,7 @@
 #include "DatabaseEnv.h"
 #include "DBCStructure.h"
 #include "GameTime.h"
+#include "ScriptMgr.h"
 #include "Item.h"
 #include "Language.h"
 #include "Log.h"
@@ -63,6 +64,9 @@ void WorldSession::SendAuctionHello(ObjectGuid guid, Creature* unit)
         SendNotification(GetTrinityString(LANG_AUCTION_REQ), sWorld->getIntConfig(CONFIG_AUCTION_LEVEL_REQ));
         return;
     }
+
+    if (!sScriptMgr->CanSendAuctionHello(this, guid, unit))
+        return;
 
     AuctionHouseEntry const* ahEntry = AuctionHouseMgr::GetAuctionHouseEntry(unit->GetFaction());
     if (!ahEntry)

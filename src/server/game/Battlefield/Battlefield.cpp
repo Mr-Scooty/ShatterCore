@@ -31,6 +31,7 @@
 #include "MiscPackets.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "ScriptMgr.h"
 #include "WorldPacket.h"
 #include <G3D/g3dmath.h>
 
@@ -74,6 +75,8 @@ Battlefield::~Battlefield()
 // Called when a player enters the zone
 void Battlefield::HandlePlayerEnterZone(Player* player, uint32 /*zone*/)
 {
+    sScriptMgr->OnBattlefieldPlayerEnterZone(this, player);
+
     // If battle is started,
     // If not full of players > invite player to join the war
     // If full of players > announce to player that BF is full and kick him after a few second if he desn't leave
@@ -114,6 +117,8 @@ void Battlefield::HandlePlayerLeaveZone(Player* player, uint32 /*zone*/)
                 group->RemoveMember(player->GetGUID());
 
             OnPlayerLeaveWar(player);
+
+            sScriptMgr->OnBattlefieldPlayerLeaveWar(this, player);
         }
     }
 
@@ -126,6 +131,8 @@ void Battlefield::HandlePlayerLeaveZone(Player* player, uint32 /*zone*/)
     SendRemoveWorldStates(player);
     RemovePlayerFromResurrectQueue(player->GetGUID());
     OnPlayerLeaveZone(player);
+
+    sScriptMgr->OnBattlefieldPlayerLeaveZone(this, player);
 }
 
 bool Battlefield::Update(uint32 diff)
@@ -280,6 +287,9 @@ void Battlefield::InvitePlayerToWar(Player* player)
         return;
 
     m_PlayersWillBeKick[player->GetTeamId()].erase(player->GetGUID());
+
+    sScriptMgr->OnBattlefieldBeforeInvitePlayerToWar(this, player);
+
     m_InvitedPlayers[player->GetTeamId()][player->GetGUID()] = GameTime::GetGameTime() + m_TimeForAcceptInvite;
     player->GetSession()->SendBfInvitePlayerToWar(m_Guid, m_ZoneId, m_TimeForAcceptInvite);
 }
@@ -344,6 +354,8 @@ void Battlefield::EndBattle(bool endByTimer)
     m_Timer = m_NoWarBattleTime;
 
     OnBattleEnd(endByTimer);
+
+    sScriptMgr->OnBattlefieldWarEnd(this, endByTimer);
 }
 
 void Battlefield::DoPlaySoundToAll(uint32 SoundID)
@@ -396,6 +408,8 @@ void Battlefield::PlayerAcceptInviteToWar(Player* player)
             player->ToggleAFK();
 
         OnPlayerJoinWar(player);                               //for scripting
+
+        sScriptMgr->OnBattlefieldPlayerJoinWar(this, player);
     }
 }
 

@@ -24,6 +24,7 @@
 #include "Map.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "World.h"
 #include "WorldSession.h"
 
@@ -202,6 +203,9 @@ void Arena::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sendPacket
 
 void Arena::CheckWinConditions()
 {
+    if (!sScriptMgr->OnBeforeArenaCheckWinConditions(this))
+        return;
+
     if (!GetAlivePlayersCountByTeam(ALLIANCE) && GetPlayersCountByTeam(HORDE))
         EndBattleground(HORDE);
     else if (GetPlayersCountByTeam(ALLIANCE) && !GetAlivePlayersCountByTeam(HORDE))
@@ -241,6 +245,8 @@ void Arena::EndBattleground(uint32 winner)
             {
                 winnerMatchmakerChange = winnerArenaTeam->WonAgainst(winnerMatchmakerRating, loserMatchmakerRating, winnerChange);
                 loserMatchmakerChange = loserArenaTeam->LostAgainst(loserMatchmakerRating, winnerMatchmakerRating, loserChange);
+
+                sScriptMgr->OnAfterArenaRatingCalculation(this, winnerMatchmakerChange, loserMatchmakerChange, winnerChange, loserChange);
 
                 TC_LOG_DEBUG("bg.arena", "match Type: %u --- Winner: old rating: %u, rating gain: %d, old MMR: %u, MMR gain: %d --- Loser: old rating: %u, rating loss: %d, old MMR: %u, MMR loss: %d ---",
                     GetArenaType(), winnerTeamRating, winnerChange, winnerMatchmakerRating, winnerMatchmakerChange,
@@ -326,14 +332,17 @@ void Arena::EndBattleground(uint32 winner)
                                 guild->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_WIN_RATED_ARENA, std::max<uint32>(winnerArenaTeam->GetRating(), 1), 0, 0, nullptr, player);
                     }
 
-                    winnerArenaTeam->MemberWon(player, loserMatchmakerRating, winnerMatchmakerChange);
+                    if (sScriptMgr->OnBeforeArenaTeamMemberUpdate(winnerArenaTeam, player, true, loserMatchmakerRating, winnerMatchmakerChange))
+                        winnerArenaTeam->MemberWon(player, loserMatchmakerRating, winnerMatchmakerChange);
                 }
                 else
                 {
                     if (winner == 0)
-                        winnerArenaTeam->MemberLost(player, loserMatchmakerRating, winnerMatchmakerChange);
+                        if (sScriptMgr->OnBeforeArenaTeamMemberUpdate(winnerArenaTeam, player, false, loserMatchmakerRating, winnerMatchmakerChange))
+                            winnerArenaTeam->MemberLost(player, loserMatchmakerRating, winnerMatchmakerChange);
 
-                    loserArenaTeam->MemberLost(player, winnerMatchmakerRating, loserMatchmakerChange);
+                    if (sScriptMgr->OnBeforeArenaTeamMemberUpdate(loserArenaTeam, player, false, winnerMatchmakerRating, loserMatchmakerChange))
+                        loserArenaTeam->MemberLost(player, winnerMatchmakerRating, loserMatchmakerChange);
 
                     // Arena lost => reset the win_rated_arena having the "no_lose" condition
                     player->FailAchievementCriteria(AchievementCriteriaFailEvent::LoseRankedArenaMatchWithTeamSize, 0);

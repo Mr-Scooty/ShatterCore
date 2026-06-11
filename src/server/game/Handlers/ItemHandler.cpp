@@ -30,6 +30,7 @@
 #include "Opcodes.h"
 #include "Player.h"
 #include "ReforgePackets.h"
+#include "ScriptMgr.h"
 #include "SpellInfo.h"
 #include "WorldPacket.h"
 #include "World.h"
@@ -365,6 +366,12 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recvData)
     Item* pItem = _player->GetItemByGuid(itemguid);
     if (pItem)
     {
+        if (!sScriptMgr->OnPlayerCanSellItem(_player, pItem, creature))
+        {
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, creature, itemguid);
+            return;
+        }
+
         // prevent sell not owner item
         if (_player->GetGUID() != pItem->GetOwnerGUID())
         {

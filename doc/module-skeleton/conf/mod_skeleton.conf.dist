@@ -1,0 +1,23 @@
+###############################################################################
+# mod-skeleton configuration
+#
+# IMPORTANT: module configuration files MUST start with the [worldserver]
+# section header below. Without it the boost ini parser places the keys
+# outside any section and the server ignores the whole file (an error is
+# logged at startup).
+#
+# This file (*.conf.dist) is installed to <conf dir>/modules/ automatically.
+# To customize values, copy it to mod_skeleton.conf in the same directory -
+# the server prefers the .conf and falls back to the .conf.dist.
+###############################################################################
+
+[worldserver]
+
+#
+#    Skeleton.Enable
+#        Description: Enables the skeleton module.
+#        Default:     0 - Disabled
+#                     1 - Enabled
+#
+
+Skeleton.Enable = 0

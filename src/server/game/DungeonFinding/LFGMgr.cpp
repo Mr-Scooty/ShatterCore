@@ -37,6 +37,7 @@
 #include "Player.h"
 #include "Map.h"
 #include "RBAC.h"
+#include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "SocialMgr.h"
 #include "World.h"
@@ -454,6 +455,9 @@ void LFGMgr::JoinLfg(Player* player, uint8 roles, LfgDungeonSet& dungeons, const
     uint32 rDungeonId = 0;
     bool isContinue = grp && grp->isLFGGroup() && GetState(gguid) != LFG_STATE_FINISHED_DUNGEON;
 
+    if (!sScriptMgr->OnPlayerCanJoinLfg(player, roles, dungeons, comment))
+        return;
+
     // Do not allow to change dungeon in the middle of a current dungeon
     if (isContinue)
     {
@@ -534,7 +538,10 @@ void LFGMgr::JoinLfg(Player* player, uint8 roles, LfgDungeonSet& dungeons, const
                     if (dungeons.size() > 1)               // Only allow 1 random dungeon
                         joinData.result = LFG_JOIN_DUNGEON_INVALID;
                     else
+                    {
                         rDungeonId = (*dungeons.begin());
+                        sScriptMgr->OnPlayerQueueRandomDungeon(player, rDungeonId);
+                    }
                     [[fallthrough]];
                 case LFG_TYPE_HEROIC:
                 case LFG_TYPE_DUNGEON:
@@ -1837,9 +1844,13 @@ LfgLockMap const LFGMgr::GetLockedDungeons(ObjectGuid guid)
         lockData = LFG_LOCKSTATUS_ATTUNEMENT_TOO_HIGH_LEVEL;
         */
 
+        sScriptMgr->OnInitializeLockedDungeons(player, level, lockStatus, dungeon);
+
         if (lockStatus)
             lock[dungeon->Entry()] = LfgLockInfoData(lockStatus, dungeon->requiredItemLevel, player->GetAverageItemLevel());
     }
+
+    sScriptMgr->OnAfterInitializeLockedDungeons(player);
 
     return lock;
 }

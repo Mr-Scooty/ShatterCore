@@ -91,6 +91,7 @@
 #include "QuestPools.h"
 #include "Realm.h"
 #include "ReputationMgr.h"
+#include "ScriptMgr.h"
 #include "SkillDiscovery.h"
 #include "SocialMgr.h"
 #include "Spell.h"
@@ -356,10 +357,14 @@ Player::Player(WorldSession* session): Unit(true)
     _archaeology = std::make_unique<Archaeology>(this);
     m_petScalingSynchTimer.Reset(1000);
     m_groupUpdateTimer.Reset(5000);
+
+    sScriptMgr->OnConstructPlayer(this);
 }
 
 Player::~Player()
 {
+    sScriptMgr->OnDestructPlayer(this);
+
     // it must be unloaded already in PlayerLogout and accessed only for logged player
     //m_social = nullptr;
 
@@ -953,6 +958,8 @@ void Player::Update(uint32 p_time)
     if (!IsInWorld())
         return;
 
+    sScriptMgr->OnPlayerBeforeUpdate(this, p_time);
+
     // undelivered mail
     if (m_nextMailDelivereTime && m_nextMailDelivereTime <= GameTime::GetGameTime())
     {
@@ -1163,6 +1170,8 @@ void Player::Update(uint32 p_time)
         else
             m_zoneUpdateTimer -= p_time;
     }
+
+    sScriptMgr->OnPlayerUpdate(this, p_time);
 
     // Power regeneration update
     _powerUpdateTimer -= p_time;
@@ -1457,6 +1466,10 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
     // ObjectAccessor won't find the flag.
     if (duel && GetMapId() != mapid && GetMap()->GetGameObject(GetGuidValue(PLAYER_DUEL_ARBITER)))
         DuelComplete(DUEL_FLED);
+
+    // 4.3.4 has no teleport target unit, pass nullptr for AzerothCore hook compatibility
+    if (!sScriptMgr->OnPlayerBeforeTeleport(this, mapid, x, y, z, orientation, uint32(options), nullptr))
+        return false;
 
     if (GetMapId() == mapid && (!instanceId || GetInstanceId() == instanceId))
     {
@@ -2087,12 +2100,13 @@ void Player::SetGameMaster(bool on)
             pet->SetFaction(FACTION_FRIENDLY);
 
         RemoveByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP);
+        sScriptMgr->OnPlayerFfaPvpStateUpdate(this, false);
         ResetContestedPvP();
 
         CombatStopWithPets();
 
         PhasingHandler::SetAlwaysVisible(GetPhaseShift(), true);
-        m_serverSideVisibilityDetect.SetValue(SERVERSIDE_VISIBILITY_GM, GetSession()->GetSecurity());
+        SetServerSideVisibilityDetect(SERVERSIDE_VISIBILITY_GM, GetSession()->GetSecurity());
     }
     else
     {
@@ -2108,12 +2122,15 @@ void Player::SetGameMaster(bool on)
 
         // restore FFA PvP Server state
         if (sWorld->IsFFAPvPRealm())
+        {
             SetByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP);
+            sScriptMgr->OnPlayerFfaPvpStateUpdate(this, true);
+        }
 
         // restore FFA PvP area state, remove not allowed for GM mounts
         UpdateArea(m_areaUpdateId);
 
-        m_serverSideVisibilityDetect.SetValue(SERVERSIDE_VISIBILITY_GM, SEC_PLAYER);
+        SetServerSideVisibilityDetect(SERVERSIDE_VISIBILITY_GM, SEC_PLAYER);
     }
 
     UpdateObjectVisibility();
@@ -2129,7 +2146,7 @@ void Player::SetGMVisible(bool on)
     if (on)
     {
         m_ExtraFlags &= ~PLAYER_EXTRA_GM_INVISIBLE;         //remove flag
-        m_serverSideVisibility.SetValue(SERVERSIDE_VISIBILITY_GM, SEC_PLAYER);
+        SetServerSideVisibility(SERVERSIDE_VISIBILITY_GM, SEC_PLAYER);
     }
     else
     {
@@ -2138,11 +2155,25 @@ void Player::SetGMVisible(bool on)
         SetAcceptWhispers(false);
         SetGameMaster(true);
 
-        m_serverSideVisibility.SetValue(SERVERSIDE_VISIBILITY_GM, GetSession()->GetSecurity());
+        SetServerSideVisibility(SERVERSIDE_VISIBILITY_GM, GetSession()->GetSecurity());
     }
 
     for (Channel* channel : m_channels)
         channel->SetInvisible(this, !on);
+}
+
+void Player::SetServerSideVisibility(ServerSideVisibilityType type, AccountTypes sec)
+{
+    sScriptMgr->OnPlayerSetServerSideVisibility(this, type, sec);
+
+    m_serverSideVisibility.SetValue(type, sec);
+}
+
+void Player::SetServerSideVisibilityDetect(ServerSideVisibilityType type, AccountTypes sec)
+{
+    sScriptMgr->OnPlayerSetServerSideVisibilityDetect(this, type, sec);
+
+    m_serverSideVisibilityDetect.SetValue(type, sec);
 }
 
 bool Player::IsGroupVisibleFor(Player const* p) const
@@ -2200,7 +2231,7 @@ void Player::RemoveFromGroup(Group* group, ObjectGuid guid, RemoveMethod method 
     group->RemoveMember(guid, method, kicker, reason);
 }
 
-void Player::GiveXP(uint32 xp, Unit* victim, float group_rate)
+void Player::GiveXP(uint32 xp, Unit* victim, float group_rate, uint8 xpSource)
 {
     if (xp < 1)
         return;
@@ -2216,7 +2247,7 @@ void Player::GiveXP(uint32 xp, Unit* victim, float group_rate)
 
     uint8 level = getLevel();
 
-    sScriptMgr->OnGivePlayerXP(this, xp, victim);
+    sScriptMgr->OnGivePlayerXP(this, xp, victim, xpSource);
 
     // XP to money conversion processed in Player::RewardQuest
     if (IsMaxLevel())
@@ -2264,6 +2295,9 @@ void Player::GiveLevel(uint8 level)
 {
     uint8 oldLevel = getLevel();
     if (level == oldLevel)
+        return;
+
+    if (!sScriptMgr->OnPlayerCanGiveLevel(this, level))
         return;
 
     if (Guild* guild = GetGuild())
@@ -2414,10 +2448,11 @@ void Player::InitStatsForLevel(bool reapplyMods)
 
     uint8 exp_max_lvl = DBCManager::GetMaxLevelForExpansion(GetSession()->GetExpansion());
     uint8 conf_max_lvl = sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL);
-    if (exp_max_lvl == DEFAULT_MAX_LEVEL || exp_max_lvl >= conf_max_lvl)
-        SetUInt32Value(PLAYER_FIELD_MAX_LEVEL, conf_max_lvl);
-    else
-        SetUInt32Value(PLAYER_FIELD_MAX_LEVEL, exp_max_lvl);
+    uint32 maxPlayerLevel = conf_max_lvl;
+    if (exp_max_lvl != DEFAULT_MAX_LEVEL && exp_max_lvl < conf_max_lvl)
+        maxPlayerLevel = exp_max_lvl;
+    sScriptMgr->OnPlayerSetMaxLevel(this, maxPlayerLevel);
+    SetUInt32Value(PLAYER_FIELD_MAX_LEVEL, maxPlayerLevel);
     SetUInt32Value(PLAYER_NEXT_LEVEL_XP, sObjectMgr->GetXPForLevel(getLevel()));
 
     // reset before any aura state sources (health set/aura apply)
@@ -2559,6 +2594,7 @@ void Player::InitStatsForLevel(bool reapplyMods)
 
     RemoveStandFlags(UNIT_STAND_FLAGS_ALL);                 // one form stealth modified bytes
     RemoveByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP | UNIT_BYTE2_FLAG_SANCTUARY);
+    sScriptMgr->OnPlayerFfaPvpStateUpdate(this, false);
 
     // restore if need some important flags
     SetUInt32Value(PLAYER_FIELD_BYTES2, 0);                 // flags empty by default
@@ -4099,6 +4135,8 @@ void Player::BuildPlayerRepop()
 
     StopMirrorTimers();                                     //disable timers(bars)
 
+    sScriptMgr->OnPlayerReleasedGhost(this);
+
     // OnPlayerRepop hook
     sScriptMgr->OnPlayerRepop(this);
 }
@@ -4158,6 +4196,8 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
     // recast lost by death auras of any items held in the inventory
     CastAllObtainSpells();
 
+    sScriptMgr->OnPlayerResurrect(this, restore_percent, applySickness);
+
     if (!applySickness)
         return;
 
@@ -4209,6 +4249,8 @@ void Player::KillPlayer()
 
     if (corpseReclaimDelay >= 0)
         SendCorpseReclaimDelay(corpseReclaimDelay);
+
+    sScriptMgr->OnPlayerJustDied(this);
 
     // don't create corpse at this moment, player might be falling
 
@@ -4542,6 +4584,9 @@ void Player::RepopAtGraveyard()
     // for example from WorldSession::HandleMovementOpcodes
 
     AreaTableEntry const* zone = sAreaTableStore.LookupEntry(GetAreaId());
+
+    if (!sScriptMgr->OnPlayerCanRepopAtGraveyard(this))
+        return;
 
     // Such zones are considered unreachable as a ghost and the player must be automatically revived
     if ((!IsAlive() && zone && zone->GetFlags().HasFlag(AreaFlags::NoGhostOnRelease)) || GetTransport() || GetPositionZ() < GetMap()->GetMinHeight(GetPhaseShift(), GetPositionX(), GetPositionY()))
@@ -6044,7 +6089,7 @@ void Player::SetAreaExplored(uint32 areaId)
                     XP = std::max(minScaledXP, XP);
                 }
 
-                GiveXP(XP, nullptr);
+                GiveXP(XP, nullptr, 1.0f, XPSOURCE_EXPLORE);
                 SendExplorationExperience(areaId, XP);
             }
             TC_LOG_DEBUG("entities.player", "Player '%s' (%s) discovered a new area: %u", GetName().c_str(), GetGUID().ToString().c_str(), areaId);
@@ -6225,6 +6270,10 @@ void Player::RewardOnKill(Unit* victim, float rate)
             int32 donerep1 = CalculateReputationGain(REPUTATION_SOURCE_KILL, victim->getLevel(), Rew->RepValue1, factionId1);
             donerep1 = int32(donerep1 * rate);
 
+            float repGain1 = float(donerep1);
+            sScriptMgr->OnPlayerGiveReputation(this, Rew->RepFaction1, repGain1, REPUTATION_SOURCE_KILL);
+            donerep1 = int32(repGain1);
+
             FactionEntry const* factionEntry1 = sFactionStore.LookupEntry(factionId1);
             uint32 current_reputation_rank1 = GetReputationMgr().GetRank(factionEntry1);
             if (factionEntry1)
@@ -6254,6 +6303,10 @@ void Player::RewardOnKill(Unit* victim, float rate)
 
             int32 donerep2 = CalculateReputationGain(REPUTATION_SOURCE_KILL, victim->getLevel(), Rew->RepValue2, factionId2);
             donerep2 = int32(donerep2 * rate);
+
+            float repGain2 = float(donerep2);
+            sScriptMgr->OnPlayerGiveReputation(this, Rew->RepFaction2, repGain2, REPUTATION_SOURCE_KILL);
+            donerep2 = int32(repGain2);
 
             FactionEntry const* factionEntry2 = sFactionStore.LookupEntry(factionId2);
             uint32 current_reputation_rank2 = GetReputationMgr().GetRank(factionEntry2);
@@ -6322,16 +6375,21 @@ void Player::RewardReputation(Quest const* quest)
         if (!rep)
             continue;
 
+        ReputationSource repSource = REPUTATION_SOURCE_QUEST;
         if (quest->IsDaily())
-            rep = CalculateReputationGain(REPUTATION_SOURCE_DAILY_QUEST, GetQuestLevel(quest), rep, quest->RewardFactionId[i], noQuestBonus);
+            repSource = REPUTATION_SOURCE_DAILY_QUEST;
         else if (quest->IsWeekly())
-            rep = CalculateReputationGain(REPUTATION_SOURCE_WEEKLY_QUEST, GetQuestLevel(quest), rep, quest->RewardFactionId[i], noQuestBonus);
+            repSource = REPUTATION_SOURCE_WEEKLY_QUEST;
         else if (quest->IsMonthly())
-            rep = CalculateReputationGain(REPUTATION_SOURCE_MONTHLY_QUEST, GetQuestLevel(quest), rep, quest->RewardFactionId[i], noQuestBonus);
+            repSource = REPUTATION_SOURCE_MONTHLY_QUEST;
         else if (quest->IsRepeatable())
-            rep = CalculateReputationGain(REPUTATION_SOURCE_REPEATABLE_QUEST, GetQuestLevel(quest), rep, quest->RewardFactionId[i], noQuestBonus);
-        else
-            rep = CalculateReputationGain(REPUTATION_SOURCE_QUEST, GetQuestLevel(quest), rep, quest->RewardFactionId[i], noQuestBonus);
+            repSource = REPUTATION_SOURCE_REPEATABLE_QUEST;
+
+        rep = CalculateReputationGain(repSource, GetQuestLevel(quest), rep, quest->RewardFactionId[i], noQuestBonus);
+
+        float repGain = float(rep);
+        sScriptMgr->OnPlayerGiveReputation(this, quest->RewardFactionId[i], repGain, repSource);
+        rep = int32(repGain);
 
         if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(quest->RewardFactionId[i]))
             GetReputationMgr().ModifyReputation(factionEntry, rep);
@@ -6440,6 +6498,10 @@ bool Player::RewardHonor(Unit* victim, uint32 groupsize, int32 honor, bool pvpto
             else
                 victim_guid.Clear();                     // Don't show HK: <rank> message, only log.
 
+            uint32 killer_title = GetUInt32Value(PLAYER_CHOSEN_TITLE);
+
+            sScriptMgr->OnPlayerVictimRewardBefore(this, plrVictim, killer_title, victim_rank);
+
             honor_f = std::ceil(Trinity::Honor::hk_honor_at_level_f(k_level) * (v_level - k_grey) / (k_level - k_grey));
 
             // count the number of playerkills in one day
@@ -6453,6 +6515,8 @@ bool Player::RewardHonor(Unit* victim, uint32 groupsize, int32 honor, bool pvpto
             UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_HONORABLE_KILL, 1, 0, 0, victim);
             if (Guild* guild = GetGuild())
                 guild->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_HONORABLE_KILLS_GUILD, 0, 0, 0, victim, this);
+
+            sScriptMgr->OnPlayerVictimRewardAfter(this, plrVictim, killer_title, victim_rank, honor_f);
         }
         else
         {
@@ -6988,6 +7052,8 @@ uint32 Player::GetZoneIdFromDB(ObjectGuid guid)
 
 void Player::UpdateArea(uint32 newArea)
 {
+    sScriptMgr->OnPlayerUpdateArea(this, m_areaUpdateId, newArea);
+
     // FFA_PVP flags are area and not zone id dependent
     // so apply them accordingly
     m_areaUpdateId = newArea;
@@ -8656,6 +8722,12 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type)
     // need know merged fishing/corpse loot type for achievements
     loot->loot_type = loot_type;
 
+    if (!sScriptMgr->OnAllowedToLootContainerCheck(this, guid))
+    {
+        SendLootError(guid, LOOT_ERROR_DIDNT_KILL);
+        return;
+    }
+
     if (permission != NONE_PERMISSION)
     {
         SetLootGUID(guid);
@@ -10277,6 +10349,9 @@ InventoryResult Player::CanEquipItem(uint8 slot, uint16 &dest, Item* pItem, bool
         ItemTemplate const* pProto = pItem->GetTemplate();
         if (pProto)
         {
+            if (!sScriptMgr->OnPlayerCanEquipItem(const_cast<Player*>(this), slot, dest, pItem, swap, not_loading))
+                return EQUIP_ERR_CLIENT_LOCKED_OUT;
+
             // item used
             if (pItem->m_lootGenerated)
                 return EQUIP_ERR_LOOT_GONE;
@@ -10440,6 +10515,9 @@ InventoryResult Player::CanEquipItem(uint8 slot, uint16 &dest, Item* pItem, bool
 
 InventoryResult Player::CanUnequipItem(uint16 pos, bool swap) const
 {
+    if (!sScriptMgr->OnPlayerCanUnequipItem(const_cast<Player*>(this), pos, swap))
+        return EQUIP_ERR_CLIENT_LOCKED_OUT;
+
     // Applied only to equipped items and bank bags
     if (!IsEquipmentPos(pos) && !IsBagPos(pos))
         return EQUIP_ERR_OK;
@@ -10766,6 +10844,10 @@ InventoryResult Player::CanUseItem(ItemTemplate const* proto) const
         if (HasSpell(proto->Effects[1].SpellID))
             return EQUIP_ERR_INTERNAL_BAG_ERROR;
 
+    InventoryResult result = EQUIP_ERR_OK;
+    if (!sScriptMgr->OnPlayerCanUseItem(const_cast<Player*>(this), proto, result))
+        return result;
+
     return EQUIP_ERR_OK;
 }
 
@@ -10886,6 +10968,8 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
             stmt->setString(1, ss.str());
             CharacterDatabase.Execute(stmt);
         }
+
+        sScriptMgr->OnPlayerStoreNewItem(this, pItem, count);
     }
     return pItem;
 }
@@ -11116,6 +11200,7 @@ Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
         pItem2->SetState(ITEM_CHANGED, this);
 
         ApplyEquipCooldown(pItem2);
+        sScriptMgr->OnPlayerEquip(this, pItem2, bag, slot, update);
 
         UpdateArmorSpecialization();
 
@@ -11130,6 +11215,8 @@ Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EQUIP_EPIC_ITEM, slot, pItem->GetEntry());
     if (Guild* guild = GetGuild())
         guild->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_OWN_ITEM, pItem->GetEntry(), 1, 0, nullptr, this);
+
+    sScriptMgr->OnPlayerEquip(this, pItem, bag, slot, update);
 
     return pItem;
 }
@@ -11155,6 +11242,8 @@ void Player::QuickEquipItem(uint16 pos, Item* pItem)
 
         UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EQUIP_ITEM, pItem->GetEntry());
         UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EQUIP_EPIC_ITEM, slot, pItem->GetEntry());
+
+        sScriptMgr->OnPlayerEquip(this, pItem, (pos >> 8), slot, true);
     }
 }
 
@@ -11171,6 +11260,8 @@ void Player::SetVisibleItemSlot(uint8 slot, Item* pItem)
         SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + (slot * 2), 0);
         SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENCHANTMENT + (slot * 2), 0);
     }
+
+    sScriptMgr->OnPlayerAfterSetVisibleItemSlot(this, slot, pItem);
 }
 
 void Player::VisualizeItem(uint8 slot, Item* pItem)
@@ -14028,7 +14119,8 @@ void Player::AddQuestAndCheckCompletion(Quest const* quest, Object* questGiver)
     {
         case TYPEID_UNIT:
             PlayerTalkClass->ClearMenus();
-            questGiver->ToCreature()->AI()->QuestAccept(this, quest);
+            if (!sScriptMgr->CanCreatureQuestAccept(this, questGiver->ToCreature(), quest))
+                questGiver->ToCreature()->AI()->QuestAccept(this, quest);
             break;
         case TYPEID_ITEM:
         case TYPEID_CONTAINER:
@@ -14060,7 +14152,8 @@ void Player::AddQuestAndCheckCompletion(Quest const* quest, Object* questGiver)
         }
         case TYPEID_GAMEOBJECT:
             PlayerTalkClass->ClearMenus();
-            questGiver->ToGameObject()->AI()->QuestAccept(this, quest);
+            if (!sScriptMgr->CanGameObjectQuestAccept(this, questGiver->ToGameObject(), quest))
+                questGiver->ToGameObject()->AI()->QuestAccept(this, quest);
             break;
         default:
             break;
@@ -14213,6 +14306,9 @@ void Player::AddQuest(Quest const* quest, Object* questGiver)
 
 void Player::CompleteQuest(uint32 quest_id)
 {
+    if (quest_id && !sScriptMgr->OnPlayerBeforeQuestComplete(this, quest_id))
+        return;
+
     if (quest_id)
     {
         SetQuestStatus(quest_id, QUEST_STATUS_COMPLETE);
@@ -14298,6 +14394,8 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
                 {
                     Item* item = StoreNewItem(dest, itemId, true, GenerateItemRandomPropertyId(itemId));
                     SendNewItem(item, quest->RewardItemIdCount[i], true, false, false, false);
+
+                    sScriptMgr->OnPlayerQuestRewardItem(this, item, quest->RewardItemIdCount[i]);
                 }
                 else if (quest->IsDFQuest())
                     SendItemRetrievalMail(itemId, quest->RewardItemIdCount[i]);
@@ -14331,6 +14429,8 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
             {
                 Item* item = StoreNewItem(dest, itemId, true, GenerateItemRandomPropertyId(itemId));
                 SendNewItem(item, quest->RewardChoiceItemCount[reward], true, false, false, false);
+
+                sScriptMgr->OnPlayerQuestRewardItem(this, item, quest->RewardChoiceItemCount[reward]);
             }
         }
     }
@@ -14349,8 +14449,17 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
     for (Unit::AuraEffectList::const_iterator i = ModXPPctAuras.begin(); i != ModXPPctAuras.end(); ++i)
         AddPct(XP, (*i)->GetAmount());
 
+    sScriptMgr->OnPlayerQuestComputeXP(this, quest, XP);
+
+    // XP to money conversion is handled in Quest::GetRewOrReqMoney for players at the level cap
+    int32 questXPMoneyReward = 0;
     if (!IsMaxLevel())
-        GiveXP(XP, nullptr);
+    {
+        if (sScriptMgr->OnPlayerShouldBeRewardedWithMoneyInsteadOfExp(this))
+            questXPMoneyReward = int32(quest->GetRewMoneyMaxLevel());
+        else
+            GiveXP(XP, nullptr, 1.0f, XPSOURCE_QUEST);
+    }
 
     if (Guild* guild = GetGuild())
     {
@@ -14362,7 +14471,7 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
     }
 
     // Give player extra money if GetRewOrReqMoney > 0 and get ReqMoney if negative
-    if (int32 moneyRew = quest->GetRewOrReqMoney(this))
+    if (int32 moneyRew = quest->GetRewOrReqMoney(this) + questXPMoneyReward)
     {
         ModifyMoney(moneyRew);
 
@@ -14499,15 +14608,23 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
 
         PlayerTalkClass->ClearMenus();
         if (Creature* creatureQGiver = questGiver->ToCreature())
-            creatureQGiver->AI()->QuestReward(this, quest, reward);
+        {
+            if (!sScriptMgr->CanCreatureQuestReward(this, creatureQGiver, quest, reward))
+                creatureQGiver->AI()->QuestReward(this, quest, reward);
+        }
         else if (GameObject* goQGiver = questGiver->ToGameObject())
-            goQGiver->AI()->QuestReward(this, quest, reward);
+        {
+            if (!sScriptMgr->CanGameObjectQuestReward(this, goQGiver, quest, reward))
+                goQGiver->AI()->QuestReward(this, quest, reward);
+        }
     }
 
     sScriptMgr->OnQuestStatusChange(this, quest_id);
 
     if (updateVisibility)
         UpdateObjectVisibility();
+
+    sScriptMgr->OnPlayerCompleteQuest(this, quest);
 }
 
 void Player::SetRewardedQuest(uint32 quest_id)
@@ -15292,6 +15409,8 @@ uint8 Player::GetFirstRewardCountForDungeonId(uint32 dungeonId)
 QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
 {
     QuestRelationResult qr, qir;
+
+    sScriptMgr->GetDialogStatus(this, questgiver);
 
     switch (questgiver->GetTypeId())
     {
@@ -16977,6 +17096,8 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     InitGlyphsForLevel();
     InitTaxiNodesForLevel();
     InitRunes();
+
+    sScriptMgr->OnPlayerLoadFromDB(this);
 
     // rest bonus can only be calculated after InitStatsForLevel()
     m_rest_bonus = fields[26].GetFloat();
@@ -20420,6 +20541,9 @@ void Player::StopCastingCharm()
 void Player::Say(std::string const& text, Language language, WorldObject const* /*= nullptr*/)
 {
     std::string _text(text);
+    if (!sScriptMgr->OnPlayerCanUseChat(this, CHAT_MSG_SAY, language, _text))
+        return;
+
     sScriptMgr->OnPlayerChat(this, CHAT_MSG_SAY, language, _text);
 
     WorldPacket data;
@@ -20435,6 +20559,9 @@ void Player::Say(uint32 textId, WorldObject const* target /*= nullptr*/)
 void Player::Yell(std::string const& text, Language language, WorldObject const* /*= nullptr*/)
 {
     std::string _text(text);
+    if (!sScriptMgr->OnPlayerCanUseChat(this, CHAT_MSG_YELL, language, _text))
+        return;
+
     sScriptMgr->OnPlayerChat(this, CHAT_MSG_YELL, language, _text);
 
     WorldPacket data;
@@ -20450,6 +20577,9 @@ void Player::Yell(uint32 textId, WorldObject const* target /*= nullptr*/)
 void Player::TextEmote(std::string const& text, WorldObject const* /*= nullptr*/, bool /*= false*/)
 {
     std::string _text(text);
+    if (!sScriptMgr->OnPlayerCanUseChat(this, CHAT_MSG_EMOTE, LANG_UNIVERSAL, _text))
+        return;
+
     sScriptMgr->OnPlayerChat(this, CHAT_MSG_EMOTE, LANG_UNIVERSAL, _text);
 
     WorldPacket data;
@@ -20465,6 +20595,9 @@ void Player::TextEmote(uint32 textId, WorldObject const* target /*= nullptr*/, b
 void Player::WhisperAddon(std::string const& text, const std::string& prefix, Player* receiver)
 {
     std::string _text(text);
+    if (!sScriptMgr->OnPlayerCanUseChat(this, CHAT_MSG_WHISPER, uint32(LANG_ADDON), _text, receiver))
+        return;
+
     sScriptMgr->OnPlayerChat(this, CHAT_MSG_WHISPER, uint32(LANG_ADDON), _text, receiver);
 
     if (!receiver->GetSession()->IsAddonRegistered(prefix))
@@ -20485,6 +20618,9 @@ void Player::Whisper(std::string const& text, Language language, Player* target,
         language = LANG_UNIVERSAL; // whispers should always be readable
 
     std::string _text(text);
+    if (!sScriptMgr->OnPlayerCanUseChat(this, isBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_WHISPER, language, _text, target))
+        return;
+
     sScriptMgr->OnPlayerChat(this, isBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_WHISPER, language, _text, target);
 
     WorldPacket data;
@@ -21434,6 +21570,8 @@ inline bool Player::_StoreOrEquipNewItem(uint32 vendorslot, uint32 item, uint32 
         }
     }
 
+    sScriptMgr->OnPlayerBeforeStoreOrEquipNewItem(this, vendorslot, item, count, bag, slot, pProto, pVendor, crItem, bStore);
+
     Item* it = bStore ?
         StoreNewItem(vDest, item, true, GenerateItemRandomPropertyId(item)) :
         EquipNewItem(uiDest, item, true);
@@ -21462,6 +21600,9 @@ inline bool Player::_StoreOrEquipNewItem(uint32 vendorslot, uint32 item, uint32 
             AddRefundReference(it->GetGUID());
         }
     }
+
+    sScriptMgr->OnPlayerAfterStoreOrEquipNewItem(this, vendorslot, it, count, bag, slot, pProto, pVendor, crItem, bStore);
+
     return true;
 }
 
@@ -21624,6 +21765,8 @@ bool Player::BuyCurrencyFromVendorSlot(ObjectGuid vendorGuid, uint32 vendorSlot,
 // Return true is the bought item has a max count to force refresh of window by caller
 bool Player::BuyItemFromVendorSlot(ObjectGuid vendorguid, uint32 vendorslot, uint32 item, uint32 count, uint8 bag, uint8 slot)
 {
+    sScriptMgr->OnPlayerBeforeBuyItemFromVendor(this, vendorguid, vendorslot, item, count, bag, slot);
+
     // cheating attempt
     if (count < 1) count = 1;
 
@@ -21880,6 +22023,9 @@ uint32 Player::GetMaxPersonalArenaRatingRequirement(uint32 minarenaslot) const
                 max_personal_rating = p_rating;
         }
     }
+
+    sScriptMgr->OnPlayerGetMaxPersonalArenaRatingRequirement(this, minarenaslot, max_personal_rating);
+
     return max_personal_rating;
 }
 
@@ -21925,6 +22071,7 @@ void Player::UpdatePvPState(bool onlyFFA)
         if (!IsFFAPvP())
         {
             SetByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP);
+            sScriptMgr->OnPlayerFfaPvpStateUpdate(this, true);
             for (ControlList::iterator itr = m_Controlled.begin(); itr != m_Controlled.end(); ++itr)
                 (*itr)->SetByteValue(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP);
         }
@@ -21932,6 +22079,7 @@ void Player::UpdatePvPState(bool onlyFFA)
     else if (IsFFAPvP())
     {
         RemoveByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP);
+        sScriptMgr->OnPlayerFfaPvpStateUpdate(this, false);
         for (ControlList::iterator itr = m_Controlled.begin(); itr != m_Controlled.end(); ++itr)
             (*itr)->RemoveByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP);
     }
@@ -21970,6 +22118,8 @@ void Player::UpdatePvP(bool state, bool _override)
         pvpInfo.EndTimer = GameTime::GetGameTime();
         SetPvP(state);
     }
+
+    sScriptMgr->OnPlayerPVPFlagChange(this, state);
 }
 
 void Player::UpdatePotionCooldown(Spell* spell)
@@ -22270,14 +22420,21 @@ void Player::LeaveBattleground(bool teleportToEntryPoint)
         }
 
         // track if player leaves the BG while inside it
-        if (bg->isBattleground() && sWorld->getBoolConfig(CONFIG_BATTLEGROUND_TRACK_DESERTERS) &&
-                (bg->GetStatus() == STATUS_IN_PROGRESS || bg->GetStatus() == STATUS_WAIT_JOIN))
+        if (bg->isBattleground() && (bg->GetStatus() == STATUS_IN_PROGRESS || bg->GetStatus() == STATUS_WAIT_JOIN))
         {
-            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_DESERTER_TRACK);
-            stmt->setUInt32(0, GetGUID().GetCounter());
-            stmt->setUInt8(1, BG_DESERTION_TYPE_LEAVE_BG);
-            CharacterDatabase.Execute(stmt);
+            if (sWorld->getBoolConfig(CONFIG_BATTLEGROUND_TRACK_DESERTERS))
+            {
+                CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_DESERTER_TRACK);
+                stmt->setUInt32(0, GetGUID().GetCounter());
+                stmt->setUInt8(1, BG_DESERTION_TYPE_LEAVE_BG);
+                CharacterDatabase.Execute(stmt);
+            }
+
+            sScriptMgr->OnPlayerBattlegroundDesertion(this, BG_DESERTION_TYPE_LEAVE_BG);
         }
+
+        if (bg->isArena() && (bg->GetStatus() == STATUS_IN_PROGRESS || bg->GetStatus() == STATUS_WAIT_JOIN))
+            sScriptMgr->OnPlayerBattlegroundDesertion(this, ARENA_DESERTION_TYPE_LEAVE_BG);
     }
 }
 
@@ -24954,6 +25111,8 @@ void Player::StoreLootItem(ObjectGuid lootWorldObjectGuid, uint8 lootSlot, Loot*
         GuidSet looters = item->GetAllowedLooters();
         Item* newitem = StoreNewItem(dest, item->itemid, true, item->randomPropertyId, looters);
 
+        sScriptMgr->OnPlayerLootItem(this, newitem, item->count, GetLootGUID());
+
         if (qitem)
         {
             qitem->is_looted = true;
@@ -25370,6 +25529,9 @@ bool Player::LearnTalent(uint32 talentId, uint32 talentRank)
     if (!talentInfo)
         return false;
 
+    if (!sScriptMgr->OnPlayerCanLearnTalent(this, talentInfo, talentRank))
+        return false;
+
     TalentTabEntry const* talentTabInfo = sTalentTabStore.LookupEntry(talentInfo->TabID);
 
     if (!talentTabInfo)
@@ -25488,6 +25650,8 @@ bool Player::LearnTalent(uint32 talentId, uint32 talentRank)
 
     // update free talent points
     SetFreeTalentPoints(CurTalentPoints - (talentRank - curtalent_maxrank + 1));
+
+    sScriptMgr->OnPlayerLearnTalents(this, talentId, talentRank, spellid);
     return true;
 }
 
@@ -26425,6 +26589,8 @@ void Player::ActivateSpec(uint8 spec)
 
     if (!sTalentTabStore.LookupEntry(GetPrimaryTalentTree(GetActiveSpec())))
         ResetTalents(true);
+
+    sScriptMgr->OnPlayerAfterSpecSlotChanged(this, GetActiveSpec());
 }
 
 void Player::LoadActions(PreparedQueryResult result)

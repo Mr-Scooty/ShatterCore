@@ -20,6 +20,7 @@
 
 #include "Define.h"
 #include <string>
+#include <string_view>
 #include <vector>
 
 class TC_COMMON_API ConfigMgr
@@ -36,6 +37,16 @@ public:
     static ConfigMgr* instance();
 
     bool Reload(std::string& error);
+
+    /// Stores the comma separated list of module configuration file names
+    /// (baked in at compile time through the CONFIG_FILE_LIST define).
+    void SetModuleConfigFileList(std::string_view configFileList);
+
+    /// Loads all module configuration files from the "modules" directory
+    /// next to the main configuration file and merges their settings
+    /// into the main configuration (later files override earlier keys).
+    /// Looks for "<name>.conf" first and falls back to "<name>.conf.dist".
+    bool LoadModulesConfigs(bool isReload = false);
 
     std::string GetStringDefault(std::string const& name, const std::string& def) const;
     bool GetBoolDefault(std::string const& name, bool def) const;

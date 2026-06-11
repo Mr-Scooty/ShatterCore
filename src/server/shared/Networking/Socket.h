@@ -148,8 +148,8 @@ protected:
         _socket.async_write_some(boost::asio::buffer(buffer.GetReadPointer(), buffer.GetActiveSize()), std::bind(&Socket<T>::WriteHandler,
             this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
 #else
-        _socket.async_write_some(boost::asio::null_buffers(), std::bind(&Socket<T>::WriteHandlerWrapper,
-            this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+        _socket.async_wait(tcp::socket::wait_write, std::bind(&Socket<T>::WriteHandlerWrapper,
+            this->shared_from_this(), std::placeholders::_1));
 #endif
 
         return false;
@@ -199,7 +199,7 @@ private:
 
 #else
 
-    void WriteHandlerWrapper(boost::system::error_code /*error*/, std::size_t /*transferedBytes*/)
+    void WriteHandlerWrapper(boost::system::error_code /*error*/)
     {
         _isWritingAsync = false;
         HandleQueue();

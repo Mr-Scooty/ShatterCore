@@ -37,6 +37,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "ReputationMgr.h"
+#include "ScriptMgr.h"
 #include "SpellAuras.h"
 #include "TemporarySummon.h"
 #include "Transport.h"
@@ -199,6 +200,8 @@ Battleground::~Battleground()
     for (uint32 i = 0; i < size; ++i)
         DelObject(i);
 
+    sScriptMgr->OnBattlegroundDestroy(this);
+
     sBattlegroundMgr->RemoveBattleground(GetTypeID(), GetInstanceID());
     // unload map
     if (m_Map)
@@ -284,6 +287,8 @@ void Battleground::Update(uint32 diff)
     }
 
     PostUpdateImpl(diff);
+
+    sScriptMgr->OnBattlegroundUpdate(this, diff);
 }
 
 inline void Battleground::_CheckSafePositions(uint32 diff)
@@ -574,6 +579,8 @@ inline void Battleground::_ProcessJoin(uint32 diff)
                 }
 
             CheckWinConditions();
+
+            sScriptMgr->OnArenaStart(this);
         }
         else
         {
@@ -588,6 +595,8 @@ inline void Battleground::_ProcessJoin(uint32 diff)
             // Announce BG starting
             if (sWorld->getBoolConfig(CONFIG_BATTLEGROUND_QUEUE_ANNOUNCER_ENABLE))
                 sWorld->SendWorldText(LANG_BG_STARTED_ANNOUNCE_WORLD, GetName().c_str(), GetMinLevel(), GetMaxLevel());
+
+            sScriptMgr->OnBattlegroundStart(this);
         }
     }
 
@@ -894,6 +903,8 @@ void Battleground::EndBattleground(uint32 winner)
                 UpdatePlayerScore(player, SCORE_BONUS_HONOR, loserHonor);
         }
 
+        sScriptMgr->OnBattlegroundEndReward(this, player, winner);
+
         player->ResetAllPowers();
         player->CombatStopWithPets(true);
 
@@ -907,6 +918,8 @@ void Battleground::EndBattleground(uint32 winner)
 
         player->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_COMPLETE_BATTLEGROUND, player->GetMapId());
     }
+
+    sScriptMgr->OnBattlegroundEnd(this, winner);
 }
 
 uint32 Battleground::GetBonusHonorFromKill(uint32 kills) const
@@ -1033,6 +1046,8 @@ void Battleground::RemovePlayerAtLeave(ObjectGuid guid, bool Transport, bool Sen
             player->TeleportToBGEntryPoint();
 
         TC_LOG_DEBUG("bg.battleground", "Removed player %s from Battleground.", player->GetName().c_str());
+
+        sScriptMgr->OnBattlegroundRemovePlayerAtLeave(this, player);
     }
 
     //battleground object will be deleted next Battleground::Update() call
@@ -1087,6 +1102,8 @@ void Battleground::AddPlayer(Player* player)
     // remove afk from player
     if (player->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_AFK))
         player->ToggleAFK();
+
+    sScriptMgr->OnBattlegroundBeforeAddPlayer(this, player);
 
     // score struct must be created in inherited class
 
@@ -1148,6 +1165,8 @@ void Battleground::AddPlayer(Player* player)
     // setup BG group membership
     PlayerAddedToBGCheckIfBGIsRunning(player);
     AddOrSetPlayerToCorrectBgGroup(player, team);
+
+    sScriptMgr->OnBattlegroundAddPlayer(this, player);
 }
 
 // this method adds player to his team's bg group, or sets his correct group if player is already in bg group

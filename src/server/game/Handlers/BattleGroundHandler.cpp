@@ -37,6 +37,7 @@
 #include "ObjectMgr.h"
 #include "Opcodes.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "World.h"
 #include "WorldPacket.h"
 
@@ -144,6 +145,15 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
 
     GroupJoinBattlegroundResult err = ERR_BATTLEGROUND_NONE;
 
+    // let modules veto the join (in 4.3.4 the guid carries the battleground type instead of a battlemaster)
+    if (!sScriptMgr->OnPlayerCanJoinInBattlegroundQueue(_player, guid, bgTypeId, asGroup, err))
+    {
+        WorldPacket data;
+        sBattlegroundMgr->BuildStatusFailedPacket(&data, bg, _player, 0, err != ERR_BATTLEGROUND_NONE ? err : ERR_BATTLEGROUND_JOIN_FAILED);
+        SendPacket(&data);
+        return;
+    }
+
     // check queue conditions
     if (!asGroup)
     {
@@ -215,6 +225,8 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
 
         TC_LOG_DEBUG("bg.battleground", "Battleground: player joined queue for bg queue type %u bg type %u: GUID %u, NAME %s",
                        bgQueueTypeId, bgTypeId, _player->GetGUID().GetCounter(), _player->GetName().c_str());
+
+        sScriptMgr->OnPlayerJoinBG(_player);
     }
     else
     {
@@ -265,6 +277,8 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
             member->SendDirectMessage(&data);
             TC_LOG_DEBUG("bg.battleground", "Battleground: player joined queue for bg queue type %u bg type %u: GUID %u, NAME %s",
                 bgQueueTypeId, bgTypeId, member->GetGUID().GetCounter(), member->GetName().c_str());
+
+            sScriptMgr->OnPlayerJoinBG(member);
         }
         TC_LOG_DEBUG("bg.battleground", "Battleground: group end");
     }
@@ -592,14 +606,21 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket &recvData)
         TC_LOG_DEBUG("bg.battleground", "Battleground: player %s (%u) left queue for bgtype %u, queue type %u.", _player->GetName().c_str(), _player->GetGUID().GetCounter(), bg->GetTypeID(), bgQueueTypeId);
 
         // track if player refuses to join the BG after being invited
-        if (bg->isBattleground() && sWorld->getBoolConfig(CONFIG_BATTLEGROUND_TRACK_DESERTERS) &&
-                (bg->GetStatus() == STATUS_IN_PROGRESS || bg->GetStatus() == STATUS_WAIT_JOIN))
+        if (bg->isBattleground() && (bg->GetStatus() == STATUS_IN_PROGRESS || bg->GetStatus() == STATUS_WAIT_JOIN))
         {
-            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_DESERTER_TRACK);
-            stmt->setUInt32(0, _player->GetGUID().GetCounter());
-            stmt->setUInt8(1, BG_DESERTION_TYPE_LEAVE_QUEUE);
-            CharacterDatabase.Execute(stmt);
+            if (sWorld->getBoolConfig(CONFIG_BATTLEGROUND_TRACK_DESERTERS))
+            {
+                CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_DESERTER_TRACK);
+                stmt->setUInt32(0, _player->GetGUID().GetCounter());
+                stmt->setUInt8(1, BG_DESERTION_TYPE_LEAVE_QUEUE);
+                CharacterDatabase.Execute(stmt);
+            }
+
+            sScriptMgr->OnPlayerBattlegroundDesertion(_player, BG_DESERTION_TYPE_LEAVE_QUEUE);
         }
+
+        if (bg->isArena() && (bg->GetStatus() == STATUS_IN_PROGRESS || bg->GetStatus() == STATUS_WAIT_JOIN))
+            sScriptMgr->OnPlayerBattlegroundDesertion(_player, ARENA_DESERTION_TYPE_LEAVE_QUEUE);
     }
 }
 
@@ -783,6 +804,8 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPacket& recvData)
         member->SendDirectMessage(&data);
 
         TC_LOG_DEBUG("bg.battleground", "Battleground: player joined queue for arena as group bg queue type %u bg type %u: GUID %u, NAME %s", bgQueueTypeId, bgTypeId, member->GetGUID().GetCounter(), member->GetName().c_str());
+
+        sScriptMgr->OnPlayerJoinArena(member);
     }
 
     sBattlegroundMgr->ScheduleQueueUpdate(matchmakerRating, arenatype, bgQueueTypeId, bgTypeId, bracketEntry->GetBracketId());

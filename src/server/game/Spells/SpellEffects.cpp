@@ -480,6 +480,13 @@ void Spell::EffectDummy(SpellEffIndex effIndex)
     // normal DB scripted effect
     TC_LOG_DEBUG("spells", "Spell ScriptStart spellid %u in EffectDummy(%u)", m_spellInfo->Id, effIndex);
     m_caster->GetMap()->ScriptsStart(sSpellScripts, uint32(m_spellInfo->Id | (effIndex << 24)), m_caster, unitTarget);
+
+    if (gameObjTarget)
+        sScriptMgr->OnDummyEffect(m_caster, m_spellInfo->Id, effIndex, gameObjTarget);
+    else if (unitTarget && unitTarget->GetTypeId() == TYPEID_UNIT)
+        sScriptMgr->OnDummyEffect(m_caster, m_spellInfo->Id, effIndex, unitTarget->ToCreature());
+    else if (itemTarget)
+        sScriptMgr->OnDummyEffect(m_caster, m_spellInfo->Id, effIndex, itemTarget);
 }
 
 void Spell::EffectTriggerSpell(SpellEffIndex effIndex)
@@ -1389,6 +1396,8 @@ void Spell::DoCreateItem(uint32 /*i*/, uint32 itemtype)
 
         // send info to the client
         player->SendNewItem(pItem, num_to_add, true, bgType == 0);
+
+        sScriptMgr->OnPlayerCreateItem(player, pItem, num_to_add);
 
         if (Guild* guild = player->GetGuild())
         {

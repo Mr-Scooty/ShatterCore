@@ -38,9 +38,9 @@ class TC_GAME_API LFGPlayerScript : public PlayerScript
         LFGPlayerScript();
 
         // Player Hooks
-        void OnLogout(Player* player) override;
-        void OnLogin(Player* player, bool loginFirst) override;
-        void OnMapChanged(Player* player) override;
+        void OnPlayerLogout(Player* player) override;
+        void OnPlayerLogin(Player* player) override;
+        void OnPlayerMapChanged(Player* player) override;
 };
 
 class TC_GAME_API LFGGroupScript : public GroupScript

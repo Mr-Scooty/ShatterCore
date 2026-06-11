@@ -70,11 +70,13 @@ target_include_directories(boost
   INTERFACE
     ${Boost_INCLUDE_DIRS})
 
+# BOOST_ASIO_NO_DEPRECATED is intentionally not defined: Boost >= 1.87 moved
+# the whole deadline-timer API (used by Trinity::Asio::DeadlineTimer) behind
+# the deprecation guard.
 target_compile_definitions(boost
   INTERFACE
     -DBOOST_ALL_NO_LIB
     -DBOOST_CONFIG_SUPPRESS_OUTDATED_MESSAGE
-    -DBOOST_ASIO_NO_DEPRECATED
     -DBOOST_BIND_NO_PLACEHOLDERS)
 
 if (NOT boost_filesystem_copy_links_without_NO_SCOPED_ENUM)

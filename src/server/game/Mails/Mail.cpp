@@ -27,6 +27,7 @@
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "World.h"
 
 MailSender::MailSender(Object* sender, MailStationery stationery) : m_stationery(stationery)
@@ -181,6 +182,18 @@ void MailDraft::SendReturnToSender(uint32 sender_acc, ObjectGuid::LowType sender
 
 void MailDraft::SendMailTo(CharacterDatabaseTransaction& trans, MailReceiver const& receiver, MailSender const& sender, MailCheckMask checked, uint32 deliver_delay)
 {
+    uint32 custom_expiration = 0;
+    bool deleteMailItemsFromDB = false;
+    bool sendMail = true;
+
+    sScriptMgr->OnBeforeMailDraftSendMailTo(this, receiver, sender, checked, deliver_delay, custom_expiration, deleteMailItemsFromDB, sendMail);
+
+    if (deleteMailItemsFromDB) // can be changed in the hook
+        deleteIncludedItems(trans, true);
+
+    if (!sendMail) // can be changed in the hook
+        return;
+
     Player* pReceiver = receiver.GetPlayer();               // can be nullptr
     Player* pSender = ObjectAccessor::FindPlayerByLowGUID(sender.GetSenderId());
 
@@ -205,6 +218,8 @@ void MailDraft::SendMailTo(CharacterDatabaseTransaction& trans, MailReceiver con
     {
         if (m_COD)
             expire_delay = 3 * DAY;
+        else if (custom_expiration > 0) // can be set in the hook
+            expire_delay = custom_expiration * DAY;
         else
             expire_delay = pSender && pSender->IsGameMaster() ? 90 * DAY : 30 * DAY;
     }

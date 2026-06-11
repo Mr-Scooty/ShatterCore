@@ -31,6 +31,7 @@
 #include "MovementPacketSender.h"
 #include "MovementPackets.h"
 #include "MovementStructures.h"
+#include "ScriptMgr.h"
 #include "Transport.h"
 #include "Battleground.h"
 #include "InstanceSaveMgr.h"
@@ -319,6 +320,22 @@ void WorldSession::HandleMovementOpcode(uint16 opcode, MovementInfo& movementInf
     if (!movementInfo.pos.IsPositionValid())
     {
         TC_LOG_ERROR("network", "HandleMovementOpcodes: Invalid Position");
+        if (plrMover)
+            sScriptMgr->AnticheatUpdateMovementInfo(plrMover, movementInfo);
+        return;
+    }
+
+    bool const jumpOpcode = opcode == MSG_MOVE_JUMP;
+    if (plrMover && jumpOpcode && !sScriptMgr->AnticheatHandleDoubleJump(plrMover, mover))
+    {
+        plrMover->GetSession()->KickPlayer();
+        return;
+    }
+
+    /* start some hack detection */
+    if (plrMover && !sScriptMgr->AnticheatCheckMovementInfo(plrMover, movementInfo, mover, jumpOpcode))
+    {
+        plrMover->GetSession()->KickPlayer();
         return;
     }
 
@@ -331,7 +348,11 @@ void WorldSession::HandleMovementOpcode(uint16 opcode, MovementInfo& movementInf
     {
         // We were teleported, skip packets that were broadcast before teleport
         if (movementInfo.pos.GetExactDist2d(mover) > SIZE_OF_GRIDS)
+        {
+            if (plrMover)
+                sScriptMgr->AnticheatUpdateMovementInfo(plrMover, movementInfo);
             return;
+        }
 
         // transports size limited
         // (also received at zeppelin leave by some reason with t_* as absolute in continent coordinates, can be safely skipped)
@@ -340,7 +361,11 @@ void WorldSession::HandleMovementOpcode(uint16 opcode, MovementInfo& movementInf
 
         if (!Trinity::IsValidMapCoord(movementInfo.pos.GetPositionX() + movementInfo.transport.pos.GetPositionX(), movementInfo.pos.GetPositionY() + movementInfo.transport.pos.GetPositionY(),
             movementInfo.pos.GetPositionZ() + movementInfo.transport.pos.GetPositionZ(), movementInfo.pos.GetOrientation() + movementInfo.transport.pos.GetOrientation()))
+        {
+            if (plrMover)
+                sScriptMgr->AnticheatUpdateMovementInfo(plrMover, movementInfo);
             return;
+        }
 
         // if we boarded a transport, add us to it
         if (plrMover)
@@ -370,15 +395,26 @@ void WorldSession::HandleMovementOpcode(uint16 opcode, MovementInfo& movementInf
             movementInfo.transport.Reset();
     }
     else if (plrMover && plrMover->GetTransport())                // if we were on a transport, leave
+    {
+        sScriptMgr->AnticheatSetUnderACKmount(plrMover);
         plrMover->GetTransport()->RemovePassenger(plrMover);
+    }
 
     // fall damage generation (ignore in flight case that can be triggered also at lags in moment teleportation to another map).
     if (opcode == MSG_MOVE_FALL_LAND && plrMover && !plrMover->IsInFlight())
+    {
         plrMover->HandleFall(movementInfo);
+        sScriptMgr->AnticheatSetJumpingbyOpcode(plrMover, false);
+    }
 
     // interrupt parachutes upon falling or landing in water
     if (opcode == MSG_MOVE_FALL_LAND || opcode == MSG_MOVE_START_SWIM || opcode == CMSG_MOVE_SET_CAN_FLY)
+    {
         mover->RemoveAurasWithInterruptFlags(SpellAuraInterruptFlags::LandingOrFlight); // Parachutes
+
+        if (plrMover)
+            sScriptMgr->AnticheatSetJumpingbyOpcode(plrMover, false);
+    }
 
     /* process position-change */
     int64 movementTime = (int64)movementInfo.time + _timeSyncClockDelta;
@@ -420,6 +456,9 @@ void WorldSession::HandleMovementOpcode(uint16 opcode, MovementInfo& movementInf
 
     if (plrMover)                                            // nothing is charmed, or player charmed
     {
+        // Hook for OnPlayerMove
+        sScriptMgr->OnPlayerMove(plrMover, movementInfo, opcode);
+
         if (plrMover->IsSitState() && (movementInfo.flags & (MOVEMENTFLAG_MASK_MOVING | MOVEMENTFLAG_MASK_TURNING)))
             plrMover->SetStandState(UNIT_STAND_STATE_STAND);
 
@@ -492,6 +531,8 @@ void WorldSession::HandleForceSpeedChangeAck(WorldPacket &recvData)
             TC_LOG_ERROR("network", "WorldSession::HandleForceSpeedChangeAck: Unknown move type opcode: %s", GetOpcodeNameForLogging(static_cast<OpcodeClient>(recvData.GetOpcode())).c_str());
             return;
     }
+
+    sScriptMgr->AnticheatSetUnderACKmount(_player);
 
     MovementChangeType changeType = MovementPacketSender::GetChangeTypeByMoveType(move_type);
 
@@ -746,6 +787,8 @@ void WorldSession::HandleMoveSetCanFlyAckOpcode(WorldPacket& recvData)
     PlayerMovementPendingChange const* pendingChange = mover->GetPendingMovementChange(MovementChangeType::SET_CAN_FLY);
     if (!pendingChange || pendingChange->movementCounter != movementInfo.movementCounter)
         return;
+
+    sScriptMgr->AnticheatSetCanFlybyServer(_player, movementInfo.HasMovementFlag(MOVEMENTFLAG_CAN_FLY));
 
     int64 movementTime = (int64)movementInfo.time + _timeSyncClockDelta;
     if (_timeSyncClockDelta == 0 || movementTime < 0 || movementTime > 0xFFFFFFFF)

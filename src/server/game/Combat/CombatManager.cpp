@@ -20,6 +20,7 @@
 #include "Unit.h"
 #include "CreatureAI.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 
 /*static*/ bool CombatManager::CanBeginCombat(Unit const* a, Unit const* b)
 {
@@ -372,6 +373,9 @@ bool CombatManager::UpdateOwnerCombatState() const
         _owner->AtEnterCombat();
         if (_owner->GetTypeId() != TYPEID_UNIT)
             _owner->AtEngage(GetAnyTarget());
+
+        if (Player* player = _owner->ToPlayer())
+            sScriptMgr->OnPlayerEnterCombat(player, GetAnyTarget());
     }
     else
     {
@@ -379,6 +383,9 @@ bool CombatManager::UpdateOwnerCombatState() const
         _owner->AtExitCombat();
         if (_owner->GetTypeId() != TYPEID_UNIT)
             _owner->AtDisengage();
+
+        if (Player* player = _owner->ToPlayer())
+            sScriptMgr->OnPlayerLeaveCombat(player);
     }
 
     if (Unit* master = _owner->GetCharmerOrOwner())

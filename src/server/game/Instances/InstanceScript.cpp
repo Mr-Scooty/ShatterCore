@@ -101,6 +101,8 @@ void InstanceScript::OnGameObjectCreate(GameObject* go)
 {
     AddObject(go, true);
     AddDoor(go, true);
+
+    sScriptMgr->AfterInstanceGameObjectCreate(instance, go);
 }
 
 void InstanceScript::OnGameObjectRemove(GameObject* go)
@@ -367,6 +369,7 @@ bool InstanceScript::SetBossState(uint32 id, EncounterState state)
     if (id < bosses.size())
     {
         BossInfo* bossInfo = &bosses[id];
+        sScriptMgr->OnBeforeSetBossState(id, state, bossInfo->state, instance);
         if (bossInfo->state == TO_BE_DECIDED) // loading
         {
             bossInfo->state = state;
@@ -696,7 +699,7 @@ void InstanceScript::SendEncounterUnit(uint32 type, Unit* unit /*= nullptr*/, ui
     instance->SendToPlayers(packet.Write());
 }
 
-void InstanceScript::UpdateEncounterState(EncounterCreditType type, uint32 creditEntry, Unit* /*source*/)
+void InstanceScript::UpdateEncounterState(EncounterCreditType type, uint32 creditEntry, Unit* source)
 {
     DungeonEncounterList const* encounters = sObjectMgr->GetDungeonEncounterList(instance->GetId(), instance->GetDifficulty());
     if (!encounters)
@@ -704,6 +707,7 @@ void InstanceScript::UpdateEncounterState(EncounterCreditType type, uint32 credi
 
     uint32 dungeonId = 0;
     uint32 encounterId = 0;
+    uint32 prevMask = completedEncounters;
 
     bool isFinalEncounter = false;
     for (DungeonEncounter const* encounter : *encounters)
@@ -740,6 +744,8 @@ void InstanceScript::UpdateEncounterState(EncounterCreditType type, uint32 credi
             }
         }
     }
+
+    sScriptMgr->OnAfterUpdateEncounterState(instance, type, creditEntry, source, instance->GetDifficulty(), encounters, dungeonId, prevMask != completedEncounters);
 
     bool LFGRewarded = false;
     std::unordered_map<ObjectGuid::LowType /*guildId*/, uint8 /*minPlayerLevel*/> minlevelByGuild;

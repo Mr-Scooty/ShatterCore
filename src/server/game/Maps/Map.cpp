@@ -2780,18 +2780,9 @@ void InstanceMap::CreateInstanceData(bool load)
     if (i_data != nullptr)
         return;
 
-    InstanceTemplate const* mInstance = sObjectMgr->GetInstanceTemplate(GetId());
-    if (mInstance)
-    {
-        i_script_id = mInstance->ScriptId;
-        i_data = sScriptMgr->CreateInstanceData(this);
-    }
-
-    if (!i_data)
-        return;
-
-    i_data->Initialize();
-
+    // Load the saved instance data first so that module scripts can inspect it
+    std::string data;
+    uint32 completedEncounterMask = 0;
     if (load)
     {
         /// @todo make a global storage for this
@@ -2803,13 +2794,38 @@ void InstanceMap::CreateInstanceData(bool load)
         if (result)
         {
             Field* fields = result->Fetch();
-            std::string data = fields[0].GetString();
-            i_data->SetCompletedEncountersMask(fields[1].GetUInt32());
-            if (!data.empty())
-            {
-                TC_LOG_DEBUG("maps", "Loading instance data for `%s` with id %u", sObjectMgr->GetScriptName(i_script_id).c_str(), i_InstanceId);
-                i_data->Load(data.c_str());
-            }
+            data = fields[0].GetString();
+            completedEncounterMask = fields[1].GetUInt32();
+        }
+    }
+
+    // AllMapScripts may provide an InstanceScript for any instance map
+    sScriptMgr->OnBeforeCreateInstanceScript(this, &i_data, load, data, completedEncounterMask);
+    bool const createdByModule = i_data != nullptr;
+
+    if (!i_data)
+    {
+        InstanceTemplate const* mInstance = sObjectMgr->GetInstanceTemplate(GetId());
+        if (mInstance)
+        {
+            i_script_id = mInstance->ScriptId;
+            i_data = sScriptMgr->CreateInstanceData(this);
+        }
+    }
+
+    if (!i_data)
+        return;
+
+    if (!createdByModule || !load)
+        i_data->Initialize();
+
+    if (load)
+    {
+        i_data->SetCompletedEncountersMask(completedEncounterMask);
+        if (!data.empty())
+        {
+            TC_LOG_DEBUG("maps", "Loading instance data for `%s` with id %u", sObjectMgr->GetScriptName(i_script_id).c_str(), i_InstanceId);
+            i_data->Load(data.c_str());
         }
     }
     else

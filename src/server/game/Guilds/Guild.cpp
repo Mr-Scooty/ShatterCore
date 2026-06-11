@@ -3647,6 +3647,9 @@ void Guild::_BroadcastEvent(GuildEvents guildEvent, ObjectGuid guid, char const*
 
 void Guild::SendBankList(WorldSession* session, uint8 tabId, bool fullUpdate) const
 {
+    if (!sScriptMgr->CanGuildSendBankList(this, session, tabId, fullUpdate))
+        return;
+
     Member const* member = GetMember(session->GetPlayer()->GetGUID());
     if (!member) // Shouldn't happen, just in case
         return;

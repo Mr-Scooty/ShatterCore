@@ -23,6 +23,22 @@
 
 #include <boost/algorithm/string/join.hpp>
 #include <boost/iostreams/copy.hpp>
+// Boost >= 1.86 moved the Process v1 headers below boost/process/v1
+// (the old top-level headers were removed in 1.88); v1 remains an inline
+// namespace of boost::process, so only the include paths differ.
+#if __has_include(<boost/process/v1/args.hpp>)
+// Make v1 the inline namespace of boost::process again
+#ifndef BOOST_PROCESS_VERSION
+#define BOOST_PROCESS_VERSION 1
+#endif
+#include <boost/process/v1/args.hpp>
+#include <boost/process/v1/child.hpp>
+#include <boost/process/v1/env.hpp>
+#include <boost/process/v1/exe.hpp>
+#include <boost/process/v1/io.hpp>
+#include <boost/process/v1/pipe.hpp>
+#include <boost/process/v1/search_path.hpp>
+#else
 #include <boost/process/args.hpp>
 #include <boost/process/child.hpp>
 #include <boost/process/env.hpp>
@@ -30,6 +46,7 @@
 #include <boost/process/io.hpp>
 #include <boost/process/pipe.hpp>
 #include <boost/process/search_path.hpp>
+#endif
 
 using namespace boost::process;
 using namespace boost::iostreams;

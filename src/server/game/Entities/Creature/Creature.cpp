@@ -46,6 +46,7 @@
 #include "PoolMgr.h"
 #include "QueryPackets.h"
 #include "QuestDef.h"
+#include "ScriptMgr.h"
 #include "ScriptedGossip.h"
 #include "SpellAuraEffects.h"
 #include "SpellMgr.h"
@@ -318,6 +319,8 @@ void Creature::AddToWorld()
 
         if (GetZoneScript())
             GetZoneScript()->OnCreatureCreate(this);
+
+        sScriptMgr->OnCreatureAddWorld(this);
     }
 }
 
@@ -325,6 +328,8 @@ void Creature::RemoveFromWorld()
 {
     if (IsInWorld())
     {
+        sScriptMgr->OnCreatureRemoveWorld(this);
+
         if (GetZoneScript())
             GetZoneScript()->OnCreatureRemove(this);
 
@@ -860,6 +865,8 @@ void Creature::Update(uint32 diff)
                     if (CreatureAI* ai = AI())
                         ai->EnterEvadeMode(CreatureAI::EVADE_REASON_NO_PATH);
             }
+
+            sScriptMgr->OnCreatureUpdate(this, diff);
             break;
         }
         default:
@@ -1413,6 +1420,8 @@ void Creature::SaveToDB(uint32 mapid, uint8 spawnMask)
     trans->Append(stmt);
 
     WorldDatabase.CommitTransaction(trans);
+
+    sScriptMgr->OnCreatureSaveToDB(this);
 }
 
 void Creature::SelectLevel()
@@ -1423,7 +1432,12 @@ void Creature::SelectLevel()
     uint8 minlevel = std::min(cInfo->maxlevel, cInfo->minlevel);
     uint8 maxlevel = std::max(cInfo->maxlevel, cInfo->minlevel);
     uint8 level = minlevel == maxlevel ? minlevel : urand(minlevel, maxlevel);
+
+    sScriptMgr->OnBeforeCreatureSelectLevel(cInfo, this, level);
+
     SetLevel(level);
+
+    sScriptMgr->OnCreatureSelectLevel(cInfo, this);
 }
 
 void Creature::UpdateLevelDependantStats()
@@ -3312,6 +3326,8 @@ void Creature::AtEngage(Unit* target)
         ai->JustEngagedWith(target);
     if (CreatureGroup* formation = GetFormation())
         formation->MemberEngagingTarget(this, target);
+
+    sScriptMgr->OnUnitEnterCombat(this, target);
 
     if (GetAI() && !IsControlledByPlayer())
         SendAIReaction(AI_REACTION_HOSTILE);

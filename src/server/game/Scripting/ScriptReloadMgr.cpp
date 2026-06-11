@@ -861,7 +861,9 @@ private:
 
         {
             boost::system::error_code code;
-            fs::copy_file(path, cache_path, fs::copy_option::fail_if_exists, code);
+            // copy_options replaces copy_option (removed in Boost >= 1.85);
+            // the new name exists since Boost 1.74.
+            fs::copy_file(path, cache_path, fs::copy_options::none, code);
             if (code)
             {
                 TC_LOG_FATAL("scripts.hotswap", ">> Failed to create cache entry for module "
@@ -1609,8 +1611,10 @@ void SourceUpdateListener::handleFileAction(efsw::WatchID watchid, std::string c
 std::shared_ptr<ModuleReference>
     ScriptReloadMgr::AcquireModuleReferenceOfContext(std::string const& context)
 {
-    // Return empty references for the static context exported by the worldserver
-    if (context == ScriptMgr::GetNameOfStaticContext())
+    // Return empty references for the static and statically linked modules
+    // contexts exported by the worldserver
+    if (context == ScriptMgr::GetNameOfStaticContext()
+        || context == ScriptMgr::GetNameOfModulesContext())
         return { };
 
     auto const itr = sScriptReloadMgr->_running_script_modules.find(context);

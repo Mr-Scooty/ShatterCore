@@ -44,6 +44,7 @@
 #include "ObjectMgr.h"
 #include "Opcodes.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "World.h"
 #include "WorldPacket.h"
 
@@ -674,6 +675,8 @@ Battleground* BattlegroundMgr::CreateNewBattleground(BattlegroundTypeId original
                 break;
         }
 
+        sScriptMgr->OnSetArenaMaxPlayersPerTeam(arenaType, maxPlayersPerTeam);
+
         bg->SetMaxPlayersPerTeam(maxPlayersPerTeam);
         bg->SetMaxPlayers(maxPlayersPerTeam * 2);
     }
@@ -969,17 +972,27 @@ BattlegroundQueueTypeId BattlegroundMgr::BGQueueTypeId(BattlegroundTypeId bgType
         case BATTLEGROUND_NA:
         case BATTLEGROUND_RL:
         case BATTLEGROUND_RV:
+        {
+            uint32 queueTypeID = BATTLEGROUND_QUEUE_NONE;
             switch (arenaType)
             {
                 case ARENA_TYPE_2v2:
-                    return BATTLEGROUND_QUEUE_2v2;
+                    queueTypeID = BATTLEGROUND_QUEUE_2v2;
+                    break;
                 case ARENA_TYPE_3v3:
-                    return BATTLEGROUND_QUEUE_3v3;
+                    queueTypeID = BATTLEGROUND_QUEUE_3v3;
+                    break;
                 case ARENA_TYPE_5v5:
-                    return BATTLEGROUND_QUEUE_5v5;
+                    queueTypeID = BATTLEGROUND_QUEUE_5v5;
+                    break;
                 default:
-                    return BATTLEGROUND_QUEUE_NONE;
+                    break;
             }
+
+            sScriptMgr->OnArenaTypeIDToQueueID(bgTypeId, arenaType, queueTypeID);
+
+            return BattlegroundQueueTypeId(queueTypeID);
+        }
         default:
             return BATTLEGROUND_QUEUE_NONE;
     }
@@ -1018,17 +1031,25 @@ BattlegroundTypeId BattlegroundMgr::BGTemplateId(BattlegroundQueueTypeId bgQueue
 
 uint8 BattlegroundMgr::BGArenaType(BattlegroundQueueTypeId bgQueueTypeId)
 {
+    uint8 arenaType = 0;
     switch (bgQueueTypeId)
     {
         case BATTLEGROUND_QUEUE_2v2:
-            return ARENA_TYPE_2v2;
+            arenaType = ARENA_TYPE_2v2;
+            break;
         case BATTLEGROUND_QUEUE_3v3:
-            return ARENA_TYPE_3v3;
+            arenaType = ARENA_TYPE_3v3;
+            break;
         case BATTLEGROUND_QUEUE_5v5:
-            return ARENA_TYPE_5v5;
+            arenaType = ARENA_TYPE_5v5;
+            break;
         default:
-            return 0;
+            break;
     }
+
+    sScriptMgr->OnArenaQueueIdToArenaType(bgQueueTypeId, arenaType);
+
+    return arenaType;
 }
 
 void BattlegroundMgr::ToggleTesting()
@@ -1234,7 +1255,11 @@ void BattlegroundMgr::RemoveFromBGFreeSlotQueue(BattlegroundTypeId bgTypeId, uin
 void BattlegroundMgr::AddBattleground(Battleground* bg)
 {
     if (bg)
+    {
         bgDataStore[bg->GetTypeID()].m_Battlegrounds[bg->GetInstanceID()] = bg;
+
+        sScriptMgr->OnBattlegroundCreate(bg);
+    }
 }
 
 void BattlegroundMgr::RemoveBattleground(BattlegroundTypeId bgTypeId, uint32 instanceId)

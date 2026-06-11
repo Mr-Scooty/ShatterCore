@@ -111,7 +111,7 @@ void WorldSession::HandleGMTicketCreateOpcode(WorldPacket& recvData)
             ticket->SetChatLog(times, chatLog);
 
         sTicketMgr->AddTicket(ticket);
-        sTicketMgr->UpdateLastChange();
+        sTicketMgr->UpdateLastChange(ticket);
 
         sWorld->SendGMText(LANG_COMMAND_TICKETNEW, GetPlayer()->GetName().c_str(), ticket->GetId());
 

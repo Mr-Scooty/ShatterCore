@@ -5737,7 +5737,7 @@ void AuraEffect::HandlePeriodicDamageAurasTick(Unit* target, Unit* caster) const
     uint32 damage = std::max(GetAmount(), 0);
 
     // Script Hook For HandlePeriodicDamageAurasTick -- Allow scripts to change the Damage pre class mitigation calculations
-    sScriptMgr->ModifyPeriodicDamageAurasTick(target, caster, damage);
+    sScriptMgr->ModifyPeriodicDamageAurasTick(target, caster, damage, GetSpellInfo());
 
     if (GetAuraType() == SPELL_AURA_PERIODIC_DAMAGE)
     {
@@ -5869,7 +5869,7 @@ void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) c
     uint32 damage = std::max(GetAmount(), 0);
 
     // Script Hook For HandlePeriodicDamageAurasTick -- Allow scripts to change the Damage pre class mitigation calculations
-    sScriptMgr->ModifyPeriodicDamageAurasTick(target, caster, damage);
+    sScriptMgr->ModifyPeriodicDamageAurasTick(target, caster, damage, GetSpellInfo());
 
     // dynobj auras must always have a caster
     if (GetBase()->GetType() == DYNOBJ_AURA_TYPE)
@@ -5997,7 +5997,8 @@ void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
     uint32 damage = std::max(GetAmount(), 0);
 
     // Script Hook For HandlePeriodicHealAurasTick -- Allow scripts to change the Damage pre class mitigation calculations
-    sScriptMgr->ModifyPeriodicDamageAurasTick(target, caster, damage);
+    sScriptMgr->ModifyPeriodicDamageAurasTick(target, caster, damage, GetSpellInfo());
+    sScriptMgr->ModifyHealReceived(target, caster, damage, GetSpellInfo());
 
     if (GetAuraType() == SPELL_AURA_OBS_MOD_HEALTH)
         damage = uint32(target->CountPctFromMaxHealth(damage));

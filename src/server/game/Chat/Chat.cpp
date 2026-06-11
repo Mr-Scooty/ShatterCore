@@ -411,6 +411,9 @@ bool ChatHandler::SetDataForCommandInTable(std::vector<ChatCommand>& table, char
 
 bool ChatHandler::_ParseCommands(char const* text)
 {
+    if (!sScriptMgr->OnTryExecuteCommand(*this, text))
+        return true;
+
     if (ExecuteCommandInTable(getCommandTable(), text, text))
         return true;
 

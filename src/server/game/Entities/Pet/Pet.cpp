@@ -24,6 +24,7 @@
 #include "SpellMgr.h"
 #include "Pet.h"
 #include "Formulas.h"
+#include "ScriptMgr.h"
 #include "SpellHistory.h"
 #include "SpellAuras.h"
 #include "SpellAuraEffects.h"
@@ -81,6 +82,9 @@ void Pet::AddToWorld()
         GetCharmInfo()->SetIsFollowing(false);
         GetCharmInfo()->SetIsReturning(false);
     }
+
+    if (GetOwnerGUID().IsPlayer())
+        sScriptMgr->OnPetAddToWorld(this);
 }
 
 void Pet::RemoveFromWorld()
@@ -996,6 +1000,8 @@ bool Guardian::InitStatsForLevel(uint8 petlevel)
         }
     }
 
+    sScriptMgr->OnInitStatsForLevel(this, petlevel);
+
     UpdateAllStats();
 
     SetFullHealth();
@@ -1425,7 +1431,7 @@ void Pet::InitLevelupSpellsForLevel()
         for (PetLevelupSpellSet::const_iterator itr = levelupSpells->begin(); itr != levelupSpells->end(); ++itr)
         {
             // will called first if level down
-            if (itr->first > level)
+            if (itr->first > level && sScriptMgr->CanUnlearnSpellSet(this, itr->first, itr->second))
                 unlearnSpell(itr->second, true);                 // will learn prev rank if any
             // will called if level up
             else
@@ -1445,7 +1451,7 @@ void Pet::InitLevelupSpellsForLevel()
                 continue;
 
             // will called first if level down
-            if (spellInfo->SpellLevel > level)
+            if (spellInfo->SpellLevel > level && sScriptMgr->CanUnlearnSpellDefault(this, spellInfo))
                 unlearnSpell(spellInfo->Id, true);
             // will called if level up
             else
@@ -1546,6 +1552,9 @@ void Pet::InitPetCreateSpells()
 bool Pet::resetTalents()
 {
     Player* player = GetOwner();
+
+    if (!sScriptMgr->CanResetTalents(this))
+        return false;
 
     // not need after this call
     if (player->HasAtLoginFlag(AT_LOGIN_RESET_PET_TALENTS))
@@ -1714,6 +1723,9 @@ uint8 Pet::GetMaxTalentPointsForLevel(uint8 level) const
     uint8 points = (level >= 20) ? ((level - 16) / 4) : 0;
     // Mod points from owner SPELL_AURA_MOD_PET_TALENT_POINTS
     points += GetOwner()->GetTotalAuraModifier(SPELL_AURA_MOD_PET_TALENT_POINTS);
+
+    sScriptMgr->OnCalculateMaxTalentPointsForLevel(const_cast<Pet*>(this), level, points);
+
     return points;
 }
 

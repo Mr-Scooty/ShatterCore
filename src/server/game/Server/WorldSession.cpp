@@ -308,6 +308,9 @@ void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/
 
     sScriptMgr->OnPacketSend(this, *packet);
 
+    if (!sScriptMgr->CanPacketSend(this, *packet))
+        return;
+
     TC_LOG_TRACE("network.opcode", "S->C: %s %s", GetPlayerInfo().c_str(), GetOpcodeNameForLogging(static_cast<OpcodeServer>(packet->GetOpcode())).c_str());
     m_Socket[conIdx]->SendPacket(*packet);
 }
@@ -381,6 +384,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
                     }
                     else if (_player->IsInWorld() && AntiDOS.EvaluateOpcode(*packet, currentTime))
                     {
+                        if (!sScriptMgr->CanPacketReceive(this, *packet))
+                            break;
+
                         sScriptMgr->OnPacketReceive(this, *packet);
                         opHandle->Call(this, *packet);
                     }
@@ -395,6 +401,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
                     else if (AntiDOS.EvaluateOpcode(*packet, currentTime))
                     {
                         // not expected _player or must checked in packet hanlder
+                        if (!sScriptMgr->CanPacketReceive(this, *packet))
+                            break;
+
                         sScriptMgr->OnPacketReceive(this, *packet);
                         opHandle->Call(this, *packet);
                     }
@@ -408,6 +417,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
                         LogUnexpectedOpcode(packet, "STATUS_TRANSFER", "the player is still in world");
                     else if(AntiDOS.EvaluateOpcode(*packet, currentTime))
                     {
+                        if (!sScriptMgr->CanPacketReceive(this, *packet))
+                            break;
+
                         sScriptMgr->OnPacketReceive(this, *packet);
                         opHandle->Call(this, *packet);
                     }
@@ -429,6 +441,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
                     if (AntiDOS.EvaluateOpcode(*packet, currentTime))
                     {
+                        if (!sScriptMgr->CanPacketReceive(this, *packet))
+                            break;
+
                         sScriptMgr->OnPacketReceive(this, *packet);
                         opHandle->Call(this, *packet);
                     }
@@ -541,6 +556,9 @@ void WorldSession::LogoutPlayer(bool save)
 
     if (_player)
     {
+        //! Call script hook before other logout events
+        sScriptMgr->OnPlayerBeforeLogout(_player);
+
         if (ObjectGuid lguid = _player->GetLootGUID())
             DoLootRelease(lguid);
 
@@ -580,12 +598,18 @@ void WorldSession::LogoutPlayer(bool save)
             if (BattlegroundQueueTypeId bgQueueTypeId = _player->GetBattlegroundQueueTypeId(i))
             {
                 // track if player logs out after invited to join BG
-                if (_player->IsInvitedForBattlegroundQueueType(bgQueueTypeId) && sWorld->getBoolConfig(CONFIG_BATTLEGROUND_TRACK_DESERTERS))
+                if (_player->IsInvitedForBattlegroundQueueType(bgQueueTypeId))
                 {
-                    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_DESERTER_TRACK);
-                    stmt->setUInt32(0, _player->GetGUID().GetCounter());
-                    stmt->setUInt8(1, BG_DESERTION_TYPE_INVITE_LOGOUT);
-                    CharacterDatabase.Execute(stmt);
+                    if (sWorld->getBoolConfig(CONFIG_BATTLEGROUND_TRACK_DESERTERS))
+                    {
+                        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_DESERTER_TRACK);
+                        stmt->setUInt32(0, _player->GetGUID().GetCounter());
+                        stmt->setUInt8(1, BG_DESERTION_TYPE_INVITE_LOGOUT);
+                        CharacterDatabase.Execute(stmt);
+                    }
+
+                    bool const isArenaQueue = bgQueueTypeId >= BATTLEGROUND_QUEUE_2v2 && bgQueueTypeId <= BATTLEGROUND_QUEUE_5v5;
+                    sScriptMgr->OnPlayerBattlegroundDesertion(_player, isArenaQueue ? ARENA_DESERTION_TYPE_INVITE_LOGOUT : BG_DESERTION_TYPE_INVITE_LOGOUT);
                 }
 
                 _player->RemoveBattlegroundQueueId(bgQueueTypeId);
@@ -1249,7 +1273,11 @@ void WorldSession::InitializeSessionCallback(CharacterDatabaseQueryHolder const&
     ResetTimeOutTime();
 
     SendAddonsInfo();
-    SendClientCacheVersion(sWorld->getIntConfig(CONFIG_CLIENTCACHE_VERSION));
+
+    uint32 cacheVersion = sWorld->getIntConfig(CONFIG_CLIENTCACHE_VERSION);
+    sScriptMgr->OnBeforeFinalizePlayerWorldSession(cacheVersion);
+    SendClientCacheVersion(cacheVersion);
+
     SendTutorialsData();
 }
 

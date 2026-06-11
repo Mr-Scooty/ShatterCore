@@ -25,16 +25,8 @@
  */
 namespace boost
 {
-    namespace posix_time
-    {
-        class ptime;
-    }
-
     namespace asio
     {
-        template <typename Time>
-        struct time_traits;
-
         namespace ip
         {
             class address;

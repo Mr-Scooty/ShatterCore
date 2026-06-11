@@ -113,7 +113,9 @@ void AddItemsSetItem(Player* player, Item* item)
                 }
 
                 // spell cast only if fit form requirement, in other case will cast at form change
-                player->ApplyEquipSpell(spellInfo, nullptr, true);
+                if (sScriptMgr->CanItemApplyEquipSpell(player, item))
+                    player->ApplyEquipSpell(spellInfo, nullptr, true);
+
                 eff->spells[y] = spellInfo;
                 break;
             }
@@ -294,6 +296,9 @@ bool Item::Create(ObjectGuid::LowType guidlow, uint32 itemId, Player const* owne
 
     SetUInt32Value(ITEM_FIELD_DURATION, itemProto->GetDuration());
     SetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME, owner ? owner->GetTotalPlayedTime() : 0);
+
+    sScriptMgr->OnItemCreate(this, itemProto, owner);
+
     return true;
 }
 
@@ -454,7 +459,7 @@ bool Item::LoadFromDB(ObjectGuid::LowType guid, ObjectGuid owner_guid, Field* fi
 
     SetUInt32Value(ITEM_FIELD_FLAGS, fields[5].GetUInt32());
     // Remove bind flag for items vs BIND_NONE set
-    if (IsSoulBound() && proto->GetBonding() == BIND_NONE)
+    if (IsSoulBound() && proto->GetBonding() == BIND_NONE && sScriptMgr->CanApplySoulboundFlag(this, proto))
     {
         ApplyModFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_SOULBOUND, false);
         need_save = true;
@@ -503,6 +508,8 @@ bool Item::LoadFromDB(ObjectGuid::LowType guid, ObjectGuid owner_guid, Field* fi
 /*static*/
 void Item::DeleteFromDB(CharacterDatabaseTransaction& trans, ObjectGuid::LowType itemGuid)
 {
+    sScriptMgr->OnGlobalItemDelFromDB(trans, itemGuid);
+
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE);
     stmt->setUInt32(0, itemGuid);
     trans->Append(stmt);

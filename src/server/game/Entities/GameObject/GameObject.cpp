@@ -41,6 +41,7 @@
 #include "PhasingHandler.h"
 #include "PoolMgr.h"
 #include "QueryPackets.h"
+#include "ScriptMgr.h"
 #include "SpellMgr.h"
 #include "Transport.h"
 #include "UpdateFieldFlags.h"
@@ -588,6 +589,8 @@ void GameObject::AddToWorld()
 
         EnableCollision(toggledState);
         WorldObject::AddToWorld();
+
+        sScriptMgr->OnGameObjectAddWorld(this);
     }
 }
 
@@ -596,6 +599,8 @@ void GameObject::RemoveFromWorld()
     ///- Remove the gameobject from the accessor
     if (IsInWorld())
     {
+        sScriptMgr->OnGameObjectRemoveWorld(this);
+
         if (m_zoneScript)
             m_zoneScript->OnGameObjectRemove(this);
 
@@ -1238,6 +1243,8 @@ void GameObject::Update(uint32 diff)
             break;
         }
     }
+
+    sScriptMgr->OnGameObjectUpdate(this, diff);
 }
 
 void GameObject::Refresh()
@@ -1420,6 +1427,8 @@ void GameObject::SaveToDB(uint32 mapid, uint8 spawnMask)
     trans->Append(stmt);
 
     WorldDatabase.CommitTransaction(trans);
+
+    sScriptMgr->OnGameObjectSaveToDB(this);
 }
 
 bool GameObject::LoadFromDB(ObjectGuid::LowType spawnId, Map* map, bool addToMap, bool)
@@ -1863,6 +1872,9 @@ void GameObject::Use(Unit* user)
 
         if (!m_goInfo->IsUsableMounted())
             playerUser->RemoveAurasByType(SPELL_AURA_MOUNTED);
+
+        if (sScriptMgr->CanGameObjectGossipHello(playerUser, this))
+            return;
 
         playerUser->PlayerTalkClass->ClearMenus();
         if (AI()->GossipHello(playerUser))
@@ -2584,7 +2596,13 @@ QuaternionData GameObject::GetWorldRotation() const
 
 void GameObject::ModifyHealth(int32 change, WorldObject* attackerOrHealer /*= nullptr*/, uint32 spellId /*= 0*/)
 {
-    if (!m_goValue.Building.MaxHealth || !change)
+    if (!m_goValue.Building.MaxHealth)
+        return;
+
+    sScriptMgr->OnGameObjectModifyHealth(this, attackerOrHealer, change, spellId ? sSpellMgr->GetSpellInfo(spellId) : nullptr);
+
+    // if the health isn't being changed, return
+    if (!change)
         return;
 
     // prevent double destructions of the same object
@@ -2656,6 +2674,8 @@ void GameObject::SetDestructibleState(GameObjectDestructibleState state, WorldOb
                 GameEvents::Trigger(GetGOInfo()->building.damagedEvent, attackerOrHealer, this);
             AI()->Damaged(attackerOrHealer, m_goInfo->building.damageEvent);
 
+            sScriptMgr->OnGameObjectDamaged(this, attackerOrHealer ? attackerOrHealer->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr);
+
             RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_DESTROYED);
             SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_DAMAGED);
 
@@ -2678,6 +2698,8 @@ void GameObject::SetDestructibleState(GameObjectDestructibleState state, WorldOb
         }
         case GO_DESTRUCTIBLE_DESTROYED:
         {
+            sScriptMgr->OnGameObjectDestroyed(this, attackerOrHealer ? attackerOrHealer->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr);
+
             if (GetGOInfo()->building.destroyedEvent)
                 GameEvents::Trigger(GetGOInfo()->building.destroyedEvent, attackerOrHealer, this);
             AI()->Destroyed(attackerOrHealer, m_goInfo->building.destroyedEvent);
@@ -2737,6 +2759,8 @@ void GameObject::SetLootState(LootState state, Unit* unit)
 
     AI()->OnLootStateChanged(state, unit);
 
+    sScriptMgr->OnGameObjectLootStateChanged(this, state, unit);
+
     // Start restock timer if the chest is partially looted or not looted at all
     if (GetGoType() == GAMEOBJECT_TYPE_CHEST && state == GO_ACTIVATED && GetGOInfo()->chest.chestRestockTime > 0 && m_restockTime == 0)
         m_restockTime = GameTime::GetGameTime() + GetGOInfo()->chest.chestRestockTime;
@@ -2764,6 +2788,9 @@ void GameObject::SetGoState(GOState state)
 {
     GOState oldState = GetGoState();
     SetByteValue(GAMEOBJECT_BYTES_1, 0, state);
+
+    sScriptMgr->OnGameObjectStateChanged(this, state);
+
     if (AI())
         AI()->OnStateChanged(state);
 

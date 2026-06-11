@@ -36,6 +36,8 @@
 #include "IoContext.h"
 #include "MapManager.h"
 #include "Metric.h"
+#include "ModuleMgr.h"
+#include "ModulesScriptLoader.h"
 #include "MySQLThreading.h"
 #include "ObjectAccessor.h"
 #include "OpenSSLCrypto.h"
@@ -76,6 +78,16 @@ namespace fs = boost::filesystem;
     #define _TRINITY_CORE_CONFIG  "worldserver.conf"
 #endif
 
+// Comma separated list of enabled modules, baked in by the modules target
+#ifndef TC_MODULES_LIST
+    #define TC_MODULES_LIST ""
+#endif
+
+// Comma separated list of module configuration files, baked in by the modules target
+#ifndef CONFIG_FILE_LIST
+    #define CONFIG_FILE_LIST ""
+#endif
+
 #ifdef _WIN32
 #include "ServiceWin32.h"
 char serviceName[] = "worldserver";
@@ -101,7 +113,7 @@ class FreezeDetector
 
         static void Start(std::shared_ptr<FreezeDetector> const& freezeDetector)
         {
-            freezeDetector->_timer.expires_from_now(boost::posix_time::seconds(5));
+            freezeDetector->_timer.expires_after(std::chrono::seconds(5));
             freezeDetector->_timer.async_wait([freezeDetectorRef = std::weak_ptr<FreezeDetector>(freezeDetector)](boost::system::error_code const& error)
             {
                 return Handler(freezeDetectorRef, error);
@@ -199,6 +211,8 @@ extern int main(int argc, char** argv)
         return 1;
     }
 
+    sConfigMgr->SetModuleConfigFileList(CONFIG_FILE_LIST);
+
     std::shared_ptr<Trinity::Asio::IoContext> ioContext = std::make_shared<Trinity::Asio::IoContext>();
 
     sLog->RegisterAppender<AppenderDB>();
@@ -217,6 +231,11 @@ extern int main(int argc, char** argv)
             TC_LOG_INFO("server.worldserver", "Using Boost version: %i.%i.%i", BOOST_VERSION / 100000, BOOST_VERSION / 100 % 1000, BOOST_VERSION % 100);
         }
     );
+
+    // Load the module configuration files of all enabled modules
+    // (after the logger is initialized, before anything reads config values)
+    if (!sConfigMgr->LoadModulesConfigs())
+        return 1;
 
     OpenSSLCrypto::threadsSetup(boost::dll::program_location().remove_filename());
 
@@ -292,6 +311,8 @@ extern int main(int argc, char** argv)
     });
 
     sScriptMgr->SetScriptLoader(AddScripts);
+    sScriptMgr->SetModulesLoader(AddModulesScripts);
+    Trinity::Module::SetEnableModulesList(TC_MODULES_LIST);
     std::shared_ptr<void> sScriptMgrHandle(nullptr, [](void*)
     {
         sScriptMgr->Unload();
@@ -310,6 +331,8 @@ extern int main(int argc, char** argv)
         sOutdoorPvPMgr->Die();                     // unload it before MapManager
         sMapMgr->UnloadAll();                      // unload all grids (including locked in memory)
         sTerrainMgr.UnloadAll();
+
+        sScriptMgr->OnAfterUnloadAllMaps();
     });
 
     // Start the Remote Access port (acceptor) if enabled
@@ -541,7 +564,7 @@ void FreezeDetector::Handler(std::weak_ptr<FreezeDetector> freezeDetectorRef, bo
                 ABORT();
             }
 
-            freezeDetector->_timer.expires_from_now(boost::posix_time::seconds(1));
+            freezeDetector->_timer.expires_after(std::chrono::seconds(1));
             freezeDetector->_timer.async_wait([freezeDetectorRef](boost::system::error_code const& timerError)
             {
                 return Handler(freezeDetectorRef, timerError);
@@ -620,7 +643,7 @@ bool StartDB()
     MySQL::Library_Init();
 
     // Load databases
-    DatabaseLoader loader("server.worldserver", DatabaseLoader::DATABASE_NONE);
+    DatabaseLoader loader("server.worldserver", DatabaseLoader::DATABASE_NONE, TC_MODULES_LIST);
     loader
         .AddDatabase(LoginDatabase, "Login")
         .AddDatabase(CharacterDatabase, "Character")

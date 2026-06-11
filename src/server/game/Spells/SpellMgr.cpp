@@ -27,6 +27,7 @@
 #include "MotionMaster.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "Spell.h"
 #include "SpellAuraDefines.h"
@@ -2920,6 +2921,8 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
         // Saving to DB happens before removing from world - skip saving these auras
         if (spellInfo->HasAuraInterruptFlag(SpellAuraInterruptFlags::LeaveWorld))
             spellInfo->AttributesCu |= SPELL_ATTR0_CU_AURA_CANNOT_BE_SAVED;
+
+        sScriptMgr->OnLoadSpellCustomAttr(spellInfo);
     }
 
     // addition for binary spells, omit spells triggering other spells

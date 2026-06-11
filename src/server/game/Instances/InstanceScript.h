@@ -58,7 +58,7 @@ enum EncounterFrameType
     ENCOUNTER_FRAME_ADD_COMBAT_RES_LIMIT    = 10
 };
 
-enum EncounterState
+enum EncounterState : uint32
 {
     NOT_STARTED   = 0,
     IN_PROGRESS   = 1,

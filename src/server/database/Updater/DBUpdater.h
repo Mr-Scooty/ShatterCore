@@ -72,6 +72,10 @@ public:
 
     static inline std::string GetTableName();
 
+    /// Returns the lowercase database directory suffix used by module
+    /// sql updates (modules/<name>/data/sql/db-<suffix>)
+    static inline std::string GetDBModuleName();
+
     static std::string GetBaseFile();
 
     static bool IsEnabled(uint32 const updateMask);
@@ -80,7 +84,7 @@ public:
 
     static bool Create(DatabaseWorkerPool<T>& pool);
 
-    static bool Update(DatabaseWorkerPool<T>& pool);
+    static bool Update(DatabaseWorkerPool<T>& pool, std::string const& modulesList = {});
 
     static bool Populate(DatabaseWorkerPool<T>& pool);
 

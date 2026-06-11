@@ -517,6 +517,8 @@ bool World::RemoveQueuedPlayer(WorldSession* sess)
 /// Initialize config values
 void World::LoadConfigSettings(bool reload)
 {
+    sScriptMgr->OnBeforeConfigLoad(reload);
+
     if (reload)
     {
         std::string configError;
@@ -2217,6 +2219,12 @@ void World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Initializing Scripts...");
     sScriptMgr->Initialize();
     sScriptMgr->OnConfigLoad(false);                                // must be done after the ScriptMgr has been properly initialized
+    // Unlike AzerothCore, scripts cannot be registered before the databases
+    // are loaded, so this fires as soon as both conditions hold.
+    sScriptMgr->OnAfterDatabasesLoaded(sConfigMgr->GetIntDefault("Updates.EnableDatabases", 0));
+
+    TC_LOG_INFO("server.loading", "Loading custom database tables...");
+    sScriptMgr->OnLoadCustomDatabaseTable();
 
     TC_LOG_INFO("server.loading", "Validating spell scripts...");
     sObjectMgr->ValidateSpellScripts();
@@ -2346,6 +2354,8 @@ void World::SetInitialWorldSettings()
 
     TC_LOG_INFO("server.loading", "Calculate next currency reset time...");
     InitCurrencyResetTime();
+
+    sScriptMgr->OnBeforeWorldInitialized();
 
     uint32 startupDuration = GetMSTimeDiffToNow(startupBegin);
 

@@ -881,7 +881,11 @@ void Aura::Update(uint32 diff, Unit* caster)
 
 int32 Aura::CalcMaxDuration(Unit* caster) const
 {
-    return Aura::CalcMaxDuration(GetSpellInfo(), caster);
+    int32 maxDuration = Aura::CalcMaxDuration(GetSpellInfo(), caster);
+
+    sScriptMgr->OnCalcMaxDuration(this, maxDuration);
+
+    return maxDuration;
 }
 
 /*static*/ int32 Aura::CalcMaxDuration(SpellInfo const* spellInfo, WorldObject* caster)

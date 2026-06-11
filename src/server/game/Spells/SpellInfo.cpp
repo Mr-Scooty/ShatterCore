@@ -29,6 +29,7 @@
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "Random.h"
+#include "ScriptMgr.h"
 #include "Spell.h"
 #include "SpellAuraDefines.h"
 #include "SpellAuraEffects.h"
@@ -1569,6 +1570,9 @@ bool SpellInfo::IsAffectedBySpellMod(SpellModifier const* mod) const
 
     SpellInfo const* affectSpell = sSpellMgr->GetSpellInfo(mod->spellId);
     if (!affectSpell)
+        return false;
+
+    if (!sScriptMgr->OnIsAffectedBySpellModCheck(affectSpell, this, mod))
         return false;
 
     // TEMP: dont use IsAffected - !familyName and !familyFlags are not valid options for spell mods

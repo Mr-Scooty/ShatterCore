@@ -129,7 +129,7 @@ public:
         CharacterDatabaseTransaction trans = CharacterDatabaseTransaction(nullptr);
         ticket->SetAssignedTo(targetGuid, AccountMgr::IsAdminAccount(AccountMgr::GetSecurity(accountId, realm.Id.Realm)));
         ticket->SaveToDB(trans);
-        sTicketMgr->UpdateLastChange();
+        sTicketMgr->UpdateLastChange(ticket);
 
         std::string msg = ticket->FormatMessageString(*handler, nullptr, target.c_str(), nullptr, nullptr, nullptr);
         handler->SendGlobalGMSysMessage(msg.c_str());
@@ -159,7 +159,7 @@ public:
         }
 
         sTicketMgr->ResolveAndCloseTicket(ticket->GetId(), player ? player->GetGUID() : ObjectGuid(uint64(0)));
-        sTicketMgr->UpdateLastChange();
+        sTicketMgr->UpdateLastChange(ticket);
 
         std::string msg = ticket->FormatMessageString(*handler, player ? player->GetName().c_str() : "Console", nullptr, nullptr, nullptr, nullptr);
         handler->SendGlobalGMSysMessage(msg.c_str());
@@ -205,7 +205,7 @@ public:
         CharacterDatabaseTransaction trans = CharacterDatabaseTransaction(nullptr);
         ticket->SetComment(comment);
         ticket->SaveToDB(trans);
-        sTicketMgr->UpdateLastChange();
+        sTicketMgr->UpdateLastChange(ticket);
 
         std::string msg = [&] {
             std::string const assignedName = ticket->GetAssignedToName();
@@ -268,7 +268,7 @@ public:
         std::string msg = ticket->FormatMessageString(*handler, nullptr, nullptr,
             nullptr, nullptr, handler->GetSession() ? handler->GetSession()->GetPlayer()->GetName().c_str() : "Console");
         handler->SendGlobalGMSysMessage(msg.c_str());
-        sTicketMgr->UpdateLastChange();
+        sTicketMgr->UpdateLastChange(ticket);
         return true;
     }
 
@@ -294,8 +294,8 @@ public:
         std::string msg = ticket->FormatMessageString(*handler, nullptr, nullptr, nullptr, handler->GetSession() ? handler->GetSession()->GetPlayer()->GetName().c_str() : "Console", nullptr);
         handler->SendGlobalGMSysMessage(msg.c_str());
 
+        sTicketMgr->UpdateLastChange(ticket);
         sTicketMgr->RemoveTicket(ticket->GetId());
-        sTicketMgr->UpdateLastChange();
 
         if (Player* player = ticket->GetPlayer())
         {
@@ -326,7 +326,7 @@ public:
         if (Player* player = ticket->GetPlayer())
             sTicketMgr->SendTicket(player->GetSession(), ticket);
 
-        sTicketMgr->UpdateLastChange();
+        sTicketMgr->UpdateLastChange(ticket);
         return true;
     }
 
@@ -416,7 +416,7 @@ public:
         CharacterDatabaseTransaction trans = CharacterDatabaseTransaction(nullptr);
         ticket->SetUnassigned();
         ticket->SaveToDB(trans);
-        sTicketMgr->UpdateLastChange();
+        sTicketMgr->UpdateLastChange(ticket);
 
         std::string msg = ticket->FormatMessageString(*handler, nullptr, assignedTo.c_str(),
             handler->GetSession() ? handler->GetSession()->GetPlayer()->GetName().c_str() : "Console", nullptr, nullptr);

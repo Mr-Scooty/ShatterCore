@@ -31,6 +31,7 @@
 #include "Opcodes.h"
 #include "PetitionMgr.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "SpellAuraDefines.h"
 #include "World.h"
 #include "WorldPacket.h"
@@ -142,6 +143,10 @@ void WorldSession::HandlePetitionBuyOpcode(WorldPacket& recvData)
             return;
         }
     }
+
+    uint32 petitionType = type;
+    sScriptMgr->OnPlayerPetitionBuy(_player, creature, charterid, cost, petitionType);
+    type = CharterTypes(petitionType);
 
     if (type == GUILD_CHARTER_TYPE)
     {
@@ -760,38 +765,65 @@ void WorldSession::SendPetitionShowList(ObjectGuid guid)
     WorldPacket data(SMSG_PETITION_SHOWLIST, 8+1+4*6);
     data << guid;                                           // npc guid
 
+    // For guild default
+    uint32 CharterEntry = GUILD_CHARTER;
+    uint32 CharterDispayID = CHARTER_DISPLAY_ID;
+    uint32 CharterCost = sWorld->getIntConfig(CONFIG_CHARTER_COST_GUILD);
+
     if (creature->IsTabardDesigner())
     {
+        sScriptMgr->OnPlayerPetitionShowList(_player, creature, CharterEntry, CharterDispayID, CharterCost);
+
         data << uint8(1);                                   // count
         data << uint32(1);                                  // index
-        data << uint32(GUILD_CHARTER);                      // charter entry
-        data << uint32(CHARTER_DISPLAY_ID);                 // charter display id
-        data << uint32(sWorld->getIntConfig(CONFIG_CHARTER_COST_GUILD)); // charter cost
+        data << CharterEntry;                               // charter entry
+        data << CharterDispayID;                            // charter display id
+        data << CharterCost;                                // charter cost
         data << uint32(0);                                  // unknown
         data << uint32(sWorld->getIntConfig(CONFIG_MIN_PETITION_SIGNS)); // required signs
     }
     else
     {
+        // For 2v2 default
+        CharterEntry = ARENA_TEAM_CHARTER_2v2;
+        CharterDispayID = CHARTER_DISPLAY_ID;
+        CharterCost = sWorld->getIntConfig(CONFIG_CHARTER_COST_ARENA_2v2);
+
         data << uint8(3);                                   // count
         // 2v2
+        sScriptMgr->OnPlayerPetitionShowList(_player, creature, CharterEntry, CharterDispayID, CharterCost);
         data << uint32(1);                                  // index
-        data << uint32(ARENA_TEAM_CHARTER_2v2);             // charter entry
-        data << uint32(CHARTER_DISPLAY_ID);                 // charter display id
-        data << uint32(sWorld->getIntConfig(CONFIG_CHARTER_COST_ARENA_2v2)); // charter cost
+        data << CharterEntry;                               // charter entry
+        data << CharterDispayID;                            // charter display id
+        data << CharterCost;                                // charter cost
         data << uint32(2);                                  // unknown
         data << uint32(2);                                  // required signs?
+
+        // For 3v3 default
+        CharterEntry = ARENA_TEAM_CHARTER_3v3;
+        CharterDispayID = CHARTER_DISPLAY_ID;
+        CharterCost = sWorld->getIntConfig(CONFIG_CHARTER_COST_ARENA_3v3);
+
         // 3v3
+        sScriptMgr->OnPlayerPetitionShowList(_player, creature, CharterEntry, CharterDispayID, CharterCost);
         data << uint32(2);                                  // index
-        data << uint32(ARENA_TEAM_CHARTER_3v3);             // charter entry
-        data << uint32(CHARTER_DISPLAY_ID);                 // charter display id
-        data << uint32(sWorld->getIntConfig(CONFIG_CHARTER_COST_ARENA_3v3)); // charter cost
+        data << CharterEntry;                               // charter entry
+        data << CharterDispayID;                            // charter display id
+        data << CharterCost;                                // charter cost
         data << uint32(3);                                  // unknown
         data << uint32(3);                                  // required signs?
+
+        // For 5v5 default
+        CharterEntry = ARENA_TEAM_CHARTER_5v5;
+        CharterDispayID = CHARTER_DISPLAY_ID;
+        CharterCost = sWorld->getIntConfig(CONFIG_CHARTER_COST_ARENA_5v5);
+
         // 5v5
+        sScriptMgr->OnPlayerPetitionShowList(_player, creature, CharterEntry, CharterDispayID, CharterCost);
         data << uint32(3);                                  // index
-        data << uint32(ARENA_TEAM_CHARTER_5v5);             // charter entry
-        data << uint32(CHARTER_DISPLAY_ID);                 // charter display id
-        data << uint32(sWorld->getIntConfig(CONFIG_CHARTER_COST_ARENA_5v5)); // charter cost
+        data << CharterEntry;                               // charter entry
+        data << CharterDispayID;                            // charter display id
+        data << CharterCost;                                // charter cost
         data << uint32(5);                                  // unknown
         data << uint32(5);                                  // required signs?
     }

@@ -42,6 +42,7 @@
 #include "PathGenerator.h"
 #include "Player.h"
 #include "ReputationMgr.h"
+#include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
 #include "SpellDefines.h"
 #include "SpellMgr.h"
@@ -84,10 +85,14 @@ Object::Object()
     m_isNewObject       = false;
     m_isDestroyedObject = false;
     m_objectUpdated     = false;
+
+    sScriptMgr->OnConstructObject(this);
 }
 
 WorldObject::~WorldObject()
 {
+    sScriptMgr->OnWorldObjectDestroy(this);
+
     // this may happen because there are many !create/delete
     if (IsWorldObject() && m_currMap)
     {
@@ -103,6 +108,8 @@ WorldObject::~WorldObject()
 
 Object::~Object()
 {
+    sScriptMgr->OnDestructObject(this);
+
     if (IsInWorld())
     {
         TC_LOG_FATAL("misc", "Object::~Object %s deleted but still in world!!", GetGUID().ToString().c_str());
@@ -1129,6 +1136,8 @@ m_aiAnimKitId(0), m_movementAnimKitId(0), m_meleeAnimKitId(0)
 {
     m_serverSideVisibility.SetValue(SERVERSIDE_VISIBILITY_GHOST, GHOST_VISIBILITY_ALIVE | GHOST_VISIBILITY_GHOST);
     m_serverSideVisibilityDetect.SetValue(SERVERSIDE_VISIBILITY_GHOST, GHOST_VISIBILITY_ALIVE);
+
+    sScriptMgr->OnWorldObjectCreate(this);
 }
 
 void WorldObject::SetWorldObject(bool on)
@@ -1964,12 +1973,17 @@ void WorldObject::SetMap(Map* map)
     m_InstanceId = map->GetInstanceId();
     if (IsWorldObject())
         m_currMap->AddWorldObject(this);
+
+    sScriptMgr->OnWorldObjectSetMap(this, map);
 }
 
 void WorldObject::ResetMap()
 {
     ASSERT(m_currMap);
     ASSERT(!IsInWorld());
+
+    sScriptMgr->OnWorldObjectResetMap(this);
+
     if (IsWorldObject())
         m_currMap->RemoveWorldObject(this);
     m_currMap = nullptr;

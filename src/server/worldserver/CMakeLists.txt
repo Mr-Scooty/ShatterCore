@@ -48,6 +48,7 @@ target_link_libraries(worldserver
     trinity-core-interface
   PUBLIC
     scripts
+    modules
     game
     ipc
     gsoap
@@ -85,6 +86,11 @@ endif()
 # Add all dynamic projects as dependency to the worldserver
 if(WORLDSERVER_DYNAMIC_SCRIPT_MODULES_DEPENDENCIES)
   add_dependencies(worldserver ${WORLDSERVER_DYNAMIC_SCRIPT_MODULES_DEPENDENCIES})
+endif()
+
+# Add all dynamic module projects as dependency to the worldserver
+if(WORLDSERVER_DYNAMIC_MODULE_DEPENDENCIES)
+  add_dependencies(worldserver ${WORLDSERVER_DYNAMIC_MODULE_DEPENDENCIES})
 endif()
 
 if(WIN32)

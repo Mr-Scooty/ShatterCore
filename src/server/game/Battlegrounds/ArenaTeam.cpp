@@ -26,6 +26,7 @@
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
@@ -115,6 +116,9 @@ bool ArenaTeam::AddMember(ObjectGuid playerGuid)
         playerName = cInfo->Name;
         playerClass = cInfo->Class;
     }
+
+    if (!sScriptMgr->CanAddMember(this, playerGuid))
+        return false;
 
     // Check if player is already in a similar arena team
     if ((player && player->GetArenaTeamId(GetSlot())) || sCharacterCache->GetCharacterArenaTeamIdByGuid(playerGuid, GetType()) != 0)
@@ -594,14 +598,22 @@ void ArenaTeam::MassInviteToEvent(WorldSession* session)
 
 uint8 ArenaTeam::GetSlotByType(uint32 type)
 {
+    uint8 slot = 0xFF;
     switch (type)
     {
-        case ARENA_TEAM_2v2: return 0;
-        case ARENA_TEAM_3v3: return 1;
-        case ARENA_TEAM_5v5: return 2;
+        case ARENA_TEAM_2v2: slot = 0; break;
+        case ARENA_TEAM_3v3: slot = 1; break;
+        case ARENA_TEAM_5v5: slot = 2; break;
         default:
             break;
     }
+
+    // allows custom arena team types to be mapped to a slot
+    sScriptMgr->OnGetSlotByType(type, slot);
+
+    if (slot != 0xFF)
+        return slot;
+
     TC_LOG_ERROR("bg.arena", "FATAL: Unknown arena team type %u for some arena team", type);
     return 0xFF;
 }
@@ -844,9 +856,11 @@ void ArenaTeam::MemberWon(Player* player, uint32 againstMatchmakerRating, int32 
         {
             // update personal rating
             int32 mod = GetRatingMod(itr->PersonalRating, againstMatchmakerRating, true);
+            sScriptMgr->OnBeforeUpdatingPersonalRating(mod, GetType());
             itr->ModifyPersonalRating(player, mod, GetType());
 
             // update matchmaker rating
+            sScriptMgr->OnBeforeUpdatingPersonalRating(matchmakerRatingChange, GetType());
             itr->ModifyMatchmakerRating(matchmakerRatingChange, GetSlot());
 
             // update personal stats
@@ -864,6 +878,9 @@ void ArenaTeam::MemberWon(Player* player, uint32 againstMatchmakerRating, int32 
 
 void ArenaTeam::SaveToDB()
 {
+    if (!sScriptMgr->CanSaveToDB(this))
+        return;
+
     // Save team and member stats to db
     // Called after a match has ended or when calculating arena_points
 
@@ -891,11 +908,14 @@ void ArenaTeam::SaveToDB()
         stmt->setUInt32(6, itr->Guid.GetCounter());
         trans->Append(stmt);
 
-        stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_CHARACTER_ARENA_STATS);
-        stmt->setUInt32(0, itr->Guid.GetCounter());
-        stmt->setUInt8(1, GetSlot());
-        stmt->setUInt16(2, itr->MatchMakerRating);
-        trans->Append(stmt);
+        if (sScriptMgr->CanSaveArenaStatsForMember(this, itr->Guid))
+        {
+            stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_CHARACTER_ARENA_STATS);
+            stmt->setUInt32(0, itr->Guid.GetCounter());
+            stmt->setUInt8(1, GetSlot());
+            stmt->setUInt16(2, itr->MatchMakerRating);
+            trans->Append(stmt);
+        }
     }
 
     CharacterDatabase.CommitTransaction(trans);

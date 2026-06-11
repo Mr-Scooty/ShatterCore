@@ -1146,6 +1146,10 @@ void AchievementMgr<T>::UpdateAchievementCriteria(AchievementCriteriaTypes type,
         return;
 
     AchievementCriteriaEntryList const& achievementCriteriaList = sAchievementMgr->GetAchievementCriteriaByType(type, miscValue1, IsGuild<T>());
+
+    if constexpr (std::is_same_v<T, Player>)
+        sScriptMgr->OnBeforeCheckCriteria(this, &achievementCriteriaList);
+
     for (AchievementCriteriaEntryList::const_iterator i = achievementCriteriaList.begin(); i != achievementCriteriaList.end(); ++i)
     {
         AchievementCriteriaEntry const* achievementCriteria = (*i);
@@ -1158,6 +1162,10 @@ void AchievementMgr<T>::UpdateAchievementCriteria(AchievementCriteriaTypes type,
 
         if (!CanUpdateCriteria(achievementCriteria, achievement, miscValue1, miscValue2, miscValue3, ref, referencePlayer, go))
             continue;
+
+        if constexpr (std::is_same_v<T, Player>)
+            if (!sScriptMgr->CanCheckCriteria(this, achievementCriteria))
+                continue;
 
         switch (type)
         {
@@ -1525,6 +1533,10 @@ bool AchievementMgr<T>::IsCompletedCriteria(AchievementCriteriaEntry const* achi
     CriteriaProgress const* progress = GetCriteriaProgress(achievementCriteria);
     if (!progress)
         return false;
+
+    if constexpr (std::is_same_v<T, Player>)
+        if (!sScriptMgr->IsCompletedCriteria(this, achievementCriteria, achievement, progress))
+            return false;
 
     switch (AchievementCriteriaTypes(achievementCriteria->Type))
     {
@@ -3336,6 +3348,9 @@ bool AchievementGlobalMgr::IsRealmCompleted(AchievementEntry const* achievement)
     if (itr->second == std::chrono::system_clock::time_point::min())
         return false;
 
+    if (!sScriptMgr->IsRealmCompleted(this, achievement, itr->second))
+        return false;
+
     if (itr->second == std::chrono::system_clock::time_point::max())
         return true;
 
@@ -3344,6 +3359,8 @@ bool AchievementGlobalMgr::IsRealmCompleted(AchievementEntry const* achievement)
     // but apparently this is how blizz handles it as well
     if (achievement->Flags & ACHIEVEMENT_FLAG_REALM_FIRST_KILL)
         return (GameTime::GetGameTimeSystemPoint() - itr->second) > Minutes(1);
+
+    sScriptMgr->SetRealmCompleted(achievement);
 
     return true;
 }

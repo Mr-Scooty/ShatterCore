@@ -42,6 +42,7 @@
 #include "InspectPackets.h"
 #include "InstanceScript.h"
 #include "InstanceSaveMgr.h"
+#include "Item.h"
 #include "Language.h"
 #include "Log.h"
 #include "Map.h"
@@ -119,6 +120,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recvData)
 
     Creature* unit = nullptr;
     GameObject* go = nullptr;
+    Item* item = nullptr;
     if (guid.IsCreatureOrVehicle())
     {
         unit = GetPlayer()->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_GOSSIP);
@@ -134,6 +136,23 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recvData)
         if (!go)
         {
             TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOptionOpcode - %s not found or you can't interact with it.", guid.ToString().c_str());
+            return;
+        }
+    }
+    else if (guid.IsItem())
+    {
+        item = _player->GetItemByGuid(guid);
+        if (!item || _player->IsBankPos(item->GetPos()))
+        {
+            TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOptionOpcode - %s not found.", guid.ToString().c_str());
+            return;
+        }
+    }
+    else if (guid.IsPlayer())
+    {
+        if (guid != _player->GetGUID() || menuId != _player->PlayerTalkClass->GetGossipMenu().GetMenuId())
+        {
+            TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOptionOpcode - %s not found.", guid.ToString().c_str());
             return;
         }
     }
@@ -161,27 +180,47 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recvData)
     {
         if (unit)
         {
+            if (sScriptMgr->CanCreatureGossipSelectCode(_player, unit, _player->PlayerTalkClass->GetGossipOptionSender(gossipListId), _player->PlayerTalkClass->GetGossipOptionAction(gossipListId), code.c_str()))
+                return;
+
             if (!unit->AI()->GossipSelectCode(_player, menuId, gossipListId, code.c_str()))
                 _player->OnGossipSelect(unit, gossipListId, menuId);
         }
-        else
+        else if (go)
         {
+            if (sScriptMgr->CanGameObjectGossipSelectCode(_player, go, _player->PlayerTalkClass->GetGossipOptionSender(gossipListId), _player->PlayerTalkClass->GetGossipOptionAction(gossipListId), code.c_str()))
+                return;
+
             if (!go->AI()->GossipSelectCode(_player, menuId, gossipListId, code.c_str()))
                 _player->OnGossipSelect(go, gossipListId, menuId);
         }
+        else if (item)
+            sScriptMgr->OnGossipSelectCode(_player, item, _player->PlayerTalkClass->GetGossipOptionSender(gossipListId), _player->PlayerTalkClass->GetGossipOptionAction(gossipListId), code.c_str());
+        else
+            sScriptMgr->OnPlayerGossipSelectCode(_player, menuId, _player->PlayerTalkClass->GetGossipOptionSender(gossipListId), _player->PlayerTalkClass->GetGossipOptionAction(gossipListId), code.c_str());
     }
     else
     {
         if (unit)
         {
+            if (sScriptMgr->CanCreatureGossipSelect(_player, unit, _player->PlayerTalkClass->GetGossipOptionSender(gossipListId), _player->PlayerTalkClass->GetGossipOptionAction(gossipListId)))
+                return;
+
             if (!unit->AI()->GossipSelect(_player, menuId, gossipListId))
                 _player->OnGossipSelect(unit, gossipListId, menuId);
         }
-        else
+        else if (go)
         {
+            if (sScriptMgr->CanGameObjectGossipSelect(_player, go, _player->PlayerTalkClass->GetGossipOptionSender(gossipListId), _player->PlayerTalkClass->GetGossipOptionAction(gossipListId)))
+                return;
+
             if (!go->AI()->GossipSelect(_player, menuId, gossipListId))
                 _player->OnGossipSelect(go, gossipListId, menuId);
         }
+        else if (item)
+            sScriptMgr->OnGossipSelect(_player, item, _player->PlayerTalkClass->GetGossipOptionSender(gossipListId), _player->PlayerTalkClass->GetGossipOptionAction(gossipListId));
+        else
+            sScriptMgr->OnPlayerGossipSelect(_player, menuId, _player->PlayerTalkClass->GetGossipOptionSender(gossipListId), _player->PlayerTalkClass->GetGossipOptionAction(gossipListId));
     }
 }
 
@@ -684,7 +723,10 @@ void WorldSession::HandleAreaTriggerOpcode(WorldPacket& recvData)
         player->SetRestFlag(REST_FLAG_IN_TAVERN, atEntry->ID);
 
         if (sWorld->IsFFAPvPRealm())
+        {
             player->RemoveByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP);
+            sScriptMgr->OnPlayerFfaPvpStateUpdate(player, false);
+        }
 
         return;
     }

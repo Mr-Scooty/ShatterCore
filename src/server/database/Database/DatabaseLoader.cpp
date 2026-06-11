@@ -22,9 +22,11 @@
 #include "Log.h"
 #include <mysqld_error.h>
 
-DatabaseLoader::DatabaseLoader(std::string const& logger, uint32 const defaultUpdateMask)
+DatabaseLoader::DatabaseLoader(std::string const& logger, uint32 const defaultUpdateMask,
+    std::string modulesList)
     : _logger(logger), _autoSetup(sConfigMgr->GetBoolDefault("Updates.AutoSetup", true)),
-    _updateFlags(sConfigMgr->GetIntDefault("Updates.EnableDatabases", defaultUpdateMask))
+    _updateFlags(sConfigMgr->GetIntDefault("Updates.EnableDatabases", defaultUpdateMask)),
+    _modulesList(std::move(modulesList))
 {
 }
 
@@ -95,7 +97,7 @@ DatabaseLoader& DatabaseLoader::AddDatabase(DatabaseWorkerPool<T>& pool, std::st
 
         _update.push([this, name, &pool]() -> bool
         {
-            if (!DBUpdater<T>::Update(pool))
+            if (!DBUpdater<T>::Update(pool, _modulesList))
             {
                 TC_LOG_ERROR(_logger, "Could not update the %s database, see log for details.", name.c_str());
                 return false;

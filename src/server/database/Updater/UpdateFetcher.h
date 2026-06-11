@@ -54,7 +54,9 @@ public:
     UpdateFetcher(Path const& updateDirectory,
         std::function<void(std::string const&)> const& apply,
         std::function<void(Path const& path)> const& applyFile,
-        std::function<QueryResult(std::string const&)> const& retrieve);
+        std::function<QueryResult(std::string const&)> const& retrieve,
+        std::string const& dbModuleName = "",
+        std::string const& modulesList = "");
     ~UpdateFetcher();
 
     UpdateResult Update(bool const redundancyChecks, bool const allowRehash,
@@ -70,7 +72,8 @@ private:
     enum State
     {
         RELEASED,
-        ARCHIVED
+        ARCHIVED,
+        MODULE
     };
 
     struct AppliedFileEntry
@@ -88,12 +91,24 @@ private:
 
         static inline State StateConvert(std::string const& state)
         {
-            return (state == "RELEASED") ? RELEASED : ARCHIVED;
+            if (state == "RELEASED")
+                return RELEASED;
+            if (state == "MODULE")
+                return MODULE;
+            return ARCHIVED;
         }
 
         static inline std::string StateConvert(State const state)
         {
-            return (state == RELEASED) ? "RELEASED" : "ARCHIVED";
+            switch (state)
+            {
+                case RELEASED:
+                    return "RELEASED";
+                case MODULE:
+                    return "MODULE";
+                default:
+                    return "ARCHIVED";
+            }
         }
 
         std::string GetStateAsString() const
@@ -138,6 +153,12 @@ private:
     std::function<void(std::string const&)> const _apply;
     std::function<void(Path const& path)> const _applyFile;
     std::function<QueryResult(std::string const&)> const _retrieve;
+
+    // Lowercase database directory suffix this updater is responsible for
+    // (auth, world, characters or hotfixes - matches modules/<name>/data/sql/db-*)
+    std::string const _dbModuleName;
+    // Comma separated list of enabled modules
+    std::string const _modulesList;
 };
 
 #endif // UpdateFetcher_h__

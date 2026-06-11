@@ -3312,6 +3312,15 @@ SpellCastResult Spell::prepare(SpellCastTargets const& targets, AuraEffect const
     _spellEvent = new SpellEvent(this);
     m_caster->m_Events.AddEvent(_spellEvent, m_caster->m_Events.CalculateTime(1));
 
+    // ShatterCore: dispatched after the SpellEvent exists so that finish()
+    // can hand the spell over for deletion (AzerothCore calls it right
+    // after InitExplicitTargets)
+    if (!sScriptMgr->CanPrepare(this, &targets, triggeredByAura))
+    {
+        finish(false);
+        return SPELL_FAILED_UNKNOWN;
+    }
+
     // check disables
     if (DisableMgr::IsDisabledFor(DISABLE_TYPE_SPELL, m_spellInfo->Id, m_caster))
     {
@@ -3454,6 +3463,8 @@ SpellCastResult Spell::prepare(SpellCastTargets const& targets, AuraEffect const
             cast(true);
     }
 
+    sScriptMgr->OnSpellPrepare(this, m_caster, m_spellInfo);
+
     return SPELL_CAST_OK;
 }
 
@@ -3504,6 +3515,9 @@ void Spell::cancel()
 
     //set state back so finish will be processed
     m_spellState = oldState;
+
+    // ShatterCore: the 4.3.4 Spell::cancel has no bySelf distinction, always false
+    sScriptMgr->OnSpellCastCancel(this, m_caster, m_spellInfo, false);
 
     finish(false);
 }
@@ -3760,6 +3774,8 @@ void Spell::_cast(bool skipCheck)
         if (m_originalCaster && modOwner->GetCommandStatus(CHEAT_COOLDOWN))
             m_originalCaster->GetSpellHistory()->ResetCooldown(m_spellInfo->Id, true);
     }
+
+    sScriptMgr->OnSpellCast(this, m_caster, m_spellInfo, skipCheck);
 
     SetExecutedCurrently(false);
 
@@ -5615,6 +5631,13 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* param1 /*= nullptr*/, uint
         if (m_targets.GetGOTarget()->GetGOInfo()->CannotBeUsedUnderImmunity() && m_caster->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE))
             return SPELL_FAILED_DONT_REPORT;
     }
+
+    SpellCastResult res = SPELL_CAST_OK;
+
+    sScriptMgr->OnSpellCheckCast(this, strict, res);
+
+    if (res != SPELL_CAST_OK)
+        return res;
 
     // check cooldowns to prevent cheating
     if (!m_spellInfo->IsPassive())

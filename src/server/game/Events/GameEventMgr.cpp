@@ -31,6 +31,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PoolMgr.h"
+#include "ScriptMgr.h"
 #include "UnitAI.h"
 #include "World.h"
 #include "WorldStateMgr.h"
@@ -145,6 +146,10 @@ bool GameEventMgr::StartEvent(uint16 event_id, bool overwrite)
             if (data.end <= data.start)
                 data.end = data.start + data.length;
         }
+
+        if (IsActiveEvent(event_id))
+            sScriptMgr->OnGameEventStart(event_id);
+
         return false;
     }
     else
@@ -167,6 +172,9 @@ bool GameEventMgr::StartEvent(uint16 event_id, bool overwrite)
         // or to scedule another update where the next event will be started
         if (overwrite && conditions_met)
             sWorld->ForceGameEventUpdate();
+
+        if (IsActiveEvent(event_id))
+            sScriptMgr->OnGameEventStart(event_id);
 
         return conditions_met;
     }
@@ -210,6 +218,9 @@ void GameEventMgr::StopEvent(uint16 event_id, bool overwrite)
             CharacterDatabase.CommitTransaction(trans);
         }
     }
+
+    if (!IsActiveEvent(event_id))
+        sScriptMgr->OnGameEventStop(event_id);
 }
 
 void GameEventMgr::LoadFromDB()
@@ -1077,6 +1088,9 @@ uint32 GameEventMgr::Update()                               // return the next e
         // must do the activating first, and after that the deactivating
         // so first queue it
         //TC_LOG_ERROR("sql.sql", "Checking event %u", itr);
+
+        sScriptMgr->OnGameEventCheck(itr);
+
         if (CheckOneGameEvent(itr))
         {
             // if the world event is in NEXTPHASE state, and the time has passed to finish this event, then do so

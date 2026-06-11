@@ -494,6 +494,12 @@ void WorldSession::HandleCharCreateOpcode(WorldPacket& recvData)
 
         std::function<void(PreparedQueryResult)> finalizeCharacterCreation = [this, createInfo](PreparedQueryResult result)
         {
+            if (!sScriptMgr->CanAccountCreateCharacter(GetAccountId(), createInfo->Race, createInfo->Class))
+            {
+                SendCharCreate(CHAR_CREATE_DISABLED);
+                return;
+            }
+
             bool haveSameRace = false;
             uint32 deathKnightReqLevel = sWorld->getIntConfig(CONFIG_CHARACTER_CREATING_MIN_LEVEL_FOR_DEATH_KNIGHT);
             bool hasDeathKnightReqLevel = (deathKnightReqLevel == 0);
@@ -976,7 +982,10 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder const& holder)
 
     // Set FFA PvP for non GM in non-rest mode
     if (sWorld->IsFFAPvPRealm() && !pCurrChar->IsGameMaster() && !pCurrChar->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING))
+    {
         pCurrChar->SetByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP);
+        sScriptMgr->OnPlayerFfaPvpStateUpdate(pCurrChar, true);
+    }
 
     if (pCurrChar->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_CONTESTED_PVP))
         pCurrChar->SetContestedPvP();

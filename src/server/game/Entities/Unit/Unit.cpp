@@ -408,6 +408,8 @@ Unit::~Unit()
 
 void Unit::Update(uint32 p_time)
 {
+    sScriptMgr->OnUnitUpdate(this, p_time);
+
     // WARNING! Order of execution here is important, do not change.
     // Spells must be processed with event system BEFORE they go to _UpdateSpells.
     // Or else we may have some SPELL_STATE_FINISHED spells stalled in pointers, that is bad.
@@ -1084,7 +1086,7 @@ void Unit::CalculateSpellDamageTaken(SpellNonMeleeDamage* damageInfo, int32 dama
     }
 
     // Script Hook For CalculateSpellDamageTaken -- Allow scripts to change the Damage post class mitigation calculations
-    sScriptMgr->ModifySpellDamageTaken(damageInfo->target, damageInfo->attacker, damage);
+    sScriptMgr->ModifySpellDamageTaken(damageInfo->target, damageInfo->attacker, damage, spellInfo);
 
     // Calculate absorb resist
     if (damage < 0)
@@ -3034,6 +3036,7 @@ Aura* Unit::_TryStackingOrRefreshingExistingAura(AuraCreateInfo& createInfo)
 
             // try to increase stack amount
             foundAura->ModStackAmount(1, AuraRemoveFlags::ByDefault, createInfo.ResetPeriodicTimer);
+            sScriptMgr->OnAuraApply(this, foundAura);
             return foundAura;
         }
     }
@@ -3179,6 +3182,8 @@ void Unit::_ApplyAura(AuraApplication* aurApp, uint8 effMask)
         player->StartAchievementCriteria(AchievementCriteriaStartEvent::GainAura, aurApp->GetBase()->GetId());
         player->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_BE_SPELL_TARGET2, aurApp->GetBase()->GetId());
     }
+
+    sScriptMgr->OnAuraApply(this, aura);
 }
 
 // removes aura application from lists and unapplies effects
@@ -3264,6 +3269,8 @@ void Unit::_UnapplyAura(AuraApplicationMap::iterator& i, AuraRemoveFlags removeM
     }
 
     i = m_appliedAuras.begin();
+
+    sScriptMgr->OnAuraRemove(this, aurApp, removeMode);
 }
 
 void Unit::_UnapplyAura(AuraApplication* aurApp, AuraRemoveFlags removeMode)
@@ -6188,6 +6195,10 @@ void Unit::SendHealSpellLog(HealInfo& healInfo, bool critical /*= false*/)
 
 int32 Unit::HealBySpell(HealInfo& healInfo, bool critical /*= false*/)
 {
+    uint32 heal = healInfo.GetHeal();
+    sScriptMgr->ModifyHealReceived(healInfo.GetTarget(), healInfo.GetHealer(), heal, healInfo.GetSpellInfo());
+    healInfo.SetHeal(heal);
+
     // calculate heal absorb and reduce healing
     Unit::CalcHealAbsorb(healInfo);
     Unit::DealHeal(healInfo);
@@ -7200,7 +7211,10 @@ int32 Unit::SpellHealingBonusTaken(Unit* caster, SpellInfo const* spellProto, in
         TakenTotalMod *= GetFloatValue(PLAYER_FIELD_MOD_HEALING_PCT);
     else
     {
-        float minval = float(GetMaxNegativeAuraModifier(SPELL_AURA_MOD_HEALING_PCT));
+        float minval = 0.0f;
+        if (!sScriptMgr->OnSpellHealingBonusTakenNegativeModifiers(this, caster, spellProto, minval))
+            minval = float(GetMaxNegativeAuraModifier(SPELL_AURA_MOD_HEALING_PCT));
+
         if (minval)
             AddPct(TakenTotalMod, minval);
 
@@ -7836,6 +7850,8 @@ void Unit::Mount(uint32 mount, uint32 VehicleId, uint32 creatureEntry)
 
     if (Player* player = ToPlayer())
     {
+        sScriptMgr->AnticheatSetUnderACKmount(player);
+
         // mount as a vehicle
         if (VehicleId)
         {
@@ -7881,7 +7897,10 @@ void Unit::Dismount()
     RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_MOUNT);
 
     if (Player* thisPlayer = ToPlayer())
+    {
+        sScriptMgr->AnticheatSetUnderACKmount(thisPlayer);
         thisPlayer->SendMovementSetCollisionHeight(thisPlayer->GetCollisionHeight(), UPDATE_COLLISION_HEIGHT_MOUNT);
+    }
 
     WorldPackets::Misc::Dismount packet;
     packet.Guid = GetGUID();
@@ -8820,6 +8839,7 @@ uint32 Unit::GetCreatureTypeMask() const
 void Unit::SetShapeshiftForm(ShapeshiftForm form)
 {
     SetByteValue(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_SHAPESHIFT_FORM, form);
+    sScriptMgr->OnUnitSetShapeshiftForm(this, form);
 }
 
 bool Unit::IsInFeralForm() const
@@ -10354,6 +10374,8 @@ void Unit::SetDisplayId(uint32 modelId, bool setNative /*= false*/)
 
     if (setNative)
         SetUInt32Value(UNIT_FIELD_NATIVEDISPLAYID, modelId);
+
+    sScriptMgr->OnDisplayIdChange(this, modelId);
 }
 
 void Unit::RestoreDisplayId()
@@ -11260,6 +11282,8 @@ void Unit::PlayOneShotAnimKitId(uint16 animKitId)
                 sScriptMgr->OnPlayerKilledByCreature(killerCre, killed);
         }
     }
+
+    sScriptMgr->OnUnitDeath(victim, attacker);
 }
 
 void Unit::SetControlled(bool apply, UnitState state)
@@ -11303,6 +11327,9 @@ void Unit::SetControlled(bool apply, UnitState state)
             default:
                 break;
         }
+
+        if (Player* player = ToPlayer())
+            sScriptMgr->AnticheatSetRootACKUpd(player);
     }
     else
     {
@@ -11727,7 +11754,10 @@ void Unit::RemoveCharmedBy(Unit* charmer)
     }
 
     if (Player* player = ToPlayer())
+    {
+        sScriptMgr->AnticheatSetUnderACKmount(player);
         player->SetClientControl(this, true);
+    }
 
     EngageWithTarget(charmer);
 
@@ -12804,6 +12834,8 @@ void Unit::_EnterVehicle(Vehicle* vehicle, int8 seatId, AuraApplication const* a
             return;
         }
 
+        sScriptMgr->AnticheatSetUnderACKmount(player);
+
         if (vehicle->GetBase()->GetTypeId() == TYPEID_UNIT)
         {
             // If a player entered a vehicle that is part of a formation, remove it from said formation
@@ -12902,7 +12934,11 @@ void Unit::_ExitVehicle(Position const* exitPosition)
     AddUnitState(UNIT_STATE_MOVE);
 
     if (player)
+    {
         player->SetFallInformation(0, GetPositionZ());
+
+        sScriptMgr->AnticheatSetUnderACKmount(player);
+    }
 
     Position pos;
     // If we ask for a specific exit position, use that one. Otherwise allow scripts to modify it

@@ -32,11 +32,39 @@ foreach(SCRIPT_MODULE ${SCRIPT_MODULE_LIST})
   set_property(CACHE ${SCRIPT_MODULE_VARIABLE} PROPERTY STRINGS default disabled static dynamic)
 endforeach()
 
+set(MODULES_AVAILABLE_OPTIONS none disabled static dynamic)
+
+# Log a fatal error when the value of the MODULES variable isn't a valid option.
+if(MODULES)
+  list(FIND MODULES_AVAILABLE_OPTIONS "${MODULES}" MODULES_INDEX)
+  if(${MODULES_INDEX} EQUAL -1)
+    message(FATAL_ERROR "The value (${MODULES}) of your MODULES variable is invalid! "
+                        "Allowed values are: ${MODULES_AVAILABLE_OPTIONS}")
+  endif()
+endif()
+
+set(MODULES "static" CACHE STRING "Build core with modules")
+set_property(CACHE MODULES PROPERTY STRINGS ${MODULES_AVAILABLE_OPTIONS})
+
+# Build a list of all modules with their own linkage override
+GetModuleSourceList(MODULES_MODULE_LIST)
+foreach(SOURCE_MODULE ${MODULES_MODULE_LIST})
+  ModuleNameToVariable(${SOURCE_MODULE} MODULE_MODULE_VARIABLE)
+  set(${MODULE_MODULE_VARIABLE} "default" CACHE STRING "Build type of the ${SOURCE_MODULE} module.")
+  set_property(CACHE ${MODULE_MODULE_VARIABLE} PROPERTY STRINGS default disabled static dynamic)
+endforeach()
+
 option(TOOLS            "Build map/vmap/mmap extraction/assembler tools"              1)
 option(USE_SCRIPTPCH    "Use precompiled headers when compiling scripts"              1)
 option(USE_COREPCH      "Use precompiled headers when compiling servers"              1)
 option(WITH_DYNAMIC_LINKING "Enable dynamic library linking."                         0)
-IsDynamicLinkingRequired(WITH_DYNAMIC_LINKING_FORCED)
+IsDynamicLinkingRequired(WITH_DYNAMIC_LINKING_FORCED_SCRIPTS)
+IsDynamicLinkingModulesRequired(WITH_DYNAMIC_LINKING_FORCED_MODULES)
+if(WITH_DYNAMIC_LINKING_FORCED_SCRIPTS OR WITH_DYNAMIC_LINKING_FORCED_MODULES)
+  set(WITH_DYNAMIC_LINKING_FORCED ON)
+else()
+  set(WITH_DYNAMIC_LINKING_FORCED OFF)
+endif()
 if(WITH_DYNAMIC_LINKING AND WITH_DYNAMIC_LINKING_FORCED)
   set(WITH_DYNAMIC_LINKING_FORCED OFF)
 endif()

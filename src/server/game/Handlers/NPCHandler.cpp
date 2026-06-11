@@ -196,6 +196,9 @@ void WorldSession::HandleGossipHelloOpcode(WorldPackets::NPC::Hello& packet)
     }
 
 
+    if (sScriptMgr->CanCreatureGossipHello(_player, unit))
+        return;
+
     _player->PlayerTalkClass->ClearMenus();
     if (!unit->AI()->GossipHello(_player))
     {
@@ -465,6 +468,8 @@ void WorldSession::HandleRepairItemOpcode(WorldPacket& recvData)
 
     // reputation discount
     float discountMod = _player->GetReputationPriceDiscount(unit);
+
+    sScriptMgr->OnPlayerBeforeDurabilityRepair(_player, npcGUID, itemGUID, discountMod, guildBank);
 
     if (itemGUID)
     {

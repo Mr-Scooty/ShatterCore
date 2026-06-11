@@ -91,6 +91,8 @@ AccountOpResult AccountMgr::DeleteAccount(uint32 accountId)
     if (!result)
         return AccountOpResult::AOR_NAME_NOT_EXIST;
 
+    sScriptMgr->OnBeforeAccountDelete(accountId);
+
     // Obtain accounts characters
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARS_BY_ACCOUNT_ID);
 

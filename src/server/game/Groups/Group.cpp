@@ -73,10 +73,14 @@ m_masterLooterGuid(), m_subGroupsCounts(nullptr), m_guid(), m_counter(0), m_dbSt
 
     for (uint8 i = 0; i < TARGETICONCOUNT; ++i)
         m_targetIcons[i].Clear();
+
+    sScriptMgr->OnConstructGroup(this);
 }
 
 Group::~Group()
 {
+    sScriptMgr->OnDestructGroup(this);
+
     if (m_bgGroup)
     {
         TC_LOG_DEBUG("bg.battleground", "Group::~Group: battleground group being deleted.");
@@ -158,6 +162,8 @@ bool Group::Create(Player* leader)
 
         bool addMemberResult = AddMember(leader);
         ASSERT(addMemberResult); // If the leader can't be added to a new group because it appears full, something is clearly wrong.
+
+        sScriptMgr->OnGroupCreate(this, leader);
     }
     else if (!AddMember(leader))
         return false;
@@ -2188,6 +2194,9 @@ GroupJoinBattlegroundResult Group::CanJoinBattlegroundQueue(Battleground const* 
         Player* member = itr->GetSource();
         // offline member? don't let join
         if (!member)
+            return ERR_BATTLEGROUND_JOIN_FAILED;
+        // scripts may deny the join for single members
+        if (!sScriptMgr->CanGroupJoinBattlegroundQueue(this, member, bgOrTemplate, MinPlayerCount, isRated, arenaSlot))
             return ERR_BATTLEGROUND_JOIN_FAILED;
         // don't allow cross-faction join as group
         if (member->GetTeam() != team)

@@ -683,6 +683,8 @@ void WorldSocket::HandleAuthSessionCallback(std::shared_ptr<WorldPackets::Auth::
     sScriptMgr->OnAccountLogin(account.Game.Id);
 
     _authed = true;
+
+    sScriptMgr->OnLastIpUpdate(account.Game.Id, address);
     _worldSession = new WorldSession(account.Game.Id, std::move(authSession->Account), account.BattleNet.Id, shared_from_this(), account.Game.Security,
         account.Game.Expansion, mutetime, account.BattleNet.Locale, account.Game.Recruiter, account.Game.IsRecruiter);
     _worldSession->ReadAddonsInfo(authSession->AddonInfo);

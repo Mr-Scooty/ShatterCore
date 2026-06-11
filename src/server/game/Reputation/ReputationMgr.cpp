@@ -392,6 +392,9 @@ bool ReputationMgr::SetOneFactionReputation(FactionEntry const* factionEntry, in
         if (new_rank > old_rank)
             _sendFactionIncreased = true;
 
+        if (new_rank != old_rank)
+            sScriptMgr->OnPlayerReputationRankChange(_player, factionEntry->ID, new_rank, old_rank, _sendFactionIncreased);
+
         UpdateRankCounters(old_rank, new_rank);
 
         _player->ReputationChanged(factionEntry);

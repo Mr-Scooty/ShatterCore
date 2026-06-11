@@ -36,7 +36,7 @@ namespace lfg
 
 LFGPlayerScript::LFGPlayerScript() : PlayerScript("LFGPlayerScript") { }
 
-void LFGPlayerScript::OnLogout(Player* player)
+void LFGPlayerScript::OnPlayerLogout(Player* player)
 {
     if (!sLFGMgr->isOptionEnabled(LFG_OPTION_ENABLE_DUNGEON_FINDER | LFG_OPTION_ENABLE_RAID_BROWSER))
         return;
@@ -47,7 +47,7 @@ void LFGPlayerScript::OnLogout(Player* player)
         sLFGMgr->LeaveLfg(player->GetGUID(), true);
 }
 
-void LFGPlayerScript::OnLogin(Player* player, bool /*loginFirst*/)
+void LFGPlayerScript::OnPlayerLogin(Player* player)
 {
     if (!sLFGMgr->isOptionEnabled(LFG_OPTION_ENABLE_DUNGEON_FINDER | LFG_OPTION_ENABLE_RAID_BROWSER))
         return;
@@ -71,7 +71,7 @@ void LFGPlayerScript::OnLogin(Player* player, bool /*loginFirst*/)
     /// @todo - Restore LfgPlayerData and send proper status to player if it was in a group
 }
 
-void LFGPlayerScript::OnMapChanged(Player* player)
+void LFGPlayerScript::OnPlayerMapChanged(Player* player)
 {
     Map const* map = player->GetMap();
 
@@ -87,7 +87,7 @@ void LFGPlayerScript::OnMapChanged(Player* player)
             sLFGMgr->LeaveLfg(player->GetGUID());
             player->RemoveAurasDueToSpell(LFG_SPELL_LUCK_OF_THE_DRAW);
             player->TeleportTo(player->m_homebindMapId, player->m_homebindX, player->m_homebindY, player->m_homebindZ, 0.0f);
-            TC_LOG_ERROR("lfg", "LFGPlayerScript::OnMapChanged, Player %s (%u) is in LFG dungeon map but does not have a valid group! "
+            TC_LOG_ERROR("lfg", "LFGPlayerScript::OnPlayerMapChanged, Player %s (%u) is in LFG dungeon map but does not have a valid group! "
                 "Teleporting to homebind.", player->GetName().c_str(), player->GetGUID().GetCounter());
             return;
         }
@@ -106,7 +106,7 @@ void LFGPlayerScript::OnMapChanged(Player* player)
         {
             sLFGMgr->LeaveLfg(group->GetGUID());
             group->Disband();
-            TC_LOG_DEBUG("lfg", "LFGPlayerScript::OnMapChanged, Player %s(%s) is last in the lfggroup so we disband the group.",
+            TC_LOG_DEBUG("lfg", "LFGPlayerScript::OnPlayerMapChanged, Player %s(%s) is last in the lfggroup so we disband the group.",
                 player->GetName().c_str(), player->GetGUID().ToString().c_str());
         }
         player->RemoveAurasDueToSpell(LFG_SPELL_LUCK_OF_THE_DRAW);

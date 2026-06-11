@@ -242,7 +242,7 @@ enum ActionButtonType
     ACTION_BUTTON_ITEM      = 0x80
 };
 
-enum ReputationSource
+enum ReputationSource : uint8
 {
     REPUTATION_SOURCE_KILL,
     REPUTATION_SOURCE_QUEST,
@@ -251,6 +251,16 @@ enum ReputationSource
     REPUTATION_SOURCE_MONTHLY_QUEST,
     REPUTATION_SOURCE_REPEATABLE_QUEST,
     REPUTATION_SOURCE_SPELL
+};
+
+// Used by the OnPlayerGiveXP player script hook (AzerothCore compatible)
+enum PlayerXPSource
+{
+    XPSOURCE_KILL         = 0,
+    XPSOURCE_QUEST        = 1,
+    XPSOURCE_QUEST_DF     = 2,
+    XPSOURCE_EXPLORE      = 3,
+    XPSOURCE_BATTLEGROUND = 4
 };
 
 #define ACTION_BUTTON_ACTION(X) (uint32(X) & 0x00FFFFFF)
@@ -1092,9 +1102,11 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void SetTaxiCheater(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_TAXICHEAT; else m_ExtraFlags &= ~PLAYER_EXTRA_TAXICHEAT; }
         bool isGMVisible() const { return !(m_ExtraFlags & PLAYER_EXTRA_GM_INVISIBLE); }
         void SetGMVisible(bool on);
+        void SetServerSideVisibility(ServerSideVisibilityType type, AccountTypes sec);
+        void SetServerSideVisibilityDetect(ServerSideVisibilityType type, AccountTypes sec);
         void SetPvPDeath(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_PVP_DEATH; else m_ExtraFlags &= ~PLAYER_EXTRA_PVP_DEATH; }
 
-        void GiveXP(uint32 xp, Unit* victim, float group_rate=1.0f);
+        void GiveXP(uint32 xp, Unit* victim, float group_rate = 1.0f, uint8 xpSource = XPSOURCE_KILL);
         void GiveLevel(uint8 level);
         bool IsMaxLevel() const;
 

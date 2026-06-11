@@ -25,6 +25,7 @@
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "SocialMgr.h"
 #include "Spell.h"
 #include "SpellMgr.h"
@@ -678,6 +679,9 @@ void WorldSession::HandleInitiateTradeOpcode(WorldPackets::Trade::InitiateTrade&
         SendNotification(GetTrinityString(LANG_TRADE_OTHER_REQ), sWorld->getIntConfig(CONFIG_TRADE_LEVEL_REQ));
         return;
     }
+
+    if (!sScriptMgr->OnPlayerCanInitTrade(_player, pOther))
+        return;
 
     // OK start trade
     _player->m_trade = new TradeData(_player, pOther);

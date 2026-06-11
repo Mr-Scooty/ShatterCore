@@ -18,6 +18,8 @@
 #include "Config.h"
 #include "Log.h"
 #include "Util.h"
+#include <boost/filesystem/operations.hpp>
+#include <boost/filesystem/path.hpp>
 #include <boost/property_tree/ini_parser.hpp>
 #include <algorithm>
 #include <memory>
@@ -31,6 +33,7 @@ namespace
     std::vector<std::string> _args;
     bpt::ptree _config;
     std::mutex _configLock;
+    std::vector<std::string> _moduleConfigFiles;
 }
 
 bool ConfigMgr::LoadInitial(std::string const& file, std::vector<std::string> args,
@@ -75,7 +78,104 @@ ConfigMgr* ConfigMgr::instance()
 
 bool ConfigMgr::Reload(std::string& error)
 {
-    return LoadInitial(_filename, std::move(_args), error);
+    if (!LoadInitial(_filename, std::move(_args), error))
+        return false;
+
+    return LoadModulesConfigs(true);
+}
+
+void ConfigMgr::SetModuleConfigFileList(std::string_view configFileList)
+{
+    std::lock_guard<std::mutex> lock(_configLock);
+
+    _moduleConfigFiles.clear();
+
+    while (!configFileList.empty())
+    {
+        size_t const pos = configFileList.find(',');
+        std::string_view const token = configFileList.substr(0, pos);
+        if (!token.empty())
+            _moduleConfigFiles.emplace_back(token);
+
+        if (pos == std::string_view::npos)
+            break;
+
+        configFileList.remove_prefix(pos + 1);
+    }
+}
+
+bool ConfigMgr::LoadModulesConfigs(bool isReload)
+{
+    std::lock_guard<std::mutex> lock(_configLock);
+
+    if (_moduleConfigFiles.empty())
+        return true;
+
+    namespace bfs = boost::filesystem;
+
+    bfs::path const moduleConfigDir =
+        bfs::path(_filename).parent_path() / "modules";
+
+    bool success = true;
+
+    for (std::string const& configFileName : _moduleConfigFiles)
+    {
+        // Prefer the real config file, fall back to the
+        // distributed template (<name>.conf.dist) installed by CMake.
+        bfs::path configFile = moduleConfigDir / configFileName;
+        if (!bfs::exists(configFile))
+            configFile += ".dist";
+
+        if (!bfs::exists(configFile))
+        {
+            TC_LOG_ERROR("server.loading", "Module configuration file %s (or .dist) not found in %s.",
+                configFileName.c_str(), moduleConfigDir.generic_string().c_str());
+            success = false;
+            continue;
+        }
+
+        bpt::ptree moduleTree;
+        try
+        {
+            bpt::ini_parser::read_ini(configFile.generic_string(), moduleTree);
+        }
+        catch (bpt::ini_parser::ini_parser_error const& e)
+        {
+            TC_LOG_ERROR("server.loading", "Error in module configuration file %s: %s",
+                e.filename().c_str(), e.message().c_str());
+            success = false;
+            continue;
+        }
+
+        // Merge all keys below section headers into the main configuration.
+        // Later files override earlier keys. Boost's ini parser stores keys
+        // without a section header directly at the tree root - those are
+        // silently invisible to the merge, so warn about them.
+        bool sectionFound = false;
+        for (bpt::ptree::value_type const& sectionOrKey : moduleTree)
+        {
+            if (sectionOrKey.second.empty())
+                continue;
+
+            sectionFound = true;
+            for (bpt::ptree::value_type const& keyValue : sectionOrKey.second)
+                _config.put(bpt::ptree::path_type(keyValue.first, '/'), keyValue.second.data());
+        }
+
+        if (!sectionFound)
+        {
+            TC_LOG_ERROR("server.loading", "Module configuration file %s contains no settings "
+                "(missing [worldserver] section header?), all keys were ignored.",
+                configFile.generic_string().c_str());
+            success = false;
+            continue;
+        }
+
+        TC_LOG_INFO("server.loading", "Using module configuration %s%s.",
+            configFile.generic_string().c_str(), isReload ? " (reloaded)" : "");
+    }
+
+    return success;
 }
 
 template<class T>

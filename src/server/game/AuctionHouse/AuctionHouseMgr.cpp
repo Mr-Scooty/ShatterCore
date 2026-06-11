@@ -164,6 +164,11 @@ void AuctionHouseMgr::SendAuctionWonMail(AuctionEntry* auction, CharacterDatabas
     // receiver exist
     if ((bidder || bidderAccId) && !sAuctionBotConfig->IsBotChar(auction->bidder))
     {
+        bool sendNotification = true;
+        bool updateAchievementCriteria = true;
+        bool sendMail = true;
+        sScriptMgr->OnBeforeAuctionHouseMgrSendAuctionWonMail(this, auction, bidder, bidderAccId, sendNotification, updateAchievementCriteria, sendMail);
+
         // set owner to bidder (to prevent delete item with sender char deleting)
         // owner in `data` will set at mail receive and item extracting
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_ITEM_OWNER);
@@ -173,14 +178,18 @@ void AuctionHouseMgr::SendAuctionWonMail(AuctionEntry* auction, CharacterDatabas
 
         if (bidder)
         {
-            bidder->GetSession()->SendAuctionBidderNotification(auction->GetHouseId(), auction->Id, bidderGuid, 0, 0, auction->itemEntry);
+            if (sendNotification) // can be changed in the hook
+                bidder->GetSession()->SendAuctionBidderNotification(auction->GetHouseId(), auction->Id, bidderGuid, 0, 0, auction->itemEntry);
+
             // FIXME: for offline player need also
-            bidder->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_WON_AUCTIONS, 1);
+            if (updateAchievementCriteria) // can be changed in the hook
+                bidder->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_WON_AUCTIONS, 1);
         }
 
-        MailDraft(auction->BuildAuctionMailSubject(AUCTION_WON), AuctionEntry::BuildAuctionMailBody(auction->owner, auction->bid, auction->buyout, 0, 0))
-            .AddItem(pItem)
-            .SendMailTo(trans, MailReceiver(bidder, auction->bidder), auction, MAIL_CHECK_MASK_COPIED);
+        if (sendMail) // can be changed in the hook
+            MailDraft(auction->BuildAuctionMailSubject(AUCTION_WON), AuctionEntry::BuildAuctionMailBody(auction->owner, auction->bid, auction->buyout, 0, 0))
+                .AddItem(pItem)
+                .SendMailTo(trans, MailReceiver(bidder, auction->bidder), auction, MAIL_CHECK_MASK_COPIED);
     }
     else
     {
@@ -196,8 +205,14 @@ void AuctionHouseMgr::SendAuctionSalePendingMail(AuctionEntry* auction, Characte
     uint32 owner_accId = sCharacterCache->GetCharacterAccountIdByGuid(owner_guid);
     // owner exist (online or offline)
     if ((owner || owner_accId) && !sAuctionBotConfig->IsBotChar(auction->owner))
-        MailDraft(auction->BuildAuctionMailSubject(AUCTION_SALE_PENDING), AuctionEntry::BuildAuctionMailBody(auction->bidder, auction->bid, auction->buyout, auction->deposit, auction->GetAuctionCut()))
-            .SendMailTo(trans, MailReceiver(owner, auction->owner), auction, MAIL_CHECK_MASK_COPIED);
+    {
+        bool sendMail = true;
+        sScriptMgr->OnBeforeAuctionHouseMgrSendAuctionSalePendingMail(this, auction, owner, owner_accId, sendMail);
+
+        if (sendMail) // can be changed in the hook
+            MailDraft(auction->BuildAuctionMailSubject(AUCTION_SALE_PENDING), AuctionEntry::BuildAuctionMailBody(auction->bidder, auction->bid, auction->buyout, auction->deposit, auction->GetAuctionCut()))
+                .SendMailTo(trans, MailReceiver(owner, auction->owner), auction, MAIL_CHECK_MASK_COPIED);
+    }
 }
 
 //call this method to send mail to auction owner, when auction is successful, it does not clear ram
@@ -211,18 +226,29 @@ void AuctionHouseMgr::SendAuctionSuccessfulMail(AuctionEntry* auction, Character
     {
         uint64 profit = auction->bid + auction->deposit - auction->GetAuctionCut();
 
+        bool sendNotification = true;
+        bool updateAchievementCriteria = true;
+        bool sendMail = true;
+        sScriptMgr->OnBeforeAuctionHouseMgrSendAuctionSuccessfulMail(this, auction, owner, owner_accId, profit, sendNotification, updateAchievementCriteria, sendMail);
+
         //FIXME: what do if owner offline
         if (owner)
         {
-            owner->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_GOLD_EARNED_BY_AUCTIONS, profit);
-            owner->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_HIGHEST_AUCTION_SOLD, auction->bid);
+            if (updateAchievementCriteria) // can be changed in the hook
+            {
+                owner->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_GOLD_EARNED_BY_AUCTIONS, profit);
+                owner->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_HIGHEST_AUCTION_SOLD, auction->bid);
+            }
+
             //send auction owner notification, bidder must be current!
-            owner->GetSession()->SendAuctionOwnerNotification(auction);
+            if (sendNotification) // can be changed in the hook
+                owner->GetSession()->SendAuctionOwnerNotification(auction);
         }
 
-        MailDraft(auction->BuildAuctionMailSubject(AUCTION_SUCCESSFUL), AuctionEntry::BuildAuctionMailBody(auction->bidder, auction->bid, auction->buyout, auction->deposit, auction->GetAuctionCut()))
-            .AddMoney(profit)
-            .SendMailTo(trans, MailReceiver(owner, auction->owner), auction, MAIL_CHECK_MASK_COPIED, sWorld->getIntConfig(CONFIG_MAIL_DELIVERY_DELAY));
+        if (sendMail) // can be changed in the hook
+            MailDraft(auction->BuildAuctionMailSubject(AUCTION_SUCCESSFUL), AuctionEntry::BuildAuctionMailBody(auction->bidder, auction->bid, auction->buyout, auction->deposit, auction->GetAuctionCut()))
+                .AddMoney(profit)
+                .SendMailTo(trans, MailReceiver(owner, auction->owner), auction, MAIL_CHECK_MASK_COPIED, sWorld->getIntConfig(CONFIG_MAIL_DELIVERY_DELAY));
     }
 }
 
@@ -240,12 +266,17 @@ void AuctionHouseMgr::SendAuctionExpiredMail(AuctionEntry* auction, CharacterDat
     // owner exist
     if ((owner || owner_accId) && !sAuctionBotConfig->IsBotChar(auction->owner))
     {
-        if (owner)
+        bool sendNotification = true;
+        bool sendMail = true;
+        sScriptMgr->OnBeforeAuctionHouseMgrSendAuctionExpiredMail(this, auction, owner, owner_accId, sendNotification, sendMail);
+
+        if (owner && sendNotification) // can be changed in the hook
             owner->GetSession()->SendAuctionOwnerNotification(auction);
 
-        MailDraft(auction->BuildAuctionMailSubject(AUCTION_EXPIRED), AuctionEntry::BuildAuctionMailBody(0, 0, auction->buyout, auction->deposit, 0))
-            .AddItem(pItem)
-            .SendMailTo(trans, MailReceiver(owner, auction->owner), auction, MAIL_CHECK_MASK_COPIED, 0);
+        if (sendMail) // can be changed in the hook
+            MailDraft(auction->BuildAuctionMailSubject(AUCTION_EXPIRED), AuctionEntry::BuildAuctionMailBody(0, 0, auction->buyout, auction->deposit, 0))
+                .AddItem(pItem)
+                .SendMailTo(trans, MailReceiver(owner, auction->owner), auction, MAIL_CHECK_MASK_COPIED, 0);
     }
     else
     {
@@ -267,12 +298,17 @@ void AuctionHouseMgr::SendAuctionOutbiddedMail(AuctionEntry* auction, uint64 new
     // old bidder exist
     if ((oldBidder || oldBidder_accId) && !sAuctionBotConfig->IsBotChar(auction->bidder))
     {
-        if (oldBidder && newBidder)
+        bool sendNotification = true;
+        bool sendMail = true;
+        sScriptMgr->OnBeforeAuctionHouseMgrSendAuctionOutbiddedMail(this, auction, oldBidder, oldBidder_accId, newBidder, newPrice, sendNotification, sendMail);
+
+        if (oldBidder && newBidder && sendNotification) // can be changed in the hook
             oldBidder->GetSession()->SendAuctionBidderNotification(auction->GetHouseId(), auction->Id, newBidder->GetGUID(), newPrice, auction->GetAuctionOutBid(), auction->itemEntry);
 
-        MailDraft(auction->BuildAuctionMailSubject(AUCTION_OUTBIDDED), AuctionEntry::BuildAuctionMailBody(auction->owner, auction->bid, auction->buyout, auction->deposit, auction->GetAuctionCut()))
-            .AddMoney(auction->bid)
-            .SendMailTo(trans, MailReceiver(oldBidder, auction->bidder), auction, MAIL_CHECK_MASK_COPIED);
+        if (sendMail) // can be changed in the hook
+            MailDraft(auction->BuildAuctionMailSubject(AUCTION_OUTBIDDED), AuctionEntry::BuildAuctionMailBody(auction->owner, auction->bid, auction->buyout, auction->deposit, auction->GetAuctionCut()))
+                .AddMoney(auction->bid)
+                .SendMailTo(trans, MailReceiver(oldBidder, auction->bidder), auction, MAIL_CHECK_MASK_COPIED);
     }
 }
 
@@ -291,9 +327,15 @@ void AuctionHouseMgr::SendAuctionCancelledToBidderMail(AuctionEntry* auction, Ch
 
     // bidder exist
     if ((bidder || bidder_accId) && !sAuctionBotConfig->IsBotChar(auction->bidder))
-        MailDraft(auction->BuildAuctionMailSubject(AUCTION_CANCELLED_TO_BIDDER), AuctionEntry::BuildAuctionMailBody(auction->owner, auction->bid, auction->buyout, auction->deposit, 0))
-            .AddMoney(auction->bid)
-            .SendMailTo(trans, MailReceiver(bidder, auction->bidder), auction, MAIL_CHECK_MASK_COPIED);
+    {
+        bool sendMail = true;
+        sScriptMgr->OnBeforeAuctionHouseMgrSendAuctionCancelledToBidderMail(this, auction, bidder, bidder_accId, sendMail);
+
+        if (sendMail) // can be changed in the hook
+            MailDraft(auction->BuildAuctionMailSubject(AUCTION_CANCELLED_TO_BIDDER), AuctionEntry::BuildAuctionMailBody(auction->owner, auction->bid, auction->buyout, auction->deposit, 0))
+                .AddMoney(auction->bid)
+                .SendMailTo(trans, MailReceiver(bidder, auction->bidder), auction, MAIL_CHECK_MASK_COPIED);
+    }
 }
 
 void AuctionHouseMgr::LoadAuctionItems()
@@ -561,6 +603,8 @@ void AuctionHouseMgr::UpdatePendingAuctions()
 
 void AuctionHouseMgr::Update()
 {
+    sScriptMgr->OnBeforeAuctionHouseMgrUpdate();
+
     mHordeAuctions.Update();
     mAllianceAuctions.Update();
     mNeutralAuctions.Update();

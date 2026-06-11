@@ -164,6 +164,9 @@ public:
         {
             handler->GetSession()->GetPlayer()->SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_DEVELOPER);
             handler->GetSession()->SendNotification(LANG_DEV_ON);
+
+            bool enable = true;
+            sScriptMgr->OnHandleDevCommand(handler->GetSession()->GetPlayer(), enable);
             return true;
         }
 
@@ -171,6 +174,9 @@ public:
         {
             handler->GetSession()->GetPlayer()->RemoveFlag(PLAYER_FLAGS, PLAYER_FLAGS_DEVELOPER);
             handler->GetSession()->SendNotification(LANG_DEV_OFF);
+
+            bool enable = false;
+            sScriptMgr->OnHandleDevCommand(handler->GetSession()->GetPlayer(), enable);
             return true;
         }
 

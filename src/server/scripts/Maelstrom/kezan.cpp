@@ -17,6 +17,7 @@
 
 #include "ScriptMgr.h"
 #include "Player.h"
+#include "Spell.h"
 #include "SpellScript.h"
 #include "SpellAuraEffects.h"
 #include "SpellMgr.h"
@@ -25,8 +26,10 @@
 #include "VehicleDefines.h"
 #include "SharedDefines.h"
 #include "ScriptedCreature.h"
+#include "ScriptedGossip.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "EventMap.h"
 #include "TemporarySummon.h"
 #include "CombatAI.h"
@@ -411,7 +414,7 @@ class player_script_rolling_with_homies : public PlayerScript
 public:
     player_script_rolling_with_homies() : PlayerScript("player_script_rolling_with_homies") { }
 
-    void OnLogin(Player* player, bool /*firstLogin*/) override
+    void OnPlayerLogin(Player* player) override
     {
         QuestStatus status = player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES);
         if (status == QUEST_STATUS_INCOMPLETE || status == QUEST_STATUS_COMPLETE)
@@ -421,7 +424,7 @@ public:
         }
     }
 
-    void OnSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
+    void OnPlayerSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
     {
         if (spell->GetSpellInfo()->Id == SPELL_KEYS_TO_HOT_ROD)
         {
@@ -430,7 +433,7 @@ public:
         }
     }
 
-    void OnQuestStatusChange(Player* player, uint32 questId) override
+    void OnPlayerQuestStatusChange(Player* player, uint32 questId) override
     {
         if (questId == QUEST_ROLLING_WITH_MY_HOMIES)
         {

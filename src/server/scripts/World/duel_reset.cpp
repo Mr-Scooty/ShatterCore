@@ -32,7 +32,7 @@ class DuelResetScript : public PlayerScript
         DuelResetScript() : PlayerScript("DuelResetScript") { }
 
         // Called when a duel starts (after 3s countdown)
-        void OnDuelStart(Player* player1, Player* player2) override
+        void OnPlayerDuelStart(Player* player1, Player* player2) override
         {
             // Cooldowns reset
             if (sWorld->getBoolConfig(CONFIG_RESET_DUEL_COOLDOWNS))
@@ -58,7 +58,7 @@ class DuelResetScript : public PlayerScript
         }
 
         // Called when a duel ends
-        void OnDuelEnd(Player* winner, Player* loser, DuelCompleteType type) override
+        void OnPlayerDuelEnd(Player* winner, Player* loser, DuelCompleteType type) override
         {
             // do not reset anything if DUEL_INTERRUPTED or DUEL_FLED
             if (type == DUEL_WON)

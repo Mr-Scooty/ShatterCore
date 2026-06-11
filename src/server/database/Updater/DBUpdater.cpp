@@ -78,6 +78,12 @@ std::string DBUpdater<LoginDatabaseConnection>::GetTableName()
 }
 
 template<>
+std::string DBUpdater<LoginDatabaseConnection>::GetDBModuleName()
+{
+    return "auth";
+}
+
+template<>
 std::string DBUpdater<LoginDatabaseConnection>::GetBaseFile()
 {
     return BuiltInConfig::GetSourceDirectory() +
@@ -102,6 +108,12 @@ template<>
 std::string DBUpdater<WorldDatabaseConnection>::GetTableName()
 {
     return "World";
+}
+
+template<>
+std::string DBUpdater<WorldDatabaseConnection>::GetDBModuleName()
+{
+    return "world";
 }
 
 template<>
@@ -137,6 +149,12 @@ std::string DBUpdater<CharacterDatabaseConnection>::GetTableName()
 }
 
 template<>
+std::string DBUpdater<CharacterDatabaseConnection>::GetDBModuleName()
+{
+    return "characters";
+}
+
+template<>
 std::string DBUpdater<CharacterDatabaseConnection>::GetBaseFile()
 {
     return BuiltInConfig::GetSourceDirectory() +
@@ -161,6 +179,12 @@ template<>
 std::string DBUpdater<HotfixDatabaseConnection>::GetTableName()
 {
     return "Hotfixes";
+}
+
+template<>
+std::string DBUpdater<HotfixDatabaseConnection>::GetDBModuleName()
+{
+    return "hotfixes";
 }
 
 template<>
@@ -235,7 +259,7 @@ bool DBUpdater<T>::Create(DatabaseWorkerPool<T>& pool)
 }
 
 template<class T>
-bool DBUpdater<T>::Update(DatabaseWorkerPool<T>& pool)
+bool DBUpdater<T>::Update(DatabaseWorkerPool<T>& pool, std::string const& modulesList)
 {
     if (!DBUpdaterUtil::CheckExecutable())
         return false;
@@ -252,7 +276,8 @@ bool DBUpdater<T>::Update(DatabaseWorkerPool<T>& pool)
 
     UpdateFetcher updateFetcher(sourceDirectory, [&](std::string const& query) { DBUpdater<T>::Apply(pool, query); },
         [&](Path const& file) { DBUpdater<T>::ApplyFile(pool, file); },
-            [&](std::string const& query) -> QueryResult { return DBUpdater<T>::Retrieve(pool, query); });
+            [&](std::string const& query) -> QueryResult { return DBUpdater<T>::Retrieve(pool, query); },
+                DBUpdater<T>::GetDBModuleName(), modulesList);
 
     UpdateResult result;
     try

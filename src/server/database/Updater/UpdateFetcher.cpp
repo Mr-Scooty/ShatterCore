@@ -23,6 +23,7 @@
 #include "QueryResult.h"
 #include "Util.h"
 #include "SHA1.h"
+#include <boost/filesystem/directory.hpp>
 #include <boost/filesystem/operations.hpp>
 #include <fstream>
 #include <sstream>
@@ -40,9 +41,11 @@ struct UpdateFetcher::DirectoryEntry
 UpdateFetcher::UpdateFetcher(Path const& sourceDirectory,
     std::function<void(std::string const&)> const& apply,
     std::function<void(Path const& path)> const& applyFile,
-    std::function<QueryResult(std::string const&)> const& retrieve) :
+    std::function<QueryResult(std::string const&)> const& retrieve,
+    std::string const& dbModuleName,
+    std::string const& modulesList) :
         _sourceDirectory(Trinity::make_unique<Path>(sourceDirectory)), _apply(apply), _applyFile(applyFile),
-        _retrieve(retrieve)
+        _retrieve(retrieve), _dbModuleName(dbModuleName), _modulesList(modulesList)
 {
 }
 
@@ -124,6 +127,47 @@ UpdateFetcher::DirectoryStorage UpdateFetcher::ReceiveIncludedDirectories() cons
 
     } while (result->NextRow());
 
+    // Add the sql update directories of all enabled modules
+    // (modules/<name>/data/sql/db-<dbModuleName>)
+    if (!_dbModuleName.empty())
+    {
+        std::string remaining = _modulesList;
+        while (!remaining.empty())
+        {
+            size_t const pos = remaining.find(',');
+            std::string const moduleName = remaining.substr(0, pos);
+            if (pos == std::string::npos)
+                remaining.clear();
+            else
+                remaining = remaining.substr(pos + 1);
+
+            if (moduleName.empty())
+                continue;
+
+            Path const moduleSqlDir(_sourceDirectory->generic_string() + "/modules/" + moduleName + "/data/sql/");
+            if (!is_directory(moduleSqlDir))
+                continue;
+
+            static directory_iterator const end;
+            for (directory_iterator itr(moduleSqlDir); itr != end; ++itr)
+            {
+                if (!is_directory(itr->path()))
+                    continue;
+
+                // modules/<name>/data/sql/db-world -> "db-world"
+                std::string const dirName = itr->path().filename().string();
+                if (dirName.find(_dbModuleName) == std::string::npos)
+                    continue;
+
+                DirectoryEntry const entry = { itr->path(), MODULE };
+                directories.push_back(entry);
+
+                TC_LOG_TRACE("sql.updates", "Added module update directory \"%s\".",
+                    itr->path().generic_string().c_str());
+            }
+        }
+    }
+
     return directories;
 }
 
@@ -197,7 +241,7 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
 
     size_t importedUpdates = 0;
 
-    for (auto const& availableQuery : available)
+    auto ApplyUpdateFile = [&](LocaleFileEntry const& availableQuery)
     {
         TC_LOG_DEBUG("sql.updates", "Checking update \"%s\"...", availableQuery.first.filename().generic_string().c_str());
 
@@ -209,7 +253,7 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
             {
                 TC_LOG_DEBUG("sql.updates", ">> Update is already applied, skipping redundancy checks.");
                 applied.erase(iter);
-                continue;
+                return;
             }
 
             // If the update is in an archived directory and is marked as archived in our database, skip redundancy checks (archived updates never change).
@@ -217,7 +261,7 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
             {
                 TC_LOG_DEBUG("sql.updates", ">> Update is archived and marked as archived in database, skipping redundancy checks.");
                 applied.erase(iter);
-                continue;
+                return;
             }
         }
 
@@ -255,7 +299,7 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
 
                     RenameEntry(hashIter->second, availableQuery.first.filename().string());
                     applied.erase(hashIter->second);
-                    continue;
+                    return;
                 }
             }
             // Apply the update if it was never seen before.
@@ -295,7 +339,7 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
                 TC_LOG_DEBUG("sql.updates", ">> Update is already applied and matches the hash \'%s\'.", hash.substr(0, 7).c_str());
 
                 applied.erase(iter);
-                continue;
+                return;
             }
         }
 
@@ -317,14 +361,33 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
 
         if (mode == MODE_APPLY)
             ++importedUpdates;
-    }
+    };
+
+    // Apply default updates first. This guarantees core updates (including
+    // the migration extending the updates.state enum with 'MODULE') run
+    // before any module update writes a row with state='MODULE'.
+    for (auto const& availableQuery : available)
+        if (availableQuery.second != MODULE)
+            ApplyUpdateFile(availableQuery);
+
+    // Apply module updates afterwards
+    for (auto const& availableQuery : available)
+        if (availableQuery.second == MODULE)
+            ApplyUpdateFile(availableQuery);
 
     // Cleanup up orphaned entries (if enabled)
     if (!applied.empty())
     {
-        bool const doCleanup = (cleanDeadReferencesMaxCount < 0) || (applied.size() <= static_cast<size_t>(cleanDeadReferencesMaxCount));
-
+        // Updates that belong to a (possibly disabled or removed) module
+        // must not be treated as orphaned.
+        AppliedFileStorage toCleanup;
         for (auto const& entry : applied)
+            if (entry.second.state != MODULE)
+                toCleanup.insert(entry);
+
+        bool const doCleanup = (cleanDeadReferencesMaxCount < 0) || (toCleanup.size() <= static_cast<size_t>(cleanDeadReferencesMaxCount));
+
+        for (auto const& entry : toCleanup)
         {
             TC_LOG_WARN("sql.updates", ">> The file \'%s\' was applied to the database, but is missing in" \
                 " your update directory now!", entry.first.c_str());
@@ -333,12 +396,15 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
                 TC_LOG_INFO("sql.updates", "Deleting orphaned entry \'%s\'...", entry.first.c_str());
         }
 
-        if (doCleanup)
-            CleanUp(applied);
-        else
+        if (!toCleanup.empty())
         {
-            TC_LOG_ERROR("sql.updates", "Cleanup is disabled! There were  " SZFMTD " dirty files applied to your database, " \
-                "but they are now missing in your source directory!", applied.size());
+            if (doCleanup)
+                CleanUp(toCleanup);
+            else
+            {
+                TC_LOG_ERROR("sql.updates", "Cleanup is disabled! There were  " SZFMTD " dirty files applied to your database, " \
+                    "but they are now missing in your source directory!", toCleanup.size());
+            }
         }
     }
 

@@ -30,6 +30,7 @@
 #include "MapManager.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "Timer.h"
 #include "World.h"
 
@@ -179,12 +180,17 @@ void InstanceSaveManager::UnloadInstanceSave(uint32 InstanceId)
 
 InstanceSave::InstanceSave(uint16 MapId, uint32 InstanceId, Difficulty difficulty, time_t resetTime, bool canReset)
 : m_resetTime(resetTime), m_instanceid(InstanceId), m_mapid(MapId),
-  m_difficulty(difficulty), m_canReset(canReset), m_toDelete(false) { }
+  m_difficulty(difficulty), m_canReset(canReset), m_toDelete(false)
+{
+    sScriptMgr->OnConstructInstanceSave(this);
+}
 
 InstanceSave::~InstanceSave()
 {
     // the players and groups must be unbound before deleting the save
     ASSERT(m_playerList.empty() && m_groupList.empty());
+
+    sScriptMgr->OnDestructInstanceSave(this);
 }
 
 /*
@@ -215,6 +221,8 @@ void InstanceSave::SaveToDB()
     stmt->setUInt32(4, completedEncounters);
     stmt->setString(5, data);
     CharacterDatabase.Execute(stmt);
+
+    sScriptMgr->OnInstanceSave(this);
 }
 
 time_t InstanceSave::GetResetTimeForDB()
@@ -613,6 +621,8 @@ void InstanceSaveManager::_ResetInstance(uint32 mapid, uint32 instanceId)
 
     // Free up the instance id and allow it to be reused
     sMapMgr->FreeInstanceId(instanceId);
+
+    sScriptMgr->OnInstanceIdRemoved(instanceId);
 }
 
 void InstanceSaveManager::_ResetOrWarnAll(uint32 mapid, Difficulty difficulty, bool warn, time_t resetTime)
