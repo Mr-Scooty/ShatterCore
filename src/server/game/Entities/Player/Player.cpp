@@ -1318,6 +1318,7 @@ void Player::Update(uint32 p_time)
     if (IsHasDelayedTeleport() && IsAlive())
         TeleportTo(m_teleport_dest, m_teleport_options);
 
+    sScriptMgr->OnPlayerAfterUpdate(this, p_time);
 }
 
 void Player::setDeathState(DeathState s)
@@ -10805,6 +10806,42 @@ InventoryResult Player::CanUseItem(Item* pItem, bool not_loading) const
         }
     }
     return EQUIP_ERR_ITEM_NOT_FOUND;
+}
+
+// mod-playerbots: like CanUseItem, but also rejects relics of other classes so the
+// bot gear factory never equips a foreign relic
+InventoryResult Player::BotCanUseItem(ItemTemplate const* proto) const
+{
+    if (proto->GetClass() == ITEM_CLASS_ARMOR)
+    {
+        switch (proto->GetSubClass())
+        {
+            case ITEM_SUBCLASS_ARMOR_IDOL:
+                if (getClass() != CLASS_DRUID)
+                    return EQUIP_ERR_CANT_EQUIP_EVER;
+                break;
+            case ITEM_SUBCLASS_ARMOR_TOTEM:
+                if (getClass() != CLASS_SHAMAN)
+                    return EQUIP_ERR_CANT_EQUIP_EVER;
+                break;
+            case ITEM_SUBCLASS_ARMOR_LIBRAM:
+                if (getClass() != CLASS_PALADIN)
+                    return EQUIP_ERR_CANT_EQUIP_EVER;
+                break;
+            case ITEM_SUBCLASS_ARMOR_SIGIL:
+                if (getClass() != CLASS_DEATH_KNIGHT)
+                    return EQUIP_ERR_CANT_EQUIP_EVER;
+                break;
+            case ITEM_SUBCLASS_ARMOR_RELIC:
+                if (getClass() != CLASS_DRUID && getClass() != CLASS_SHAMAN && getClass() != CLASS_PALADIN && getClass() != CLASS_DEATH_KNIGHT)
+                    return EQUIP_ERR_CANT_EQUIP_EVER;
+                break;
+            default:
+                break;
+        }
+    }
+
+    return CanUseItem(proto);
 }
 
 InventoryResult Player::CanUseItem(ItemTemplate const* proto) const

@@ -26,7 +26,7 @@ template<class T>
 class PointMovementGenerator : public MovementGeneratorMedium< T, PointMovementGenerator<T> >
 {
     public:
-        PointMovementGenerator(uint32 id, float x, float y, float z, bool generatePath, float speed = 0.0f) : _movementId(id), _x(x), _y(y), _z(z), _speed(speed), _generatePath(generatePath), _recalculateSpeed(false), _interrupt(false) { }
+        PointMovementGenerator(uint32 id, float x, float y, float z, bool generatePath, float speed = 0.0f, bool reverseOrientation = false) : _movementId(id), _x(x), _y(y), _z(z), _speed(speed), _generatePath(generatePath), _recalculateSpeed(false), _interrupt(false), _reverseOrientation(reverseOrientation) { }
 
         MovementGeneratorType GetMovementGeneratorType() const override { return POINT_MOTION_TYPE; }
 
@@ -45,6 +45,7 @@ class PointMovementGenerator : public MovementGeneratorMedium< T, PointMovementG
         bool _generatePath;
         bool _recalculateSpeed;
         bool _interrupt;
+        bool _reverseOrientation; // mod-playerbots: walk the spline facing away from the target
 };
 
 class AssistanceMovementGenerator : public PointMovementGenerator<Creature>

@@ -2892,6 +2892,14 @@ ReputationRank WorldObject::GetReactionTo(WorldObject const* target) const
         }
     }
 
+    return GetFactionReactionTo(factionTemplateEntry, targetFactionTemplateEntry);
+}
+
+/*static*/ ReputationRank WorldObject::GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, FactionTemplateEntry const* targetFactionTemplateEntry)
+{
+    if (!factionTemplateEntry || !targetFactionTemplateEntry)
+        return REP_NEUTRAL;
+
     // common faction based check
     if (factionTemplateEntry->IsHostileTo(targetFactionTemplateEntry))
         return REP_HOSTILE;

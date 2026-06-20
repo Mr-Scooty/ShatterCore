@@ -50,9 +50,21 @@ public:
         DATABASE_CHARACTER  = 2,
         DATABASE_WORLD      = 4,
         DATABASE_HOTFIX     = 8,
+#ifdef MOD_PLAYERBOTS
+        DATABASE_PLAYERBOTS = 16,
 
+        DATABASE_MASK_ALL   = DATABASE_LOGIN | DATABASE_CHARACTER | DATABASE_WORLD | DATABASE_HOTFIX | DATABASE_PLAYERBOTS
+#else
         DATABASE_MASK_ALL   = DATABASE_LOGIN | DATABASE_CHARACTER | DATABASE_WORLD | DATABASE_HOTFIX
+#endif
     };
+
+    [[nodiscard]] uint32 GetUpdateFlags() const { return _updateFlags; }
+
+    void SetUpdateFlags(uint32 newUpdateFlags)
+    {
+        _updateFlags |= newUpdateFlags;
+    }
 
 private:
     bool OpenDatabases();
@@ -69,7 +81,7 @@ private:
 
     std::string const _logger;
     bool const _autoSetup;
-    uint32 const _updateFlags;
+    uint32 _updateFlags;
     // Comma separated list of enabled modules whose sql updates get applied
     std::string const _modulesList;
 

@@ -90,4 +90,9 @@ bool ScriptMgr::CanPacketReceive(WorldSession* session, WorldPacket const& packe
     return true;
 }
 
+void ScriptMgr::OnPacketReceived(WorldSession* session, WorldPacket const& packet)
+{
+    FOREACH_SCRIPT(ServerScript)->OnPacketReceived(session, packet);
+}
+
 template class TC_GAME_API ScriptRegistry<ServerScript>;

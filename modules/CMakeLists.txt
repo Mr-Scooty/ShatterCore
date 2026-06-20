@@ -119,6 +119,14 @@ function(ConfigureModulesLoader MODULELOADER_NAME LOADER_OUT IS_DYNAMIC_SCRIPTLO
   set(${LOADER_OUT} ${GENERATED_LOADER} PARENT_SCOPE)
 endfunction()
 
+# Enables module authors to include a cmake file in their module
+# that will get run inline with the configuration. Runs before source
+# collection so a module can set MODULE_<NAME>_EXCLUDE_DIRS to keep
+# directories below its src/ out of the build.
+foreach(SOURCE_MODULE ${MODULES_MODULE_LIST})
+  include("${CMAKE_SOURCE_DIR}/modules/${SOURCE_MODULE}/${SOURCE_MODULE}.cmake" OPTIONAL)
+endforeach()
+
 # Generates the actual module projects
 # Fills the STATIC_MODULES and DYNAMIC_MODULE_PROJECTS variables
 # which contain the names which modules are linked statically/dynamically and
@@ -141,15 +149,15 @@ foreach(SOURCE_MODULE ${MODULES_MODULE_LIST})
       # Add the module name to STATIC_MODULES
       list(APPEND STATIC_MODULES ${SOURCE_MODULE})
       # Add the module content to the whole static module
-      CollectSourceFiles(${MODULE_SOURCE_PATH} PRIVATE_SOURCES_MODULES)
-      CollectIncludeDirectories(${MODULE_SOURCE_PATH} PUBLIC_INCLUDES_MODULES)
+      CollectSourceFiles(${MODULE_SOURCE_PATH} PRIVATE_SOURCES_MODULES ${${MODULE_MODULE_VARIABLE}_EXCLUDE_DIRS})
+      CollectIncludeDirectories(${MODULE_SOURCE_PATH} PUBLIC_INCLUDES_MODULES ${${MODULE_MODULE_VARIABLE}_EXCLUDE_DIRS})
     endif()
   elseif(${MODULE_MODULE_VARIABLE} STREQUAL "dynamic")
     # Generate an own dynamic module which is loadable on runtime
     unset(MODULE_SOURCE_PRIVATE_SOURCES)
     unset(MODULE_SOURCE_PUBLIC_INCLUDES)
-    CollectSourceFiles(${MODULE_SOURCE_PATH} MODULE_SOURCE_PRIVATE_SOURCES)
-    CollectIncludeDirectories(${MODULE_SOURCE_PATH} MODULE_SOURCE_PUBLIC_INCLUDES)
+    CollectSourceFiles(${MODULE_SOURCE_PATH} MODULE_SOURCE_PRIVATE_SOURCES ${${MODULE_MODULE_VARIABLE}_EXCLUDE_DIRS})
+    CollectIncludeDirectories(${MODULE_SOURCE_PATH} MODULE_SOURCE_PUBLIC_INCLUDES ${${MODULE_MODULE_VARIABLE}_EXCLUDE_DIRS})
 
     # Configure the module loader
     ConfigureModulesLoader(${SOURCE_MODULE} MODULE_PRIVATE_SCRIPTLOADER ON ${SOURCE_MODULE})
@@ -229,12 +237,6 @@ set_target_properties(modules
   PROPERTIES
     FOLDER
       "modules")
-
-# Enables module authors to include a cmake file in their module
-# that will get run inline with the configuration.
-foreach(SOURCE_MODULE ${MODULES_MODULE_LIST})
-  include("${CMAKE_SOURCE_DIR}/modules/${SOURCE_MODULE}/${SOURCE_MODULE}.cmake" OPTIONAL)
-endforeach()
 
 # Remove all shared libraries in the install directory which
 # are contained in the static library already (or disabled).

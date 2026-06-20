@@ -67,6 +67,8 @@
 
 class Channel;
 class Creature;
+struct AchievementCriteriaEntry;
+struct AchievementEntry;
 class Group;
 class Guild;
 class Item;
@@ -109,6 +111,9 @@ enum PlayerHook : uint16
     PLAYERHOOK_ON_TALENTS_RESET,
     PLAYERHOOK_ON_BEFORE_UPDATE,
     PLAYERHOOK_ON_UPDATE,
+    PLAYERHOOK_ON_AFTER_UPDATE,
+    PLAYERHOOK_ON_BEFORE_ACHI_COMPLETE,
+    PLAYERHOOK_ON_BEFORE_CRITERIA_PROGRESS,
     PLAYERHOOK_ON_MONEY_CHANGED,
     PLAYERHOOK_ON_BEFORE_LOOT_MONEY,
     PLAYERHOOK_ON_GIVE_EXP,
@@ -240,6 +245,13 @@ class TC_GAME_API PlayerScript : public ScriptObject
         // Called for player::update
         virtual void OnPlayerBeforeUpdate(Player* /*player*/, uint32 /*p_time*/) { }
         virtual void OnPlayerUpdate(Player* /*player*/, uint32 /*p_time*/) { }
+        virtual void OnPlayerAfterUpdate(Player* /*player*/, uint32 /*p_time*/) { }
+
+        // Called before an achievement is completed; returning false blocks it (mod-playerbots realm-first guard)
+        [[nodiscard]] virtual bool OnPlayerBeforeAchievementComplete(Player* /*player*/, AchievementEntry const* /*achievement*/) { return true; }
+
+        // Called before achievement criteria progress is updated; returning false blocks it
+        [[nodiscard]] virtual bool OnPlayerBeforeCriteriaProgress(Player* /*player*/, AchievementCriteriaEntry const* /*criteria*/) { return true; }
 
         // Called when a player's money is modified (before the modification is done)
         virtual void OnPlayerMoneyChanged(Player* /*player*/, int64& /*amount*/) { }

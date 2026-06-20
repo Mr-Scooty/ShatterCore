@@ -130,6 +130,10 @@ class TC_GAME_API ArenaTeam
         ArenaTeamStats const& GetStats() const { return Stats; }
 
         uint32 GetRating() const          { return Stats.Rating; }
+
+        // mod-playerbots
+        void SetEmblem(uint32 backgroundColor, uint8 emblemStyle, uint32 emblemColor, uint8 borderStyle, uint32 borderColor);
+        void SetRatingForAll(uint32 rating);
         uint32 GetAverageMMR(Group* group) const;
 
         void SetCaptain(ObjectGuid guid);
@@ -138,6 +142,7 @@ class TC_GAME_API ArenaTeam
         void DelMember(ObjectGuid guid, bool cleanDb);
 
         size_t GetMembersSize() const         { return Members.size(); }
+        MemberList& GetMembers()              { return Members; } // AzerothCore module compatibility
         bool   Empty() const                  { return Members.empty(); }
         MemberList::iterator m_membersBegin() { return Members.begin(); }
         MemberList::iterator m_membersEnd()   { return Members.end(); }

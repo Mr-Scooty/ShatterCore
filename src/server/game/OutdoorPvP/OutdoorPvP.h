@@ -129,6 +129,11 @@ class TC_GAME_API OPvPCapturePoint
 
         bool SetCapturePointData(uint32 entry);
 
+#ifdef MOD_PLAYERBOTS
+        float GetMinValue() const { return m_minValue; }
+        float GetSlider() const { return m_value; }
+#endif
+
     protected:
 
         // active players in the area of the objective, 0 - alliance, 1 - horde
@@ -233,6 +238,10 @@ class TC_GAME_API OutdoorPvP : public ZoneScript
         void SendDefenseMessage(uint32 zoneId, uint32 id);
 
         Map* GetMap() const { return m_map; }
+
+#ifdef MOD_PLAYERBOTS
+        OPvPCapturePointMap const& GetCapturePoints() const { return m_capturePoints; }
+#endif
 
     protected:
 

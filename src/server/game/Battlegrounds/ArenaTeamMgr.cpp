@@ -74,6 +74,15 @@ ArenaTeam* ArenaTeamMgr::GetArenaTeamByCaptain(ObjectGuid guid) const
     return nullptr;
 }
 
+ArenaTeam* ArenaTeamMgr::GetArenaTeamByCaptain(ObjectGuid guid, uint8 type) const
+{
+    for (auto const& [teamId, team] : ArenaTeamStore)
+        if (team->GetCaptain() == guid && team->GetType() == type)
+            return team;
+
+    return nullptr;
+}
+
 void ArenaTeamMgr::AddArenaTeam(ArenaTeam* arenaTeam)
 {
     ArenaTeamStore[arenaTeam->GetId()] = arenaTeam;

@@ -9635,6 +9635,12 @@ void Unit::CleanupBeforeRemoveFromMap(bool finalCleanup)
 
     ASSERT(GetGUID());
 
+    // mod-playerbots crash fix: cancel pending events before aura/spellmod cleanup.
+    // Otherwise a SpellEvent may be cancelled later, during EventProcessor destruction,
+    // after auras/spellmods are already removed, leading to invalid access in
+    // Player::RestoreSpellMods on logout.
+    m_Events.KillAllEvents(false);
+
     // A unit may be in removelist and not in world, but it is still in grid
     // and may have some references during delete
     RemoveAllAuras();
@@ -11108,6 +11114,8 @@ void Unit::PlayOneShotAnimKitId(uint16 animKitId)
         }
 
         player->RewardPlayerAndGroupAtKill(victim, false);
+
+        sScriptMgr->OnPlayerbotCheckKillTask(player, victim);
     }
 
     // Do KILL and KILLED procs. KILL proc is called only for the unit who landed the killing blow (and its owner - for pets and totems) regardless of who tapped the victim
@@ -12196,6 +12204,12 @@ void Unit::KnockbackFrom(float x, float y, float speedXY, float speedZ)
         if (HasAuraType(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED) || HasAuraType(SPELL_AURA_FLY))
             SetCanFly(true, false);
     }
+}
+
+uint32 Unit::GetSpellCooldownDelay(uint32 spellId) const
+{
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+    return spellInfo ? GetSpellHistory()->GetRemainingCooldown(spellInfo) : 0;
 }
 
 float Unit::GetCombatRatingReduction(CombatRating cr) const

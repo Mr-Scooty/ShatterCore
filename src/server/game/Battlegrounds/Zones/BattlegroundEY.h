@@ -419,6 +419,21 @@ class BattlegroundEY : public Battleground
 
         /* Battleground Events */
         void EventPlayerClickedOnFlag(Player* Source, GameObject* target_obj) override;
+
+        // mod-playerbots: read-only capture point view matching the AzerothCore shape
+        struct CapturePointInfo
+        {
+            TeamId _ownerTeamId;
+            uint8 _state;
+        };
+        CapturePointInfo GetCapturePointInfo(uint8 point) const
+        {
+            CapturePointInfo info;
+            info._state = point < EY_POINTS_MAX ? m_PointState[point] : 0;
+            uint32 owner = point < EY_POINTS_MAX ? m_PointOwnedByTeam[point] : 0;
+            info._ownerTeamId = owner == ALLIANCE ? TEAM_ALLIANCE : owner == HORDE ? TEAM_HORDE : TEAM_NEUTRAL;
+            return info;
+        }
         void EventPlayerDroppedFlag(Player* Source) override;
 
         uint32 GetPrematureWinner() override;

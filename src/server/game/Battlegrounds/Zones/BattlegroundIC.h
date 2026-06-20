@@ -980,6 +980,8 @@ class BattlegroundIC : public Battleground
         void HandlePlayerResurrect(Player* player) override;
 
         uint32 GetNodeState(uint8 nodeType) const { return (uint8)nodePoint[nodeType].nodeState; }
+        // mod-playerbots: read-only node point view for bot BG strategies
+        ICNodePoint const& GetICNodePoint(uint8 nodeType) const { return nodePoint[nodeType]; }
 
         bool IsSpellAllowed(uint32 spellId, Player const* player) const override;
 

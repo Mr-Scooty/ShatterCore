@@ -738,6 +738,16 @@ void Guild::Member::LoadProfessionDataFromDB(ObjectGuid guid)
             if (!skillLine || skillLine->CategoryID != SKILL_CATEGORY_PROFESSION)
                 continue;
 
+            // ShatterCore: a guild Member stores at most GUILD_PROFESSION_COUNT (2) professions in the fixed
+            // m_professions[] array. A character with more than two profession-category skills (playerbots can
+            // end up with extras) would drive professionIndex past the end of that array, and the
+            // `m_professions[professionIndex] = profession;` below is a sizeof(GuildMemberProfessionData)-byte
+            // (~312 B) write that overruns the heap-allocated Member object -- silent heap corruption that
+            // surfaced far away (parallel quest-POI cache build on boot; jemalloc free on shutdown). Stop once
+            // both slots are filled. (Found via AddressSanitizer at Guild.cpp:770.)
+            if (professionIndex >= GUILD_PROFESSION_COUNT)
+                break;
+
             GuildMemberProfessionData profession(skill, max / 75, value);
 
             CharacterDatabasePreparedStatement* stmt2 = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELL);
@@ -1705,6 +1715,13 @@ void Guild::HandleSetInfo(WorldSession* session, std::string const& info)
     }
 }
 
+// mod-playerbots: bot guild masters update the emblem without a client session
+void Guild::HandleSetEmblem(EmblemInfo const& emblemInfo)
+{
+    m_emblemInfo = emblemInfo;
+    m_emblemInfo.SaveToDB(m_id);
+}
+
 void Guild::HandleSetEmblem(WorldSession* session, EmblemInfo const& emblemInfo)
 {
     Player* player = session->GetPlayer();
@@ -1793,6 +1810,21 @@ void Guild::HandleSetMemberNote(WorldSession* session, std::string const& note, 
             member->SetPublicNote(note);
 
         SendMemberUpdateNote(note, guid, officer);
+    }
+}
+
+// mod-playerbots: bot guild masters update rank settings without a client session
+void Guild::HandleSetRankInfo(uint8 rankId, uint32 rights /*= 0*/, std::string const& name /*= ""*/, uint32 moneyPerDay /*= 0*/)
+{
+    if (RankInfo* rankInfo = GetRankInfo(rankId))
+    {
+        if (!name.empty())
+            rankInfo->SetName(name);
+
+        rankInfo->SetRights(rights);
+        _SetRankBankMoneyPerDay(rankId, moneyPerDay);
+
+        _BroadcastEvent(GE_RANK_UPDATED, ObjectGuid::Empty, std::to_string(rankId).c_str(), rankInfo->GetName().c_str());
     }
 }
 
@@ -3303,7 +3335,8 @@ inline std::string Guild::_GetRankName(uint8 rankId) const
     return "<unknown>";
 }
 
-inline uint32 Guild::_GetRankRights(uint8 rankId) const
+// ShatterCore: external linkage so the mod-playerbots public wrappers (Guild.h) can call it cross-TU
+uint32 Guild::_GetRankRights(uint8 rankId) const
 {
     if (RankInfo const* rankInfo = GetRankInfo(rankId))
         return rankInfo->GetRights();
@@ -3373,7 +3406,8 @@ inline void Guild::_UpdateMemberWithdrawSlots(CharacterDatabaseTransaction& tran
         member->UpdateBankTabWithdrawValue(trans, tabId, 1);
 }
 
-inline bool Guild::_MemberHasTabRights(ObjectGuid guid, uint8 tabId, uint32 rights) const
+// ShatterCore: external linkage so the mod-playerbots public wrappers (Guild.h) can call it cross-TU
+bool Guild::_MemberHasTabRights(ObjectGuid guid, uint8 tabId, uint32 rights) const
 {
     if (Member const* member = GetMember(guid))
     {

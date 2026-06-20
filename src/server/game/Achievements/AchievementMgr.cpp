@@ -1896,6 +1896,10 @@ void AchievementMgr<Player>::CompletedAchievement(AchievementEntry const* achiev
     if (achievement->Flags & ACHIEVEMENT_FLAG_COUNTER || HasAchieved(achievement->ID))
         return;
 
+    // mod-playerbots: bots must not take realm-first achievements
+    if (!sScriptMgr->OnPlayerBeforeAchievementComplete(GetOwner(), achievement))
+        return;
+
     if (achievement->Flags & ACHIEVEMENT_FLAG_SHOW_IN_GUILD_NEWS)
         if (Guild* guild = referencePlayer->GetGuild())
             guild->AddGuildNews(GUILD_NEWS_PLAYER_ACHIEVEMENT, referencePlayer->GetGUID(), achievement->Flags & ACHIEVEMENT_FLAG_SHOW_IN_GUILD_HEADER, achievement->ID);

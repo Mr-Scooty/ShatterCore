@@ -43,6 +43,7 @@ enum ServerHook : uint16
     SERVERHOOK_ON_SOCKET_CLOSE,
     SERVERHOOK_CAN_PACKET_SEND,
     SERVERHOOK_CAN_PACKET_RECEIVE,
+    SERVERHOOK_ON_PACKET_RECEIVED,
     SERVERHOOK_END
 };
 
@@ -81,6 +82,10 @@ class TC_GAME_API ServerScript : public ScriptObject
         // Called before a received (valid) packet is processed, returning false drops the packet.
         // Make sure to check WorldSession pointer before usage, it might be null in case of auth packets
         [[nodiscard]] virtual bool CanPacketReceive(WorldSession* /*session*/, WorldPacket const& /*packet*/) { return true; }
+
+        // Called after a received packet's opcode handler has run (mod-playerbots observes
+        // master-client actions here). The packet must not be modified.
+        virtual void OnPacketReceived(WorldSession* /*session*/, WorldPacket const& /*packet*/) { }
 };
 
 #endif // SC_SERVER_SCRIPT_H

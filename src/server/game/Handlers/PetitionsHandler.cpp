@@ -464,6 +464,7 @@ void WorldSession::HandlePetitionSignOpcode(WorldPacket& recvData)
     // Client doesn't allow to sign petition two times by one character, but not check sign by another character from same account
     // not allow sign another player from already sign player account
     bool isSigned = petition->IsPetitionSignedByAccount(GetAccountId());
+    sScriptMgr->OnPlayerbotCheckPetitionAccount(_player, isSigned);
     if (isSigned)
     {
         WorldPacket data(SMSG_PETITION_SIGN_RESULTS, (8+8+4));

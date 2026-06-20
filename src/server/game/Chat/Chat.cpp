@@ -601,6 +601,15 @@ bool ChatHandler::ShowHelpForCommand(std::vector<ChatCommand> const& table, char
     return ShowHelpForSubCommands(table, "", cmd);
 }
 
+void ChatHandler::BuildChatPacket(WorldPacket& data, ChatMsg msgtype, std::string_view message, Language language /*= LANG_UNIVERSAL*/, uint8 chatTag /*= 0*/,
+                                  ObjectGuid senderGuid /*= ObjectGuid::Empty*/, std::string_view senderName /*= {}*/,
+                                  ObjectGuid targetGuid /*= ObjectGuid::Empty*/, std::string_view targetName /*= {}*/,
+                                  std::string_view channelName /*= {}*/, uint32 achievementId /*= 0*/)
+{
+    BuildChatPacket(data, msgtype, language, senderGuid, targetGuid, std::string(message), chatTag,
+        std::string(senderName), std::string(targetName), achievementId, false, std::string(channelName));
+}
+
 size_t ChatHandler::BuildChatPacket(WorldPacket& data, ChatMsg chatType, Language language, ObjectGuid senderGUID, ObjectGuid receiverGUID, std::string const& message, uint8 chatTag,
                                   std::string const& senderName /*= ""*/, std::string const& receiverName /*= ""*/,
                                   uint32 achievementId /*= 0*/, bool gmMessage /*= false*/, std::string const& channelName /*= ""*/,

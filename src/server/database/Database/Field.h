@@ -20,6 +20,8 @@
 
 #include "Define.h"
 #include "DatabaseEnvFwd.h"
+#include <string>
+#include <type_traits>
 #include <vector>
 
 enum class DatabaseFieldTypes : uint8
@@ -104,6 +106,39 @@ class TC_DATABASE_API Field
         char const* GetCString() const;
         std::string GetString() const;
         std::vector<uint8> GetBinary() const;
+
+        /// AzerothCore module compatibility: typed getter dispatching to the
+        /// accessors above (modules ported from AC use fields[i].Get<T>()).
+        template<typename T>
+        T Get() const
+        {
+            if constexpr (std::is_same_v<T, bool>)
+                return GetBool();
+            else if constexpr (std::is_same_v<T, uint8>)
+                return GetUInt8();
+            else if constexpr (std::is_same_v<T, int8>)
+                return GetInt8();
+            else if constexpr (std::is_same_v<T, uint16>)
+                return GetUInt16();
+            else if constexpr (std::is_same_v<T, int16>)
+                return GetInt16();
+            else if constexpr (std::is_same_v<T, uint32>)
+                return GetUInt32();
+            else if constexpr (std::is_same_v<T, int32>)
+                return GetInt32();
+            else if constexpr (std::is_same_v<T, uint64>)
+                return GetUInt64();
+            else if constexpr (std::is_same_v<T, int64>)
+                return GetInt64();
+            else if constexpr (std::is_same_v<T, float>)
+                return GetFloat();
+            else if constexpr (std::is_same_v<T, double>)
+                return GetDouble();
+            else if constexpr (std::is_same_v<T, std::string>)
+                return GetString();
+            else
+                static_assert(!std::is_same_v<T, T>, "Unsupported type for Field::Get<T>");
+        }
 
         bool IsNull() const
         {

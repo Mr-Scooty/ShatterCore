@@ -19,6 +19,8 @@
 #define TRINITYCORE_STRING_FORMAT_H
 
 #include "fmt/printf.h"
+#include "fmt/format.h"
+#include "fmt/ostream.h"
 
 namespace Trinity
 {
@@ -27,6 +29,14 @@ namespace Trinity
     inline std::string StringFormat(Format&& fmt, Args&&... args)
     {
         return fmt::sprintf(std::forward<Format>(fmt), std::forward<Args>(args)...);
+    }
+
+    /// AzerothCore module compatibility: brace-style ("{}") format function.
+    /// AC formats all strings with fmt::format placeholders.
+    template<typename Format, typename... Args>
+    inline std::string StringFormatFmt(Format&& fmt, Args&&... args)
+    {
+        return fmt::format(std::forward<Format>(fmt), std::forward<Args>(args)...);
     }
 
     /// Returns true if the given char pointer is null.

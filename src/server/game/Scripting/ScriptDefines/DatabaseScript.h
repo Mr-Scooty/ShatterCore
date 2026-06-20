@@ -27,8 +27,16 @@
 enum DatabaseHook : uint16
 {
     DATABASEHOOK_ON_AFTER_DATABASES_LOADED,
+    DATABASEHOOK_ON_DATABASES_LOADING,
+    DATABASEHOOK_ON_DATABASES_KEEP_ALIVE,
+    DATABASEHOOK_ON_DATABASES_CLOSING,
+    DATABASEHOOK_ON_DATABASE_WARN_ABOUT_SYNC_QUERIES,
+    DATABASEHOOK_ON_DATABASE_SELECT_INDEX_LOGOUT,
+    DATABASEHOOK_ON_DATABASE_GET_DB_REVISION,
     DATABASEHOOK_END
 };
+
+class Player;
 
 class TC_GAME_API DatabaseScript : public ScriptObject
 {
@@ -40,6 +48,26 @@ class TC_GAME_API DatabaseScript : public ScriptObject
 
         // Called after all databases are loaded
         virtual void OnAfterDatabasesLoaded(uint32 /*updateFlags*/) { }
+
+        // Called while the worldserver opens its database pools; lets a module open
+        // an additional pool (mod-playerbots). Returning false aborts server startup.
+        [[nodiscard]] virtual bool OnDatabasesLoading() { return true; }
+
+        // Called alongside the core pools' KeepAlive ping.
+        virtual void OnDatabasesKeepAlive() { }
+
+        // Called while the worldserver closes its database pools.
+        virtual void OnDatabasesClosing() { }
+
+        // Called around long synchronous stretches to toggle sync-query warnings.
+        virtual void OnDatabaseWarnAboutSyncQueries(bool /*apply*/) { }
+
+        // Lets a module override which statement marks a character offline on logout
+        // (bots must not mark the whole account's characters offline).
+        virtual void OnDatabaseSelectIndexLogout(Player* /*player*/, uint32& /*statementIndex*/, uint32& /*statementParam*/) { }
+
+        // Lets a module report its database revision for server info output.
+        virtual void OnDatabaseGetDBRevision(std::string& /*revision*/) { }
 };
 
 #endif // SC_DATABASE_SCRIPT_H

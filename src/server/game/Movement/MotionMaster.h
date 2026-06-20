@@ -173,6 +173,12 @@ class TC_GAME_API MotionMaster
         void MoveCharge(float x, float y, float z, float speed = SPEED_CHARGE, uint32 id = EVENT_CHARGE, bool generatePath = false);
         void MoveCharge(PathGenerator const& path, float speed = SPEED_CHARGE);
         void MoveKnockbackFrom(float srcX, float srcY, float speedXY, float speedZ);
+#ifdef MOD_PLAYERBOTS
+        // mod-playerbots: knockback splines for bot players (MoveKnockbackFrom early-returns for players)
+        void MoveKnockbackFromForPlayer(float srcX, float srcY, float speedXY, float speedZ);
+        // mod-playerbots: like MovePoint but the unit keeps facing away from the destination
+        void MovePointBackwards(uint32 id, float x, float y, float z, bool generatePath = true, float speed = 0.f);
+#endif
         void MoveJumpTo(float angle, float speedXY, float speedZ);
         void MoveJump(Position const& pos, float speedXY, float speedZ, uint32 id = EVENT_JUMP, bool hasOrientation = false)
         {

@@ -315,6 +315,9 @@ extern int main(int argc, char** argv)
     Trinity::Module::SetEnableModulesList(TC_MODULES_LIST);
     std::shared_ptr<void> sScriptMgrHandle(nullptr, [](void*)
     {
+        // Module-owned database pools (mod-playerbots) close with their scripts,
+        // before the core pools in StopDB.
+        sScriptMgr->OnDatabasesClosing();
         sScriptMgr->Unload();
         sScriptReloadMgr->Unload();
     });
@@ -510,6 +513,8 @@ void WorldUpdateLoop()
     uint32 realCurrTime = 0;
     uint32 realPrevTime = getMSTime();
 
+    sScriptMgr->OnDatabaseWarnAboutSyncQueries(true);
+
     ///- While we have not World::m_stopEvent, update the world
     while (!World::IsStopped())
     {
@@ -535,6 +540,8 @@ void WorldUpdateLoop()
             Sleep(1000);
 #endif
     }
+
+    sScriptMgr->OnDatabaseWarnAboutSyncQueries(false);
 }
 
 void SignalHandler(boost::system::error_code const& error, int /*signalNumber*/)

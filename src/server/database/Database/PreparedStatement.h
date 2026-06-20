@@ -98,6 +98,41 @@ class TC_DATABASE_API PreparedStatementBase
         void setString(uint8 index, std::string const& value);
         void setBinary(uint8 index, std::vector<uint8> const& value);
 
+        /// AzerothCore module compatibility: typed setter dispatching to the
+        /// set* methods above (modules ported from AC use stmt->SetData(i, v)).
+        template<typename T>
+        void SetData(const uint8 index, T value)
+        {
+            if constexpr (std::is_same_v<T, bool>)
+                setBool(index, value);
+            else if constexpr (std::is_same_v<T, uint8>)
+                setUInt8(index, value);
+            else if constexpr (std::is_same_v<T, uint16>)
+                setUInt16(index, value);
+            else if constexpr (std::is_same_v<T, uint32>)
+                setUInt32(index, value);
+            else if constexpr (std::is_same_v<T, uint64>)
+                setUInt64(index, value);
+            else if constexpr (std::is_same_v<T, int8>)
+                setInt8(index, value);
+            else if constexpr (std::is_same_v<T, int16>)
+                setInt16(index, value);
+            else if constexpr (std::is_same_v<T, int32>)
+                setInt32(index, value);
+            else if constexpr (std::is_same_v<T, int64>)
+                setInt64(index, value);
+            else if constexpr (std::is_same_v<T, float>)
+                setFloat(index, value);
+            else if constexpr (std::is_same_v<T, double>)
+                setDouble(index, value);
+            else if constexpr (std::is_enum_v<T>)
+                setUInt32(index, uint32(value));
+            else
+                setString(index, value);
+        }
+
+        void SetData(const uint8 index, std::nullptr_t) { setNull(index); }
+
         uint32 GetIndex() const { return m_index; }
     protected:
         void BindParameters(MySQLPreparedStatement* stmt);

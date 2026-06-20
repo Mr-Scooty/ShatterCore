@@ -36,6 +36,7 @@
 #include "MoveSplineInit.h"
 #include "PathGenerator.h"
 #include "Player.h"
+#include "WorldSession.h"
 #include "PointMovementGenerator.h"
 #include "RandomMovementGenerator.h"
 #include "ScriptSystem.h"
@@ -405,7 +406,17 @@ void MotionMaster::MoveKnockbackFrom(float srcX, float srcY, float speedXY, floa
 {
     //this function may make players fall below map
     if (_owner->GetTypeId() == TYPEID_PLAYER)
+    {
+#ifdef MOD_PLAYERBOTS
+        // bot players have no client to handle the knockback - move them with a spline
+        if (Player* player = _owner->ToPlayer())
+        {
+            if (player->GetSession()->IsBot())
+                MoveKnockbackFromForPlayer(srcX, srcY, speedXY, speedZ);
+        }
+#endif
         return;
+    }
 
     if (speedXY < 0.01f)
         return;
@@ -741,6 +752,43 @@ void MotionMaster::MoveRotate(uint32 time, RotateDirection direction)
     TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MoveRotate: '%s', starts rotate (time: %u, direction: %u)", _owner->GetGUID().ToString().c_str(), time, direction);
     Mutate(new RotateMovementGenerator(time, direction), MOTION_SLOT_ACTIVE);
 }
+
+#ifdef MOD_PLAYERBOTS
+void MotionMaster::MoveKnockbackFromForPlayer(float srcX, float srcY, float speedXY, float speedZ)
+{
+    if (speedXY < 0.01f)
+        return;
+
+    Position dest = _owner->GetPosition();
+    float moveTimeHalf = speedZ / Movement::gravity;
+    float dist = 2 * moveTimeHalf * speedXY;
+    float max_height = -Movement::computeFallElevation(moveTimeHalf, false, -speedZ);
+
+    // Use a mmap raycast to get a valid destination.
+    _owner->MovePositionToFirstCollision(dest, dist, _owner->GetRelativeAngle(srcX, srcY) + float(M_PI));
+
+    Movement::MoveSplineInit init(_owner);
+    init.MoveTo(dest.GetPositionX(), dest.GetPositionY(), dest.GetPositionZ(), false);
+    init.SetParabolic(max_height, 0);
+    init.SetOrientationFixed(true);
+    init.SetVelocity(speedXY);
+    Mutate(new GenericMovementGenerator(std::move(init), EFFECT_MOTION_TYPE, 0), MOTION_SLOT_CONTROLLED);
+}
+
+void MotionMaster::MovePointBackwards(uint32 id, float x, float y, float z, bool generatePath /*= true*/, float speed /*= 0.f*/)
+{
+    if (_owner->GetTypeId() == TYPEID_PLAYER)
+    {
+        TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MovePointBackwards: '%s', targeted point Id: %u (X: %f, Y: %f, Z: %f)", _owner->GetGUID().ToString().c_str(), id, x, y, z);
+        Mutate(new PointMovementGenerator<Player>(id, x, y, z, generatePath, speed, true), MOTION_SLOT_ACTIVE);
+    }
+    else
+    {
+        TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MovePointBackwards: '%s', targeted point Id: %u (X: %f, Y: %f, Z: %f)", _owner->GetGUID().ToString().c_str(), id, x, y, z);
+        Mutate(new PointMovementGenerator<Creature>(id, x, y, z, generatePath, speed, true), MOTION_SLOT_ACTIVE);
+    }
+}
+#endif
 
 void MotionMaster::MoveFormation(Unit* leader, float range, float angle, int32 point1, int32 point2)
 {

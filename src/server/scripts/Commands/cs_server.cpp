@@ -252,6 +252,9 @@ public:
         handler->PSendSysMessage("CharacterDatabase queue size: %zu", CharacterDatabase.QueueSize());
         handler->PSendSysMessage("WorldDatabase queue size: %zu", WorldDatabase.QueueSize());
         handler->PSendSysMessage("HotfixDatabase queue size: %zu", HotfixDatabase.QueueSize());
+#ifdef MOD_PLAYERBOTS
+        handler->PSendSysMessage("PlayerbotsDatabase queue size: %zu", PlayerbotsDatabase.QueueSize());
+#endif
         return true;
     }
 

@@ -441,6 +441,19 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
         }
         bool getObjectHitPos(PhaseShift const& phaseShift, float x1, float y1, float z1, float x2, float y2, float z2, float& rx, float &ry, float& rz, float modifyDist);
 
+#ifdef MOD_PLAYERBOTS
+        // mod-playerbots: raycast straight down to find the transport (dynamic or
+        // static) under the given position - ported from the AzerothCore playerbot fork
+        Transport* GetTransportForPos(PhaseShift const& phaseShift, float x, float y, float z, WorldObject* worldobject = nullptr);
+
+        // mod-playerbots: validate a straight movement segment against mmaps/vmaps and
+        // clamp the destination to the first collision - ported from the AC playerbot fork
+        bool CheckCollisionAndGetValidCoords(WorldObject const* source, float startX, float startY, float startZ, float& destX, float& destY, float& destZ, bool failOnCollision = true);
+
+        // mod-playerbots: phase-less height lookup (AC signature); battlegrounds are unphased
+        float GetHeight(float x, float y, float z, bool checkVMap = true, float maxSearchDist = DEFAULT_HEIGHT_SEARCH);
+#endif
+
         virtual uint32 GetOwnerGuildId(uint32 /*team*/ = TEAM_OTHER) const { return 0; }
         /*
             RESPAWN TIMES

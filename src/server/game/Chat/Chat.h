@@ -23,6 +23,7 @@
 #include "ObjectGuid.h"
 #include "SharedDefines.h"
 #include "StringFormat.h"
+#include <string_view>
 #include <vector>
 
 class ChatHandler;
@@ -52,6 +53,14 @@ class TC_GAME_API ChatHandler
 
         // Builds chat packet and returns receiver guid position in the packet to substitute in whisper builders
         static size_t BuildChatPacket(WorldPacket& data, ChatMsg chatType, Language language, WorldObject const* sender, WorldObject const* receiver, std::string const& message, uint32 achievementId = 0, std::string const& channelName = "", LocaleConstant locale = DEFAULT_LOCALE, std::string const& addonPrefix = "");
+
+        // mod-playerbots: all-in-one convenience builder matching the AzerothCore
+        // playerbot fork signature; forwards to the 4.3.4 builder above
+        static void BuildChatPacket(
+            WorldPacket& data, ChatMsg msgtype, std::string_view message, Language language = LANG_UNIVERSAL, uint8 chatTag = 0,
+            ObjectGuid senderGuid = ObjectGuid::Empty, std::string_view senderName = {},
+            ObjectGuid targetGuid = ObjectGuid::Empty, std::string_view targetName = {},
+            std::string_view channelName = {}, uint32 achievementId = 0);
 
         static char* LineFromMessage(char*& pos) { char* start = strtok(pos, "\n"); pos = nullptr; return start; }
 

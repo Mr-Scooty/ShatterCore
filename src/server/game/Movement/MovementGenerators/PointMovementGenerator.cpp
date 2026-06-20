@@ -46,6 +46,11 @@ void PointMovementGenerator<T>::DoInitialize(T* owner)
     owner->AddUnitState(UNIT_STATE_ROAMING_MOVE);
 
     Movement::MoveSplineInit init(owner);
+
+    // mod-playerbots
+    if (_reverseOrientation)
+        init.SetBackward();
+
     init.MoveTo(_x, _y, _z, _generatePath);
     if (_speed > 0.0f)
         init.SetVelocity(_speed);

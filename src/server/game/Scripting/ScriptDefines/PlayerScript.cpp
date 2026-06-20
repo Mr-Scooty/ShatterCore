@@ -81,6 +81,29 @@ void ScriptMgr::OnPlayerUpdate(Player* player, uint32 p_time)
     FOREACH_SCRIPT(PlayerScript)->OnPlayerUpdate(player, p_time);
 }
 
+void ScriptMgr::OnPlayerAfterUpdate(Player* player, uint32 p_time)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnPlayerAfterUpdate(player, p_time);
+}
+
+bool ScriptMgr::OnPlayerBeforeAchievementComplete(Player* player, AchievementEntry const* achievement)
+{
+    FOR_SCRIPTS_RET(PlayerScript, itr, end, true)
+        if (!itr->second->OnPlayerBeforeAchievementComplete(player, achievement))
+            return false;
+
+    return true;
+}
+
+bool ScriptMgr::OnPlayerBeforeCriteriaProgress(Player* player, AchievementCriteriaEntry const* criteria)
+{
+    FOR_SCRIPTS_RET(PlayerScript, itr, end, true)
+        if (!itr->second->OnPlayerBeforeCriteriaProgress(player, criteria))
+            return false;
+
+    return true;
+}
+
 void ScriptMgr::OnPlayerMoneyChanged(Player* player, int64& amount)
 {
     FOREACH_SCRIPT(PlayerScript)->OnPlayerMoneyChanged(player, amount);

@@ -618,11 +618,11 @@ struct npc_sinestra_shadow_orb final : public ScriptedAI
             case ACTION_SET_PAIRED_ORB:
                 _pairedOrb = guid;
                 _isFirstOrb = true; // The orb that receives the paired GUID is the "first" one responsible for beam
-                TC_LOG_DEBUG("scripts.sinestra", "Shadow Orb {} received paired orb GUID", me->GetGUID().ToString());
+                TC_LOG_DEBUG("scripts.sinestra", "Shadow Orb %s received paired orb GUID", me->GetGUID().ToString().c_str());
                 break;
             case ACTION_SET_FIXATE_TARGET:
                 _fixateTarget = guid;
-                TC_LOG_DEBUG("scripts.sinestra", "Shadow Orb {} received fixate target GUID", me->GetGUID().ToString());
+                TC_LOG_DEBUG("scripts.sinestra", "Shadow Orb %s received fixate target GUID", me->GetGUID().ToString().c_str());
                 break;
             default:
                 break;
@@ -658,7 +658,7 @@ struct npc_sinestra_shadow_orb final : public ScriptedAI
                 case EVENT_START_FIXATE:
                     if (Unit* target = ObjectAccessor::GetUnit(*me, _fixateTarget))
                     {
-                        TC_LOG_ERROR("scripts.sinestra", "Shadow Orb fixating on player {}", target->GetName());
+                        TC_LOG_ERROR("scripts.sinestra", "Shadow Orb fixating on player %s", target->GetName().c_str());
                         // Start periodic movement updates toward target
                         _events.ScheduleEvent(EVENT_UPDATE_FIXATE_POSITION, 100ms);
                     }

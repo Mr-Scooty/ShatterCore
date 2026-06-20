@@ -695,6 +695,15 @@ struct TC_GAME_API ItemTemplate
 
     bool IsCurrencyToken() const { return (GetBagFamily() & BAG_FAMILY_MASK_CURRENCY_TOKENS) != 0; }
 
+    // AzerothCore module compatibility: AC exposes a fixed-size Spells[5] array;
+    // 4.3.4 item effects are variable-length, so return a zeroed effect for
+    // out-of-range slots to keep AC-style index loops safe.
+    ItemEffect GetEffect(size_t index) const { return index < Effects.size() ? Effects[index] : ItemEffect(); }
+
+    // AzerothCore module compatibility
+    bool HasFlag(uint32 flag) const { return (GetFlags() & flag) != 0; }
+    bool HasFlag2(uint32 flag) const { return (GetFlags2() & flag) != 0; }
+
     uint32 GetMaxStackSize() const
     {
         return (ExtendedData->Stackable == 2147483647 || ExtendedData->Stackable <= 0) ? uint32(0x7FFFFFFF - 1) : uint32(ExtendedData->Stackable);

@@ -318,6 +318,10 @@ class TC_GAME_API Group
         void SetGroupMemberFlag(ObjectGuid guid, bool apply, GroupMemberFlags flag);
         void RemoveUniqueGroupMemberFlag(GroupMemberFlags flag);
 
+        // mod-playerbots
+        ObjectGuid GetTargetIcon(uint8 id) const { return m_targetIcons[id]; }
+        Rolls const& GetRolls() const { return RollId; }
+
         Difficulty GetDifficulty(bool isRaid) const;
         Difficulty GetDungeonDifficulty() const;
         Difficulty GetRaidDifficulty() const;

@@ -24,6 +24,7 @@
 #include "LFGQueue.h"
 #include "LFGMgr.h"
 #include "Log.h"
+#include "ScriptMgr.h"
 
 namespace lfg
 {
@@ -567,6 +568,10 @@ LfgCompatibility LFGQueue::CheckCompatibility(GuidList check)
         SetCompatibles(strGuids, LFG_COMPATIBLES_BAD_STATES);
         return LFG_COMPATIBLES_BAD_STATES;
     }
+
+    // mod-playerbots: let the module veto group compositions (e.g. bot-only groups)
+    if (!sScriptMgr->OnPlayerbotCheckLFGQueue(check))
+        return LFG_INCOMPATIBLES_HAS_IGNORES;
 
     // Create a new proposal
     proposal.cancelTime = GameTime::GetGameTime() + LFG_TIME_PROPOSAL;

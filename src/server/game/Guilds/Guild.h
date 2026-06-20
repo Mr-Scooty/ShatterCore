@@ -279,6 +279,9 @@ class TC_GAME_API EmblemInfo
 {
 public:
     EmblemInfo() : m_style(0), m_color(0), m_borderStyle(0), m_borderColor(0), m_backgroundColor(0) { }
+    // mod-playerbots
+    EmblemInfo(uint32 style, uint32 color, uint32 borderStyle, uint32 borderColor, uint32 backgroundColor) :
+        m_style(style), m_color(color), m_borderStyle(borderStyle), m_borderColor(borderColor), m_backgroundColor(backgroundColor) { }
 
     void LoadFromDB(Field* fields);
     void SaveToDB(ObjectGuid::LowType guildId) const;
@@ -345,8 +348,9 @@ struct GuildMemberProfessionData
 
 class TC_GAME_API Guild
 {
-private:
+public:
     // Class representing guild member
+    // (public for AzerothCore module compatibility - mod-playerbots inspects members)
     class Member
     {
     public:
@@ -445,6 +449,7 @@ private:
         GuildMemberProfessionData m_professions[GUILD_PROFESSION_COUNT];
     };
 
+private:
     // Base class for event entries
     class LogEntry
     {
@@ -791,10 +796,12 @@ public:
     void HandleSetMOTD(WorldSession* session, std::string const& motd);
     void HandleSetInfo(WorldSession* session, std::string const& info);
     void HandleSetEmblem(WorldSession* session, EmblemInfo const& emblemInfo);
+    void HandleSetEmblem(EmblemInfo const& emblemInfo); // mod-playerbots
     void HandleSetNewGuildMaster(WorldSession* session, std::string const& name, bool isSelfPromote);
     void HandleSetBankTabInfo(WorldSession* session, uint8 tabId, std::string const& name, std::string const& icon);
     void HandleSetMemberNote(WorldSession* session, std::string const& note, ObjectGuid guid, bool isPublic);
     void HandleSetRankInfo(WorldSession* session, uint8 rankId, std::string const& name, uint32 rights, uint32 moneyPerDay, GuildBankRightsAndSlotsVec const& rightsAndSlots);
+    void HandleSetRankInfo(uint8 rankId, uint32 rights = 0, std::string const& name = "", uint32 moneyPerDay = 0); // mod-playerbots
     void HandleBuyBankTab(WorldSession* session, uint8 tabId);
     void HandleInviteMember(WorldSession* session, std::string const& name);
     void HandleAcceptMember(WorldSession* session);
@@ -889,6 +896,13 @@ public:
     void AddGuildNews(uint8 type, ObjectGuid guid, uint32 flags, uint32 value);
 
     EmblemInfo const& GetEmblemInfo() const { return m_emblemInfo; }
+
+    // mod-playerbots: public access to rank/tab rights checks
+    bool HasRankRight(Player* player, uint32 right) const { return _HasRankRight(player, right); }
+    uint32 GetRankRights(uint8 rankId) const { return _GetRankRights(rankId); }
+    bool MemberHasTabRights(ObjectGuid guid, uint8 tabId, uint32 rights) const { return _MemberHasTabRights(guid, tabId, rights); }
+    Member* GetMemberByGuid(ObjectGuid guid) { return GetMember(guid); }
+    Member const* GetMemberByGuid(ObjectGuid guid) const { return GetMember(guid); }
     void ResetTimes(bool weekly);
 
     bool HasAchieved(uint32 achievementId) const;
@@ -953,6 +967,8 @@ private:
     inline BankTab* GetBankTab(uint8 tabId) { return tabId < m_bankTabs.size() ? m_bankTabs[tabId] : nullptr; }
     inline BankTab const* GetBankTab(uint8 tabId) const { return tabId < m_bankTabs.size() ? m_bankTabs[tabId] : nullptr; }
 
+  public:
+    // mod-playerbots: member lookups are part of the module-facing surface
     inline Member const* GetMember(ObjectGuid guid) const
     {
         auto itr = m_members.find(guid.GetCounter());
@@ -973,6 +989,8 @@ private:
 
         return nullptr;
     }
+
+  private:
 
     void _DeleteMemberFromDB(CharacterDatabaseTransaction& trans, ObjectGuid::LowType lowguid) const;
 

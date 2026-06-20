@@ -188,3 +188,8 @@ template TC_DATABASE_API
 DatabaseLoader& DatabaseLoader::AddDatabase<WorldDatabaseConnection>(DatabaseWorkerPool<WorldDatabaseConnection>&, std::string const&);
 template TC_DATABASE_API
 DatabaseLoader& DatabaseLoader::AddDatabase<HotfixDatabaseConnection>(DatabaseWorkerPool<HotfixDatabaseConnection>&, std::string const&);
+
+#ifdef MOD_PLAYERBOTS
+template TC_DATABASE_API
+DatabaseLoader& DatabaseLoader::AddDatabase<PlayerbotsDatabaseConnection>(DatabaseWorkerPool<PlayerbotsDatabaseConnection>&, std::string const&);
+#endif

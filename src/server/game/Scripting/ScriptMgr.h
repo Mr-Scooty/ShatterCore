@@ -59,6 +59,7 @@
 #include "ScriptDefines/OutdoorPvPScript.h"
 #include "ScriptDefines/PetScript.h"
 #include "ScriptDefines/PlayerScript.h"
+#include "ScriptDefines/PlayerbotsScript.h"
 #include "ScriptDefines/ServerScript.h"
 #include "ScriptDefines/SpellScriptLoader.h"
 #include "ScriptDefines/TicketScript.h"
@@ -124,6 +125,8 @@ class WorldSocket;
 class WorldObject;
 class WorldSession;
 
+struct AchievementCriteriaEntry;
+struct AchievementEntry;
 struct AuctionEntry;
 struct AreaTriggerEntry;
 struct ConditionSourceInfo;
@@ -300,6 +303,24 @@ class TC_GAME_API ScriptMgr
     public: /* DatabaseScript */
 
         void OnAfterDatabasesLoaded(uint32 updateFlags);
+        bool OnDatabasesLoading();
+        void OnDatabasesKeepAlive();
+        void OnDatabasesClosing();
+        void OnDatabaseWarnAboutSyncQueries(bool apply);
+        void OnDatabaseSelectIndexLogout(Player* player, uint32& statementIndex, uint32& statementParam);
+        void OnDatabaseGetDBRevision(std::string& revision);
+
+    public: /* PlayerbotScript */
+
+        bool OnPlayerbotCheckLFGQueue(GuidList const& guidsList);
+        void OnPlayerbotCheckKillTask(Player* player, Unit* victim);
+        void OnPlayerbotCheckPetitionAccount(Player* player, bool& found);
+        bool OnPlayerbotCheckUpdatesToSend(Player* player);
+        void OnPlayerbotPacketSent(Player* player, WorldPacket const* packet);
+        void OnPlayerbotUpdate(uint32 diff);
+        void OnPlayerbotUpdateSessions(Player* player);
+        void OnPlayerbotLogout(Player* player);
+        void OnPlayerbotLogoutBots();
 
     public: /* SpellScriptLoader */
 
@@ -317,6 +338,7 @@ class TC_GAME_API ScriptMgr
         void OnPacketSend(WorldSession* session, WorldPacket const& packet);
         bool CanPacketReceive(WorldSession* session, WorldPacket const& packet);
         bool CanPacketSend(WorldSession* session, WorldPacket const& packet);
+        void OnPacketReceived(WorldSession* session, WorldPacket const& packet);
 
     public: /* WorldScript */
 
@@ -590,6 +612,9 @@ class TC_GAME_API ScriptMgr
         void OnPlayerTalentsReset(Player* player, bool noCost);
         void OnPlayerBeforeUpdate(Player* player, uint32 p_time);
         void OnPlayerUpdate(Player* player, uint32 p_time);
+        void OnPlayerAfterUpdate(Player* player, uint32 p_time);
+        bool OnPlayerBeforeAchievementComplete(Player* player, AchievementEntry const* achievement);
+        bool OnPlayerBeforeCriteriaProgress(Player* player, AchievementCriteriaEntry const* criteria);
         void OnPlayerMoneyChanged(Player* player, int64& amount);
         void OnPlayerMoneyLimit(Player* player, int64 amount);
         void OnPlayerBeforeLootMoney(Player* player, Loot* loot);

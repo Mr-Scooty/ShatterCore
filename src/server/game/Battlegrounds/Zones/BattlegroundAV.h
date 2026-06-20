@@ -1689,6 +1689,14 @@ class BattlegroundAV : public Battleground
         uint32 GetObjectThroughNode(BG_AV_Nodes node);
         bool IsTower(BG_AV_Nodes node) { return m_Nodes[node].Tower; }
 
+    public:
+        // mod-playerbots: read-only node/mine/captain state for bot BG strategies
+        BG_AV_NodeInfo const& GetAVNodeInfo(uint8 node) const { return m_Nodes[BG_AV_Nodes(node)]; }
+        uint32 GetMineOwner(uint8 mine) const { return m_Mine_Owner[mine]; }
+        bool IsCaptainAlive(uint8 teamIndex) const { return m_CaptainAlive[teamIndex]; }
+
+    private:
+
         /*mine*/
         void ChangeMineOwner(uint8 mine, uint32 team, bool initial=false);
 

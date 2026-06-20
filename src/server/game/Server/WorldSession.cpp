@@ -107,7 +107,7 @@ bool WorldSessionFilter::Process(WorldPacket* packet)
 }
 
 /// WorldSession constructor
-WorldSession::WorldSession(uint32 id, std::string&& name, uint32 battlenetAccountId, std::shared_ptr<WorldSocket> sock, AccountTypes sec, uint8 expansion, time_t mute_time, LocaleConstant locale, uint32 recruiter, bool isARecruiter) :
+WorldSession::WorldSession(uint32 id, std::string&& name, uint32 battlenetAccountId, std::shared_ptr<WorldSocket> sock, AccountTypes sec, uint8 expansion, time_t mute_time, LocaleConstant locale, uint32 recruiter, bool isARecruiter, bool isBot) :
     m_muteTime(mute_time),
     m_timeOutTime(0),
     AntiDOS(this),
@@ -139,7 +139,8 @@ WorldSession::WorldSession(uint32 id, std::string&& name, uint32 battlenetAccoun
     _timeSyncClockDeltaQueue(6),
     _timeSyncClockDelta(0),
     _pendingTimeSyncRequests(),
-    _gameClient(new GameClient(this))
+    _gameClient(new GameClient(this)),
+    _isBot(isBot)
 {
     memset(m_Tutorials, 0, sizeof(m_Tutorials));
 
@@ -151,6 +152,10 @@ WorldSession::WorldSession(uint32 id, std::string&& name, uint32 battlenetAccoun
         m_Address = sock->GetRemoteIpAddress().to_string();
         ResetTimeOutTime();
         LoginDatabase.PExecute("UPDATE account SET online = 1 WHERE id = %u;", GetAccountId());     // One-time query
+    }
+    else if (isBot)
+    {
+        m_Address = "bot";
     }
 
     m_Socket[CONNECTION_TYPE_REALM] = sock;
@@ -233,6 +238,9 @@ void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/
         return;
     }
 
+    // mod-playerbots: bots have no socket and observe their outgoing packets here
+    sScriptMgr->OnPlayerbotPacketSent(GetPlayer(), packet);
+
     ServerOpcodeHandler const* handler = opcodeTable[static_cast<OpcodeServer>(packet->GetOpcode())];
 
     if (!handler)
@@ -258,7 +266,10 @@ void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/
 
     if (!m_Socket[conIdx])
     {
-        TC_LOG_ERROR("network.opcode", "Prevented sending of %s to non existent socket %u to %s", GetOpcodeNameForLogging(static_cast<OpcodeServer>(packet->GetOpcode())).c_str(), uint32(conIdx), GetPlayerInfo().c_str());
+        // Bot sessions are socketless by design; the packet was already delivered
+        // to the bot AI through OnPlayerbotPacketSent above.
+        if (!_isBot)
+            TC_LOG_ERROR("network.opcode", "Prevented sending of %s to non existent socket %u to %s", GetOpcodeNameForLogging(static_cast<OpcodeServer>(packet->GetOpcode())).c_str(), uint32(conIdx), GetPlayerInfo().c_str());
         return;
     }
 
@@ -347,7 +358,8 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
     ///- Before we process anything:
     /// If necessary, kick the player from the character select screen
-    if (IsConnectionIdle() && !HasPermission(rbac::RBAC_PERM_IGNORE_IDLE_CONNECTION))
+    // ShatterCore: bot sessions (mod-playerbots) have no WorldSocket; guard against the null deref.
+    if (m_Socket[CONNECTION_TYPE_REALM] && IsConnectionIdle() && !HasPermission(rbac::RBAC_PERM_IGNORE_IDLE_CONNECTION))
         m_Socket[CONNECTION_TYPE_REALM]->CloseSocket();
 
     ///- Retrieve packets from the receive queue and call the appropriate handlers
@@ -389,6 +401,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
                         sScriptMgr->OnPacketReceive(this, *packet);
                         opHandle->Call(this, *packet);
+#ifdef MOD_PLAYERBOTS
+                        sScriptMgr->OnPacketReceived(this, *packet);
+#endif
                     }
                     else
                         processedPackets = MAX_PROCESSED_PACKETS_IN_SAME_WORLDSESSION_UPDATE;   // break out of packet processing loop
@@ -406,6 +421,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
                         sScriptMgr->OnPacketReceive(this, *packet);
                         opHandle->Call(this, *packet);
+#ifdef MOD_PLAYERBOTS
+                        sScriptMgr->OnPacketReceived(this, *packet);
+#endif
                     }
                     else
                         processedPackets = MAX_PROCESSED_PACKETS_IN_SAME_WORLDSESSION_UPDATE;   // break out of packet processing loop
@@ -422,6 +440,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
                         sScriptMgr->OnPacketReceive(this, *packet);
                         opHandle->Call(this, *packet);
+#ifdef MOD_PLAYERBOTS
+                        sScriptMgr->OnPacketReceived(this, *packet);
+#endif
                     }
                     else
                         processedPackets = MAX_PROCESSED_PACKETS_IN_SAME_WORLDSESSION_UPDATE;   // break out of packet processing loop
@@ -446,6 +467,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
                         sScriptMgr->OnPacketReceive(this, *packet);
                         opHandle->Call(this, *packet);
+#ifdef MOD_PLAYERBOTS
+                        sScriptMgr->OnPacketReceived(this, *packet);
+#endif
                     }
                     else
                         processedPackets = MAX_PROCESSED_PACKETS_IN_SAME_WORLDSESSION_UPDATE;   // break out of packet processing loop
@@ -510,6 +534,8 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
     //logout procedure should happen only in World::UpdateSessions() method!!!
     if (updater.ProcessUnsafe())
     {
+        sScriptMgr->OnPlayerbotUpdateSessions(GetPlayer());
+
         time_t currTime = GameTime::GetGameTime();
         ///- If necessary, log the player out
         if (ShouldLogOut(currTime) && m_playerLoading.IsEmpty())
@@ -561,6 +587,8 @@ void WorldSession::LogoutPlayer(bool save)
 
         if (ObjectGuid lguid = _player->GetLootGUID())
             DoLootRelease(lguid);
+
+        sScriptMgr->OnPlayerbotLogout(_player);
 
         ///- If the player just died before logging out, make him appear as a ghost
         if (_player->GetDeathTimer())
@@ -677,6 +705,13 @@ void WorldSession::LogoutPlayer(bool save)
 
         TC_METRIC_EVENT("player_events", "Logout", _player->GetName());
 
+        //! mod-playerbots overrides the offline statement with CHAR_UPD_CHAR_OFFLINE
+        //! so a bot logout does not mark the whole account's characters offline.
+        //! Must be resolved while _player is still valid.
+        uint32 statementIndex = CHAR_UPD_ACCOUNT_ONLINE;
+        uint32 statementParam = GetAccountId();
+        sScriptMgr->OnDatabaseSelectIndexLogout(_player, statementIndex, statementParam);
+
         //! Remove the player from the world
         // the player may not be in the world when logging out
         // e.g if he got disconnected during a transfer to another map
@@ -700,8 +735,8 @@ void WorldSession::LogoutPlayer(bool save)
         TC_LOG_DEBUG("network", "SESSION: Sent SMSG_LOGOUT_COMPLETE Message");
 
         //! Since each account can only have one online character at any given time, ensure all characters for active account are marked as offline
-        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_ACCOUNT_ONLINE);
-        stmt->setUInt32(0, GetAccountId());
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CharacterDatabaseStatements(statementIndex));
+        stmt->setUInt32(0, statementParam);
         CharacterDatabase.Execute(stmt);
     }
 

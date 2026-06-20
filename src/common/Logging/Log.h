@@ -188,4 +188,27 @@ void check_args(std::string const&, ...);
 #define TC_LOG_FATAL(filterType__, ...) \
     TC_LOG_MESSAGE_BODY(filterType__, LOG_LEVEL_FATAL, __VA_ARGS__)
 
+/*
+ * AzerothCore module compatibility: AC logs with brace-style ("{}") format
+ * strings through LOG_* macros. Route them through the fmt-style formatter
+ * and hand the result to the printf-style TC macros.
+ */
+#define LOG_TRACE(filterType__, ...) \
+    TC_LOG_TRACE(filterType__, "%s", Trinity::StringFormatFmt(__VA_ARGS__).c_str())
+
+#define LOG_DEBUG(filterType__, ...) \
+    TC_LOG_DEBUG(filterType__, "%s", Trinity::StringFormatFmt(__VA_ARGS__).c_str())
+
+#define LOG_INFO(filterType__, ...)  \
+    TC_LOG_INFO(filterType__, "%s", Trinity::StringFormatFmt(__VA_ARGS__).c_str())
+
+#define LOG_WARN(filterType__, ...)  \
+    TC_LOG_WARN(filterType__, "%s", Trinity::StringFormatFmt(__VA_ARGS__).c_str())
+
+#define LOG_ERROR(filterType__, ...) \
+    TC_LOG_ERROR(filterType__, "%s", Trinity::StringFormatFmt(__VA_ARGS__).c_str())
+
+#define LOG_FATAL(filterType__, ...) \
+    TC_LOG_FATAL(filterType__, "%s", Trinity::StringFormatFmt(__VA_ARGS__).c_str())
+
 #endif

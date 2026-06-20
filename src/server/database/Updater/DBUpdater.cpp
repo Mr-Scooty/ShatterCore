@@ -25,6 +25,7 @@
 #include "QueryResult.h"
 #include "StartProcess.h"
 #include "UpdateFetcher.h"
+#include <boost/filesystem/directory.hpp>
 #include <boost/filesystem/operations.hpp>
 #include <fstream>
 #include <iostream>
@@ -206,7 +207,107 @@ BaseLocation DBUpdater<HotfixDatabaseConnection>::GetBaseLocationType()
     return LOCATION_DOWNLOAD;
 }
 
+#ifdef MOD_PLAYERBOTS
+// Playerbots Database
+template<>
+std::string DBUpdater<PlayerbotsDatabaseConnection>::GetConfigEntry()
+{
+    return "Updates.Playerbots";
+}
+
+template<>
+std::string DBUpdater<PlayerbotsDatabaseConnection>::GetTableName()
+{
+    return "Playerbots";
+}
+
+template<>
+std::string DBUpdater<PlayerbotsDatabaseConnection>::GetDBModuleName()
+{
+    return "db_playerbot";
+}
+
+template<>
+std::string DBUpdater<PlayerbotsDatabaseConnection>::GetSourceDirectory()
+{
+    return BuiltInConfig::GetSourceDirectory() + "/modules/mod-playerbots";
+}
+
+template<>
+std::string DBUpdater<PlayerbotsDatabaseConnection>::GetBaseFile()
+{
+    return "";
+}
+
+template<>
+bool DBUpdater<PlayerbotsDatabaseConnection>::IsEnabled(uint32 const updateMask)
+{
+    // This way silences warnings under msvc
+    return (updateMask & DatabaseLoader::DATABASE_PLAYERBOTS) ? true : false;
+}
+
+// The playerbots database populates from a directory of per-table base files
+// shipped by mod-playerbots rather than from a single base dump.
+template<>
+bool DBUpdater<PlayerbotsDatabaseConnection>::Populate(DatabaseWorkerPool<PlayerbotsDatabaseConnection>& pool)
+{
+    {
+        QueryResult const result = Retrieve(pool, "SHOW TABLES");
+        if (result && (result->GetRowCount() > 0))
+            return true;
+    }
+
+    if (!DBUpdaterUtil::CheckExecutable())
+        return false;
+
+    TC_LOG_INFO("sql.updates", "Database %s is empty, auto populating it...", DBUpdater<PlayerbotsDatabaseConnection>::GetTableName().c_str());
+
+    Path const dirPath(DBUpdater<PlayerbotsDatabaseConnection>::GetSourceDirectory() + "/data/sql/playerbots/base/");
+    if (!boost::filesystem::is_directory(dirPath))
+    {
+        TC_LOG_ERROR("sql.updates", ">> Base files directory \"%s\" does not exist", dirPath.generic_string().c_str());
+        return false;
+    }
+
+    std::vector<Path> sqlFiles;
+    for (boost::filesystem::directory_iterator itr(dirPath), end; itr != end; ++itr)
+        if (itr->path().extension() == ".sql")
+            sqlFiles.push_back(itr->path());
+
+    if (sqlFiles.empty())
+    {
+        TC_LOG_ERROR("sql.updates", ">> Base files directory \"%s\" contains no '*.sql' files", dirPath.generic_string().c_str());
+        return false;
+    }
+
+    std::sort(sqlFiles.begin(), sqlFiles.end());
+
+    for (Path const& file : sqlFiles)
+    {
+        TC_LOG_INFO("sql.updates", ">> Applying \'%s\'...", file.filename().generic_string().c_str());
+
+        try
+        {
+            ApplyFile(pool, file);
+        }
+        catch (UpdateException&)
+        {
+            return false;
+        }
+    }
+
+    TC_LOG_INFO("sql.updates", ">> Done!");
+    return true;
+}
+#endif
+
 // All
+template<class T>
+std::string DBUpdater<T>::GetSourceDirectory()
+{
+    return BuiltInConfig::GetSourceDirectory();
+}
+
 template<class T>
 BaseLocation DBUpdater<T>::GetBaseLocationType()
 {
@@ -266,7 +367,7 @@ bool DBUpdater<T>::Update(DatabaseWorkerPool<T>& pool, std::string const& module
 
     TC_LOG_INFO("sql.updates", "Updating %s database...", DBUpdater<T>::GetTableName().c_str());
 
-    Path const sourceDirectory(BuiltInConfig::GetSourceDirectory());
+    Path const sourceDirectory(DBUpdater<T>::GetSourceDirectory());
 
     if (!is_directory(sourceDirectory))
     {
@@ -448,3 +549,7 @@ template class TC_DATABASE_API DBUpdater<LoginDatabaseConnection>;
 template class TC_DATABASE_API DBUpdater<WorldDatabaseConnection>;
 template class TC_DATABASE_API DBUpdater<CharacterDatabaseConnection>;
 template class TC_DATABASE_API DBUpdater<HotfixDatabaseConnection>;
+
+#ifdef MOD_PLAYERBOTS
+template class TC_DATABASE_API DBUpdater<PlayerbotsDatabaseConnection>;
+#endif

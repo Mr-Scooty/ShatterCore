@@ -29,8 +29,9 @@ struct AreaTableEntry;
 
 class TC_GAME_API ChannelMgr
 {
-    typedef std::unordered_map<std::wstring, Channel*> CustomChannelContainer; // custom channels only differ in name
-    typedef std::unordered_map<std::pair<uint32 /*channelId*/, uint32 /*zoneId*/>, Channel*> BuiltinChannelContainer; //identify builtin (DBC) channels by zoneId instead, since name changes by client locale
+    public:
+        typedef std::unordered_map<std::wstring, Channel*> CustomChannelContainer; // custom channels only differ in name
+        typedef std::unordered_map<std::pair<uint32 /*channelId*/, uint32 /*zoneId*/>, Channel*> BuiltinChannelContainer; //identify builtin (DBC) channels by zoneId instead, since name changes by client locale
 
     protected:
         explicit ChannelMgr(uint32 team) : _team(team) { }
@@ -44,6 +45,10 @@ class TC_GAME_API ChannelMgr
         Channel* GetChannel(uint32 channelId, std::string const& name, Player* player, bool pkt = true, AreaTableEntry const* zoneEntry = nullptr) const;
         void LeftChannel(std::string const& name);
         void LeftChannel(uint32 channelId, AreaTableEntry const* zoneEntry);
+
+        // mod-playerbots: read-only channel iteration so bots can join existing channels
+        CustomChannelContainer const& GetCustomChannels() const { return _customChannels; }
+        BuiltinChannelContainer const& GetBuiltinChannels() const { return _channels; }
 
     private:
         CustomChannelContainer _customChannels;

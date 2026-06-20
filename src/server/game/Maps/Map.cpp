@@ -41,6 +41,7 @@
 #include "OutdoorPvPMgr.h"
 #include "Pet.h"
 #include "PoolMgr.h"
+#include "PathGenerator.h"
 #include "PhasingHandler.h"
 #include "ScriptMgr.h"
 #include "TerrainMgr.h"
@@ -1774,6 +1775,112 @@ inline void Map::setNGrid(NGridType *grid, uint32 x, uint32 y)
     i_grids[x][y] = grid;
 }
 
+#ifdef MOD_PLAYERBOTS
+Transport* Map::GetTransportForPos(PhaseShift const& phaseShift, float x, float y, float z, WorldObject* worldobject /*= nullptr*/)
+{
+    G3D::Vector3 v(x, y, z + 2.0f);
+    G3D::Ray r(v, G3D::Vector3(0, 0, -1));
+    for (Transport* transport : _transports)
+        if (transport->IsInWorld() && transport->GetExactDistSq(x, y, z) < 75.0f * 75.0f && transport->m_model)
+        {
+            float dist = 30.0f;
+            if (transport->m_model->intersectRay(r, dist, false, phaseShift, VMAP::ModelIgnoreFlags::Nothing))
+                return transport;
+        }
+
+    if (worldobject)
+        if (GameObject* staticTrans = worldobject->FindNearestGameObjectOfType(GAMEOBJECT_TYPE_TRANSPORT, 75.0f))
+            if (staticTrans->m_model)
+            {
+                float dist = 10.0f;
+                if (staticTrans->m_model->intersectRay(r, dist, false, phaseShift, VMAP::ModelIgnoreFlags::Nothing))
+                    if (GetHeight(phaseShift, x, y, z, true, 30.0f) < (v.z - dist + 1.0f))
+                        return staticTrans->ToTransport();
+            }
+
+    return nullptr;
+}
+
+float Map::GetHeight(float x, float y, float z, bool checkVMap /*= true*/, float maxSearchDist /*= DEFAULT_HEIGHT_SEARCH*/)
+{
+    return GetHeight(PhasingHandler::GetEmptyPhaseShift(), x, y, z, checkVMap, maxSearchDist);
+}
+
+bool Map::CheckCollisionAndGetValidCoords(WorldObject const* source, float startX, float startY, float startZ, float& destX, float& destY, float& destZ, bool failOnCollision /*= true*/)
+{
+    // Prevent invalid coordinates here, position is unchanged
+    if (!Trinity::IsValidMapCoord(startX, startY, startZ) || !Trinity::IsValidMapCoord(destX, destY, destZ))
+    {
+        TC_LOG_ERROR("maps", "Map::CheckCollisionAndGetValidCoords invalid coordinates startX: %f, startY: %f, startZ: %f, destX: %f, destY: %f, destZ: %f", startX, startY, startZ, destX, destY, destZ);
+        return false;
+    }
+
+    bool isWaterNext = IsInWater(source->GetPhaseShift(), destX, destY, destZ);
+
+    // Use a detour raycast to get our first collision point
+    PathGenerator path(source);
+    path.SetUseRaycast(true);
+    bool result = path.CalculatePath(Position(startX, startY, startZ), Position(destX, destY, destZ), false);
+
+    Unit const* unit = source->ToUnit();
+    bool notOnGround = (path.GetPathType() & PATHFIND_NOT_USING_PATH) || isWaterNext || (unit && unit->IsFlying());
+
+    // Check for valid path types before we proceed
+    if (!result || (!notOnGround && path.GetPathType() & ~(PATHFIND_NORMAL | PATHFIND_SHORTCUT | PATHFIND_INCOMPLETE | PATHFIND_FARFROMPOLY_END)))
+        return false;
+
+    G3D::Vector3 endPos = path.GetPath().back();
+    destX = endPos.x;
+    destY = endPos.y;
+    destZ = endPos.z;
+
+    bool collided = false;
+    float halfHeight = source->GetCollisionHeight() * 0.5f;
+
+    // Unit is not on the ground, check for potential collision via vmaps
+    if (notOnGround)
+    {
+        uint32 terrainMapId = PhasingHandler::GetTerrainMapId(source->GetPhaseShift(), GetId(), GetTerrain(), startX, startY);
+        bool col = VMAP::VMapFactory::createOrGetVMapManager()->getObjectHitPos(terrainMapId,
+            startX, startY, startZ + halfHeight,
+            destX, destY, destZ + halfHeight,
+            destX, destY, destZ, -CONTACT_DISTANCE);
+
+        destZ -= halfHeight;
+
+        if (col)
+            collided = true;
+    }
+
+    // check dynamic collision
+    bool col = getObjectHitPos(source->GetPhaseShift(),
+        startX, startY, startZ + halfHeight,
+        destX, destY, destZ + halfHeight,
+        destX, destY, destZ, -CONTACT_DISTANCE);
+
+    destZ -= halfHeight;
+
+    if (col)
+        collided = true;
+
+    float groundZ = VMAP_INVALID_HEIGHT_VALUE;
+    source->UpdateAllowedPositionZ(destX, destY, destZ, &groundZ);
+
+    // position has no ground under it (or is too far away)
+    if (groundZ <= INVALID_HEIGHT && unit && !unit->CanFly())
+    {
+        // fall back to gridHeight if any
+        float gridHeight = GetGridHeight(source->GetPhaseShift(), destX, destY);
+        if (gridHeight > INVALID_HEIGHT)
+            destZ = gridHeight + unit->GetHoverOffset(); // ShatterCore: AC GetHoverHeight() == TC GetHoverOffset()
+        else
+            return false;
+    }
+
+    return !failOnCollision || !collided;
+}
+#endif
+
 void Map::SendObjectUpdates()
 {
     UpdateDataMapType update_players;
@@ -1790,6 +1897,13 @@ void Map::SendObjectUpdates()
     WorldPacket packet;                                     // here we allocate a std::vector with a size of 0x10000
     for (UpdateDataMapType::iterator iter = update_players.begin(); iter != update_players.end(); ++iter)
     {
+        // mod-playerbots: skip building update packets for bots without a real client
+        if (!sScriptMgr->OnPlayerbotCheckUpdatesToSend(iter->first))
+        {
+            iter->second.Clear();
+            continue;
+        }
+
         iter->second.BuildPacket(&packet);
         iter->first->SendDirectMessage(&packet);
         packet.clear();                                     // clean the string

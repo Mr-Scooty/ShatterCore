@@ -2220,7 +2220,13 @@ void World::SetInitialWorldSettings()
     sScriptMgr->Initialize();
     sScriptMgr->OnConfigLoad(false);                                // must be done after the ScriptMgr has been properly initialized
     // Unlike AzerothCore, scripts cannot be registered before the databases
-    // are loaded, so this fires as soon as both conditions hold.
+    // are loaded, so module-owned database pools (mod-playerbots) open here
+    // instead of in StartDB.
+    if (!sScriptMgr->OnDatabasesLoading())
+    {
+        TC_LOG_FATAL("server.loading", "Failed to load module databases. Stopped.");
+        ABORT();
+    }
     sScriptMgr->OnAfterDatabasesLoaded(sConfigMgr->GetIntDefault("Updates.EnableDatabases", 0));
 
     TC_LOG_INFO("server.loading", "Loading custom database tables...");
@@ -2247,8 +2253,18 @@ void World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Loading Item loot...");
     sLootItemStorage->LoadStorageFromDB();
 
-    TC_LOG_INFO("server.loading", "Initialize query data...");
-    sObjectMgr->InitializeQueriesData(QUERY_DATA_ALL);
+    // ShatterCore: respect the CacheDataQueries config flag here (upstream loads the flag but always ran the
+    // cache build unconditionally). Building the query cache -- in particular the parallel Quest POI pass --
+    // can trip an intermittent boot crash on this dataset; the cache is only a client-query-response
+    // optimization (packets are built on demand when disabled), so it is safe to skip. Set CacheDataQueries=0
+    // to boot without it.
+    if (getBoolConfig(CONFIG_CACHE_DATA_QUERIES))
+    {
+        TC_LOG_INFO("server.loading", "Initialize query data...");
+        sObjectMgr->InitializeQueriesData(QUERY_DATA_ALL);
+    }
+    else
+        TC_LOG_INFO("server.loading", "Initialize query data... SKIPPED (CacheDataQueries = 0)");
 
     TC_LOG_INFO("server.loading", "Initialize commands...");
     ChatHandler::InitializeCommandTable();
@@ -2483,6 +2499,9 @@ void World::Update(uint32 diff)
     UpdateSessions(diff);
     sWorldUpdateTime.RecordUpdateTimeDuration("UpdateSessions");
 
+    sScriptMgr->OnPlayerbotUpdate(diff);
+    sWorldUpdateTime.RecordUpdateTimeDuration("UpdatePlayerbots");
+
     /// <li> Update uptime table
     if (m_timers[WUPDATE_UPTIME].Passed())
     {
@@ -2584,6 +2603,7 @@ void World::Update(uint32 diff)
         CharacterDatabase.KeepAlive();
         LoginDatabase.KeepAlive();
         WorldDatabase.KeepAlive();
+        sScriptMgr->OnDatabasesKeepAlive();
     }
 
     if (m_timers[WUPDATE_GUILDSAVE].Passed())
@@ -2807,6 +2827,10 @@ void World::KickAll()
     // session not removed at kick and will removed in next update tick
     for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
         itr->second->KickPlayer();
+
+#ifdef MOD_PLAYERBOTS
+    sScriptMgr->OnPlayerbotLogoutBots();
+#endif
 }
 
 /// Kick (and save) all players with security level less `sec`
@@ -3650,6 +3674,12 @@ void World::LoadPersistentWorldVariables()
 void World::ProcessQueryCallbacks()
 {
     _queryProcessor.ProcessReadyCallbacks();
+    _queryHolderProcessor.ProcessReadyCallbacks();
+}
+
+SQLQueryHolderCallback& World::AddQueryHolderCallback(SQLQueryHolderCallback&& callback)
+{
+    return _queryHolderProcessor.AddCallback(std::move(callback));
 }
 
 void World::ReloadRBAC()

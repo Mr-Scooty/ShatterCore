@@ -21,8 +21,10 @@
 #include "Define.h"
 #include "DatabaseEnvFwd.h"
 #include "StringFormat.h"
+#include <fmt/format.h>
 #include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 
 template <typename T>
@@ -81,6 +83,17 @@ class DatabaseWorkerPool
             Execute(Trinity::StringFormat(std::forward<Format>(sql), std::forward<Args>(args)...).c_str());
         }
 
+        //! AzerothCore module compatibility: brace-formatted ({}) async execute.
+        //! AC modules call Execute("... {} ...", args...) with fmt-style placeholders.
+        template<typename... Args>
+        void Execute(std::string_view sql, Args&&... args)
+        {
+            if (sql.empty())
+                return;
+
+            Execute(fmt::format(sql, std::forward<Args>(args)...).c_str());
+        }
+
         //! Enqueues a one-way SQL operation in prepared statement format that will be executed asynchronously.
         //! Statement must be prepared with CONNECTION_ASYNC flag.
         void Execute(PreparedStatement<T>* stmt);
@@ -136,6 +149,17 @@ class DatabaseWorkerPool
                 return QueryResult(nullptr);
 
             return Query(Trinity::StringFormat(std::forward<Format>(sql), std::forward<Args>(args)...).c_str());
+        }
+
+        //! AzerothCore module compatibility: brace-formatted ({}) synchronous query.
+        //! AC modules call Query("... {} ...", args...) with fmt-style placeholders.
+        template<typename Arg0, typename... Args>
+        QueryResult Query(std::string_view sql, Arg0&& arg0, Args&&... args)
+        {
+            if (sql.empty())
+                return QueryResult(nullptr);
+
+            return Query(fmt::format(sql, std::forward<Arg0>(arg0), std::forward<Args>(args)...).c_str());
         }
 
         //! Directly executes an SQL query in prepared format that will block the calling thread until finished.

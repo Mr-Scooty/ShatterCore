@@ -748,6 +748,13 @@ enum EnviromentalDamage
     DAMAGE_FALL_TO_VOID = 6                                 // custom case for fall without durability loss
 };
 
+// AzerothCore module compatibility (see Player::IsClass)
+enum ClassContext
+{
+    CLASS_CONTEXT_NONE        = 0,
+    CLASS_CONTEXT_EQUIP_RELIC = 1
+};
+
 enum PlayerChatTag
 {
     CHAT_TAG_NONE       = 0x00,
@@ -1213,6 +1220,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         InventoryResult CanUseItem(Item* pItem, bool not_loading = true) const;
         bool HasItemTotemCategory(uint32 TotemCategory) const;
         InventoryResult CanUseItem(ItemTemplate const* pItem) const;
+        InventoryResult BotCanUseItem(ItemTemplate const* pItem) const; // mod-playerbots
         bool CanRollNeedForItem(ItemTemplate const* itemTemplate) const;
         Item* StoreNewItem(ItemPosCountVec const& pos, uint32 item, bool update, ItemRandomEnchantmentId const& randomPropertyId = {}, GuidSet const& allowedLooters = GuidSet());
         Item* StoreItem(ItemPosCountVec const& pos, Item* pItem, bool update);
@@ -1550,6 +1558,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
 
         PlayerMails::iterator GetMailBegin() { return m_mail.begin();}
         PlayerMails::iterator GetMailEnd() { return m_mail.end();}
+        PlayerMails const& GetMails() const { return m_mail; } // AzerothCore module compatibility
 
         void SendItemRetrievalMail(uint32 itemEntry, uint32 count); // Item retrieval mails sent by The Postmaster (34337), used in multiple places.
 
@@ -1899,6 +1908,9 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
 
         void JoinedChannel(Channel* c);
         void LeftChannel(Channel* c);
+        bool IsInChannel(Channel const* c) const { for (Channel* channel : m_channels) if (channel == c) return true; return false; } // mod-playerbots
+
+
         void CleanupChannels();
         void UpdateLocalChannels(uint32 newZone);
         void LeaveLFGChannel();

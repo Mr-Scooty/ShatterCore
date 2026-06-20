@@ -1894,7 +1894,7 @@ enum GameObjectDestructibleState
 };
 
 // EmotesText.dbc
-enum TextEmotes
+enum TextEmotes : uint32
 {
     TEXT_EMOTE_AGREE                = 1,
     TEXT_EMOTE_AMAZE                = 2,

@@ -459,6 +459,8 @@ class TC_GAME_API WorldObject : public Object, public WorldLocation
 
         ReputationRank GetReactionTo(WorldObject const* target) const;
         static ReputationRank GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target);
+        // mod-playerbots: pure faction-template comparison without a world object
+        static ReputationRank GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, FactionTemplateEntry const* targetFactionTemplateEntry);
 
         bool IsHostileTo(WorldObject const* target) const;
         bool IsHostileToPlayers() const;

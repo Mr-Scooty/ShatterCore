@@ -87,6 +87,14 @@ public:
 
     void RelocateOffset(Position const& offset);
 
+    // AzerothCore module compatibility: offset by polar coordinates relative to orientation
+    void RelocatePolarOffset(float angle, float dist, float deltaZ = 0.0f)
+    {
+        m_positionX += dist * std::cos(GetOrientation() + angle);
+        m_positionY += dist * std::sin(GetOrientation() + angle);
+        m_positionZ += deltaZ;
+    }
+
     void SetOrientation(float orientation)
     {
         m_orientation = NormalizeOrientation(orientation);

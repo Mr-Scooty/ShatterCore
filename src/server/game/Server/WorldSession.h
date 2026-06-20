@@ -28,6 +28,7 @@
 #include "LockedQueue.h"
 #include "ObjectGuid.h"
 #include "Packet.h"
+#include "QueryHolder.h"
 #include "SharedDefines.h"
 #include <map>
 #include <unordered_map>
@@ -39,7 +40,6 @@ class GameClient;
 class GameObject;
 class InstanceSave;
 class Item;
-class LoginQueryHolder;
 class Object;
 class Player;
 class Quest;
@@ -402,12 +402,35 @@ public:
     virtual bool Process(WorldPacket* packet) override;
 };
 
+// Holder gathering the character-load queries for a player login.
+// Exposed here (rather than in CharacterHandler.cpp) so mod-playerbots can
+// drive socketless bot logins through the same flow.
+class TC_GAME_API LoginQueryHolder : public CharacterDatabaseQueryHolder
+{
+    private:
+        uint32 m_accountId;
+        ObjectGuid m_guid;
+    public:
+        LoginQueryHolder(uint32 accountId, ObjectGuid guid)
+            : m_accountId(accountId), m_guid(guid) { }
+        ObjectGuid GetGuid() const { return m_guid; }
+        uint32 GetAccountId() const { return m_accountId; }
+        bool Initialize();
+};
+
 // Proxy structure to contain data passed to callback function,
 // only to prevent bloating the parameter list
 class CharacterCreateInfo
 {
     friend class WorldSession;
     friend class Player;
+
+    public:
+        CharacterCreateInfo() = default;
+        CharacterCreateInfo(std::string name, uint8 race, uint8 class_, uint8 gender, uint8 skin, uint8 face,
+            uint8 hairStyle, uint8 hairColor, uint8 facialHair, uint8 outfitId = 0)
+            : Name(std::move(name)), Race(race), Class(class_), Gender(gender), Skin(skin), Face(face),
+              HairStyle(hairStyle), HairColor(hairColor), FacialHair(facialHair), OutfitId(outfitId) { }
 
     protected:
         /// User specified variables
@@ -469,7 +492,7 @@ struct PacketCounter
 class TC_GAME_API WorldSession
 {
     public:
-        WorldSession(uint32 id, std::string&& name, uint32 battlenetAccountId, std::shared_ptr<WorldSocket> sock, AccountTypes sec, uint8 expansion, time_t mute_time, LocaleConstant locale, uint32 recruiter, bool isARecruiter);
+        WorldSession(uint32 id, std::string&& name, uint32 battlenetAccountId, std::shared_ptr<WorldSocket> sock, AccountTypes sec, uint8 expansion, time_t mute_time, LocaleConstant locale, uint32 recruiter, bool isARecruiter, bool isBot = false);
         ~WorldSession();
 
         bool PlayerLoading() const { return !m_playerLoading.IsEmpty(); }
@@ -515,7 +538,12 @@ class TC_GAME_API WorldSession
         ObjectGuid::LowType GetGUIDLow() const;
         void SetSecurity(AccountTypes security) { _security = security; }
         std::string const& GetRemoteAddress() const { return m_Address; }
+        void SetAddress(std::string const& address) { m_Address = address; }
         void SetPlayer(Player* player);
+
+        // mod-playerbots: bot sessions have no socket and pump their own packet queue
+        [[nodiscard]] bool IsBot() const { return _isBot; }
+        LockedQueue<WorldPacket*>& GetPacketQueue() { return _recvQueue; }
         uint8 GetAccountExpansion() const { return m_accountExpansion; }
         uint8 GetExpansion() const { return m_expansion; }
 
@@ -1426,6 +1454,8 @@ class TC_GAME_API WorldSession
         ConnectToKey _instanceConnectKey;
 
         GameClient* _gameClient;
+
+        bool _isBot;
 
         WorldSession(WorldSession const& right) = delete;
         WorldSession& operator=(WorldSession const& right) = delete;

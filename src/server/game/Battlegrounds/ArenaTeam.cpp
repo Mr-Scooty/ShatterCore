@@ -962,3 +962,20 @@ ArenaTeamMember* ArenaTeam::GetMember(ObjectGuid guid)
 
     return nullptr;
 }
+
+void ArenaTeam::SetEmblem(uint32 backgroundColor, uint8 emblemStyle, uint32 emblemColor, uint8 borderStyle, uint32 borderColor)
+{
+    BackgroundColor = backgroundColor;
+    EmblemStyle = emblemStyle;
+    EmblemColor = emblemColor;
+    BorderStyle = borderStyle;
+    BorderColor = borderColor;
+}
+
+void ArenaTeam::SetRatingForAll(uint32 rating)
+{
+    Stats.Rating = rating;
+
+    for (MemberList::iterator itr = Members.begin(); itr != Members.end(); ++itr)
+        itr->PersonalRating = rating;
+}

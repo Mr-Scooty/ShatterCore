@@ -26,6 +26,7 @@
 #include "AsyncCallbackProcessor.h"
 #include "DatabaseEnvFwd.h"
 #include "LockedQueue.h"
+#include "QueryHolder.h"
 #include "ObjectGuid.h"
 #include "SharedDefines.h"
 #include "Timer.h"
@@ -767,6 +768,10 @@ class TC_GAME_API World
 
         void KickAll();
         void KickAllLess(AccountTypes sec);
+
+        // mod-playerbots: world-level query holder callbacks (bot logins happen
+        // before a session exists in the session map)
+        SQLQueryHolderCallback& AddQueryHolderCallback(SQLQueryHolderCallback&& callback);
         BanReturn BanAccount(BanMode mode, std::string const& nameOrIP, std::string const& duration, std::string const& reason, std::string const& author);
         BanReturn BanAccount(BanMode mode, std::string const& nameOrIP, uint32 duration_secs, std::string const& reason, std::string const& author);
         bool RemoveBanAccount(BanMode mode, std::string const& nameOrIP);
@@ -915,6 +920,8 @@ class TC_GAME_API World
         void DoGuidWarningRestart();
         void DoGuidAlertRestart();
         QueryCallbackProcessor _queryProcessor;
+        // mod-playerbots issues login query holders before any session exists
+        AsyncCallbackProcessor<SQLQueryHolderCallback> _queryHolderProcessor;
 
         std::string _guidWarningMsg;
         std::string _alertRestartReason;

@@ -1720,6 +1720,12 @@ class TC_GAME_API Unit : public WorldObject
         }
 
         uint32 GetMovementCounterAndInc() { return m_movementCounter++; }
+
+        // AzerothCore module compatibility
+        float GetPowerPct(Powers power) const { return GetMaxPower(power) ? 100.f * GetPower(power) / GetMaxPower(power) : 0.0f; }
+        // AC checks class with an additional context that ShatterCore does not model
+        bool IsClass(Classes unitClass, int /*context*/ = 0) const { return getClass() == uint8(unitClass); }
+        uint32 GetSpellCooldownDelay(uint32 spellId) const; // remaining cooldown in ms via SpellHistory
         uint32 GetMovementCounter() { return m_movementCounter; }
         void ClearPendingMovementChangeForType(MovementChangeType changeType);
         void AssignPendingMovementChange(MovementChangeType changeType, PlayerMovementPendingChange&& newChange);

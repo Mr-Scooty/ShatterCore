@@ -20,6 +20,7 @@
 
 #include "Define.h"
 #include <string>
+#include <type_traits>
 #include <string_view>
 #include <vector>
 
@@ -52,6 +53,21 @@ public:
     bool GetBoolDefault(std::string const& name, bool def) const;
     int GetIntDefault(std::string const& name, int def) const;
     float GetFloatDefault(std::string const& name, float def) const;
+
+    /// AzerothCore module compatibility: typed option getter dispatching to the
+    /// Get*Default accessors above (modules ported from AC use sConfigMgr->GetOption<T>).
+    template<class T>
+    T GetOption(std::string const& name, T const& def, bool /*showLogs*/ = true) const
+    {
+        if constexpr (std::is_same_v<T, bool>)
+            return GetBoolDefault(name, def);
+        else if constexpr (std::is_same_v<T, std::string>)
+            return GetStringDefault(name, def);
+        else if constexpr (std::is_floating_point_v<T>)
+            return static_cast<T>(GetFloatDefault(name, static_cast<float>(def)));
+        else
+            return static_cast<T>(GetIntDefault(name, static_cast<int>(def)));
+    }
 
     std::string const& GetFilename();
     std::vector<std::string> const& GetArguments() const;

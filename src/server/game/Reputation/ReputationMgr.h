@@ -71,6 +71,15 @@ class TC_GAME_API ReputationMgr
         void LoadFromDB(PreparedQueryResult result);
     public:                                                 // statics
         static const int32 PointsInRank[MAX_REPUTATION_RANK];
+
+        // AzerothCore module compatibility: absolute standing value at the bottom of a rank
+        static int32 ReputationRankToStanding(ReputationRank rank)
+        {
+            int32 standing = Reputation_Bottom;
+            for (int32 i = 0; i < std::min<int32>(rank + 1, MAX_REPUTATION_RANK); ++i)
+                standing += PointsInRank[i];
+            return standing - 1;
+        }
         static const int32 Reputation_Cap;
         static const int32 Reputation_Bottom;
 

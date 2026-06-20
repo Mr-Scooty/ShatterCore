@@ -30,4 +30,38 @@ void ScriptMgr::OnAfterDatabasesLoaded(uint32 updateFlags)
     FOREACH_SCRIPT(DatabaseScript)->OnAfterDatabasesLoaded(updateFlags);
 }
 
+bool ScriptMgr::OnDatabasesLoading()
+{
+    FOR_SCRIPTS_RET(DatabaseScript, itr, end, true)
+        if (!itr->second->OnDatabasesLoading())
+            return false;
+
+    return true;
+}
+
+void ScriptMgr::OnDatabasesKeepAlive()
+{
+    FOREACH_SCRIPT(DatabaseScript)->OnDatabasesKeepAlive();
+}
+
+void ScriptMgr::OnDatabasesClosing()
+{
+    FOREACH_SCRIPT(DatabaseScript)->OnDatabasesClosing();
+}
+
+void ScriptMgr::OnDatabaseWarnAboutSyncQueries(bool apply)
+{
+    FOREACH_SCRIPT(DatabaseScript)->OnDatabaseWarnAboutSyncQueries(apply);
+}
+
+void ScriptMgr::OnDatabaseSelectIndexLogout(Player* player, uint32& statementIndex, uint32& statementParam)
+{
+    FOREACH_SCRIPT(DatabaseScript)->OnDatabaseSelectIndexLogout(player, statementIndex, statementParam);
+}
+
+void ScriptMgr::OnDatabaseGetDBRevision(std::string& revision)
+{
+    FOREACH_SCRIPT(DatabaseScript)->OnDatabaseGetDBRevision(revision);
+}
+
 template class TC_GAME_API ScriptRegistry<DatabaseScript>;

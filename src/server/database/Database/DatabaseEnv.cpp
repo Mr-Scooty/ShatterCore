@@ -21,3 +21,7 @@ DatabaseWorkerPool<WorldDatabaseConnection> WorldDatabase;
 DatabaseWorkerPool<CharacterDatabaseConnection> CharacterDatabase;
 DatabaseWorkerPool<LoginDatabaseConnection> LoginDatabase;
 DatabaseWorkerPool<HotfixDatabaseConnection> HotfixDatabase;
+
+#ifdef MOD_PLAYERBOTS
+DatabaseWorkerPool<PlayerbotsDatabaseConnection> PlayerbotsDatabase;
+#endif

@@ -77,6 +77,15 @@ class TC_GAME_API PathGenerator
         // option setters - use optional
         void SetUseStraightPath(bool useStraightPath) { _useStraightPath = useStraightPath; }
         void SetPathLengthLimit(float length);
+
+        // AzerothCore module compatibility: total length of the calculated path
+        float GetTotalLength() const
+        {
+            float length = 0.0f;
+            for (uint32 i = 1; i < _pathPoints.size(); ++i)
+                length += (_pathPoints[i] - _pathPoints[i - 1]).length();
+            return length;
+        }
         void SetUseRaycast(bool useRaycast) { _useRaycast = useRaycast; }
 
         // result getters

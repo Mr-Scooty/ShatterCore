@@ -76,6 +76,10 @@ public:
     /// sql updates (modules/<name>/data/sql/db-<suffix>)
     static inline std::string GetDBModuleName();
 
+    /// Root directory the updater resolves "$" include paths against.
+    /// Module-owned databases (playerbots) live inside their module directory.
+    static std::string GetSourceDirectory();
+
     static std::string GetBaseFile();
 
     static bool IsEnabled(uint32 const updateMask);

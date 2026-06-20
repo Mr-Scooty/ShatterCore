@@ -74,9 +74,13 @@ namespace Trainer
         uint32 GetTrainerRequirement() const { return _requirement; }
         bool IsTrainerValidForPlayer(Player const* player) const;
 
-    private:
+        // AzerothCore module compatibility: mod-playerbots enumerates and teaches
+        // trainer spells in bulk without a gossip session
+        std::vector<Spell> const& GetSpells() const { return _spells; }
         Spell const* GetSpell(uint32 spellId) const;
         bool CanTeachSpell(Player const* player, Spell const* trainerSpell) const;
+
+    private:
         SpellState GetSpellState(Player const* player, Spell const* trainerSpell) const;
         void SendTeachFailure(Creature const* npc, Player const* player, uint32 spellId, FailReason reason) const;
         void SendTeachSucceeded(Creature const* npc, Player const* player, uint32 spellId) const;

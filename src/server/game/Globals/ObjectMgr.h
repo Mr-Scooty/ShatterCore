@@ -1093,6 +1093,7 @@ class TC_GAME_API ObjectMgr
         GraveyardData const* FindGraveyardData(uint32 id, uint32 zone) const;
 
         AreaTriggerStruct const* GetAreaTrigger(uint32 trigger) const;
+        AreaTriggerContainer const& GetAllAreaTriggerTeleports() const { return _areaTriggerStore; } // mod-playerbots
         AccessRequirement const* GetAccessRequirement(uint32 mapid, Difficulty difficulty) const;
         AreaTriggerStruct const* GetGoBackTrigger(uint32 Map) const;
         AreaTriggerStruct const* GetMapEntranceTrigger(uint32 Map) const;
@@ -1162,6 +1163,12 @@ class TC_GAME_API ObjectMgr
         QuestRelationResult GetCreatureQuestRelations(uint32 entry) const { return GetQuestRelationsFrom(_creatureQuestRelations, entry, true); }
         QuestRelationResult GetCreatureQuestInvolvedRelations(uint32 entry) const { return GetQuestRelationsFrom(_creatureQuestInvolvedRelations, entry, false); }
         QuestRelationResult GetCreatureQuestInvolvedRelationsReverse(uint32 questId) const { return GetQuestRelationsReverseFrom(_creatureQuestInvolvedRelationsReverse, questId, false); }
+
+        // mod-playerbots: full relation maps for the quest-target precomputation
+        QuestRelations const& GetCreatureQuestRelationsMap() const { return _creatureQuestRelations; }
+        QuestRelations const& GetCreatureQuestInvolvedRelationsMap() const { return _creatureQuestInvolvedRelations; }
+        QuestRelations const& GetGOQuestRelationsMap() const { return _goQuestRelations; }
+        QuestRelations const& GetGOQuestInvolvedRelationsMap() const { return _goQuestInvolvedRelations; }
         QuestRelationResult GetGOQuestInvolvedRelationsReverse(uint32 questId) const { return GetQuestRelationsReverseFrom(_goQuestInvolvedRelationsReverse, questId, false); }
 
         ExclusiveQuestGroupsBounds GetExclusiveQuestGroupBounds(int32 exclusiveGroupId) const

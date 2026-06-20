@@ -326,6 +326,21 @@ class BattlegroundAB : public Battleground
         /* Nodes occupying */
         void EventPlayerClickedOnFlag(Player* source, GameObject* target_obj) override;
 
+        // mod-playerbots: read-only capture point view matching the AzerothCore shape
+        struct CapturePointInfo
+        {
+            TeamId _ownerTeamId;
+            uint8 _state;
+        };
+        CapturePointInfo GetCapturePointInfo(uint8 node) const
+        {
+            CapturePointInfo info;
+            info._state = node < BG_AB_DYNAMIC_NODES_COUNT ? m_Nodes[node] : 0;
+            info._ownerTeamId = info._state == BG_AB_NODE_STATUS_ALLY_OCCUPIED ? TEAM_ALLIANCE
+                : info._state == BG_AB_NODE_STATUS_HORDE_OCCUPIED ? TEAM_HORDE : TEAM_NEUTRAL;
+            return info;
+        }
+
         uint32 GetPrematureWinner() override;
     private:
         void PostUpdateImpl(uint32 diff) override;
