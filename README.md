@@ -1,4 +1,7 @@
-# ShatterCore
+# ShatterCore (Experimental)
+ShatterCore with experimental support for AzerothCore's module system. 
+
+In-game testing required!
 
 ## Introduction
 ShatterCore is an open-source game server application and framework designed for hosting massively multiplayer online role-playing games (MMORPGs), and it is based on the popular MMORPG, World of Warcraft (WoW) and seeks to recreate the gameplay experience of the Cataclysm expansion - patch 4.3.4 (15595).
