@@ -74,7 +74,6 @@ target_compile_definitions(boost
   INTERFACE
     -DBOOST_ALL_NO_LIB
     -DBOOST_CONFIG_SUPPRESS_OUTDATED_MESSAGE
-    -DBOOST_ASIO_NO_DEPRECATED
     -DBOOST_BIND_NO_PLACEHOLDERS)
 
 if (NOT boost_filesystem_copy_links_without_NO_SCOPED_ENUM)
