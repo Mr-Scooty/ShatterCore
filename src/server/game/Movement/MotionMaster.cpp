@@ -573,7 +573,7 @@ void MotionMaster::MoveSmoothPath(uint32 pointId, Position const* pathPoints, si
     {
         if (pathSize > 1)
         {
-            G3D::Vector3 middle = (path[0] + path[pathSize]) / 2.f;
+            G3D::Vector3 middle = (path[0] + path[pathSize - 1]) / 2.f;
             for (uint32 i = 1; i < pathSize; ++i)
             {
                 G3D::Vector3 delta = middle - path[i];
