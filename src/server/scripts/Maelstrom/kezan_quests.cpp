@@ -1,0 +1,1386 @@
+/*
+ * This file is part of the ShatterCore and TrinityCore Projects. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/*
+ * Kezan goblin starting zone: quests after "Rolling with my Homies".
+ * Report for Tryouts, The Replacements, Necessary Roughness, Fourth and Goal,
+ * Give Sassy the News, The New You, Life of the Party, Pirate Party Crashers,
+ * The Uninvited Guest, A Bazillion Macaroons?!, the bank heist quartet,
+ * 447 and Life Savings (yacht escape).
+ */
+
+#include "ScriptMgr.h"
+#include "CombatAI.h"
+#include "GameObject.h"
+#include "GameObjectAI.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "ObjectMgr.h"
+#include "Player.h"
+#include "QuestDef.h"
+#include "ScriptedCreature.h"
+#include "SpellAuraEffects.h"
+#include "SpellMgr.h"
+#include "SpellScript.h"
+#include "TemporarySummon.h"
+#include "Vehicle.h"
+#include "VehicleDefines.h"
+#include <array>
+
+using namespace std::chrono_literals;
+
+enum KezanQuests
+{
+    QUEST_NECESSARY_ROUGHNESS       = 24502,
+    QUEST_FOURTH_AND_GOAL           = 24503,
+    QUEST_FOURTH_AND_GOAL_ALT       = 28414,
+    QUEST_LIFE_OF_THE_PARTY_M       = 14113,
+    QUEST_LIFE_OF_THE_PARTY_F       = 14153,
+    QUEST_GREAT_BANK_HEIST          = 14122,
+    QUEST_WALTZ_RIGHT_IN            = 14123,
+    QUEST_447                       = 14125,
+    QUEST_LIFE_SAVINGS              = 14126,
+
+    QUEST_CLASS_FIRST               = 14007,
+    QUEST_CLASS_LAST                = 14013
+};
+
+enum KezanCreatures
+{
+    NPC_BILGEWATER_BUCCANEER_THROW  = 37179,
+    NPC_BILGEWATER_BUCCANEER_KICK   = 37213,
+    NPC_STEAMWHEEDLE_SHARK          = 37114,
+    NPC_FOURTH_AND_GOAL_TARGET      = 37203,
+    NPC_DEATHWING                   = 48572,
+    NPC_PARTYGOER_1                 = 35175,
+    NPC_PARTYGOER_2                 = 35185,
+    NPC_PARTYGOER_3                 = 35186,
+    NPC_PARTYGOER_4                 = 35201,
+    NPC_FBOK_VAULT                  = 35486,
+    NPC_MOOK_DISGUISE               = 48925,
+    NPC_GASBOT                      = 37598,
+    NPC_SPELL_PRACTICE_CREDIT       = 44175
+};
+
+enum KezanSpells
+{
+    // Necessary Roughness / Fourth and Goal
+    SPELL_SUMMON_KICK_BUCCANEER     = 70075, // summons 37213 at the caster
+    SPELL_FOOTBOMB_IMPACT           = 69993,
+    SPELL_KICK_FOOTBOMB_IMPACT      = 70052,
+    SPELL_PERMANENT_FEIGN_DEATH     = 29266,
+    SPELL_DEATHWING_FIRE_BREATH     = 66858,
+    SPELL_DEATHWING_FLYOVER_COSMETIC = 69988,
+
+    // Life of the Party
+    SPELL_HAPPY_PARTYGOER           = 66916,
+    SPELL_SUMMON_DISCO_BALL         = 66930,
+
+    // The Great Bank Heist
+    SPELL_SUMMON_VAULT_VEHICLE      = 67488, // summons 35486, rides via 67476
+    SPELL_VAULT_PROMPT_TIMER        = 67502,
+    SPELL_TOOL_AMAZING_G_RAY        = 67526,
+    SPELL_TOOL_BLASTCRACKERS        = 67508,
+    SPELL_TOOL_EAR_O_SCOPE          = 67524,
+    SPELL_TOOL_INFINIFOLD_LOCKPICK  = 67525,
+    SPELL_TOOL_KAJAMITE_DRILL       = 67522,
+
+    // Waltz Right In
+    SPELL_MOOK_DISGUISE             = 67435,
+
+    // 447
+    SPELL_GASBOT_COMPANION          = 70254,
+    SPELL_GASBOT_EXPLOSION          = 69608,
+
+    // Life Savings
+    SPELL_YACHT_MORTAR_LAUNCH       = 92633  // jump to spell_target_position (the yacht deck)
+};
+
+enum KezanItems
+{
+    ITEM_PERSONAL_RICHES            = 46858
+};
+
+enum KezanTexts
+{
+    // npc_bilgewater_buccaneer (both entries)
+    SAY_BUCCANEER_INSTRUCTIONS      = 0,
+
+    // npc_kezan_deathwing
+    SAY_DEATHWING_FLYOVER           = 0,
+
+    // npc_first_bank_vault
+    SAY_VAULT_INTRO_1               = 0,
+    SAY_VAULT_INTRO_2               = 1,
+    SAY_VAULT_INTRO_3               = 2,
+    SAY_VAULT_INTRO_4               = 3,
+    SAY_VAULT_PROMPT_G_RAY          = 4,
+    SAY_VAULT_PROMPT_BLASTCRACKERS  = 5,
+    SAY_VAULT_PROMPT_EAR_O_SCOPE    = 6,
+    SAY_VAULT_PROMPT_LOCKPICK       = 7,
+    SAY_VAULT_PROMPT_DRILL          = 8,
+    SAY_VAULT_CORRECT               = 9,
+    SAY_VAULT_INCORRECT             = 10,
+    SAY_VAULT_SUCCESS               = 11
+};
+
+enum KezanActions
+{
+    ACTION_DEATHWING_FLYOVER        = 1,
+    ACTION_PARTYGOER_SERVED         = 2,
+    ACTION_GASBOT_DETONATE          = 3,
+
+    DATA_PARTYGOER_WANT             = 1
+};
+
+enum KezanMisc
+{
+    MOVIE_ESCAPE_FROM_KEZAN         = 22,
+    ZONE_KEZAN                      = 4737
+};
+
+Position const KezanLostIslesShore = { 534.835f, 3272.92f, 0.171872f, 5.14795f };
+
+// -----------------------------------------------------------------------------
+// Necessary Roughness (24502) / Fourth and Goal (24503 / 28414)
+// -----------------------------------------------------------------------------
+
+Position const SharkPositions[8] =
+{
+    { -8288.62f, 1479.97f, 43.97f, 0.0f },
+    { -8273.75f, 1484.46f, 43.02f, 0.0f },
+    { -8288.08f, 1487.72f, 43.93f, 0.0f },
+    { -8281.04f, 1477.49f, 43.39f, 0.0f },
+    { -8281.33f, 1490.41f, 43.56f, 0.0f },
+    { -8295.10f, 1484.91f, 44.41f, 0.0f },
+    { -8294.66f, 1474.68f, 44.38f, 0.0f },
+    { -8294.61f, 1493.67f, 44.71f, 0.0f }
+};
+
+enum BuccaneerEvents
+{
+    EVENT_BOARD_OWNER               = 1,
+    EVENT_SUMMON_SHARKS             = 2
+};
+
+class npc_bilgewater_buccaneer : public CreatureScript
+{
+public:
+    npc_bilgewater_buccaneer() : CreatureScript("npc_bilgewater_buccaneer") { }
+
+    struct npc_bilgewater_buccaneerAI : public VehicleAI
+    {
+        npc_bilgewater_buccaneerAI(Creature* creature) : VehicleAI(creature) { }
+
+        void IsSummonedBy(Unit* summoner) override
+        {
+            if (!summoner)
+                return;
+
+            _ownerGUID = summoner->GetGUID();
+
+            // The throw-boat (37179) boards its summoner natively through the
+            // summon spell's ride-back (70016, which also grants credit 48271).
+            // The kick-boat's summon (70075) has no ride-back, board by hand.
+            if (me->GetEntry() == NPC_BILGEWATER_BUCCANEER_KICK)
+                _events.ScheduleEvent(EVENT_BOARD_OWNER, 1s);
+        }
+
+        void PassengerBoarded(Unit* passenger, int8 seatId, bool apply) override
+        {
+            if (seatId != 0 || !passenger->IsPlayer())
+                return;
+
+            if (apply)
+            {
+                Talk(SAY_BUCCANEER_INSTRUCTIONS, passenger);
+                if (me->GetEntry() == NPC_BILGEWATER_BUCCANEER_THROW)
+                    _events.ScheduleEvent(EVENT_SUMMON_SHARKS, 5s);
+            }
+            else
+            {
+                _events.Reset();
+                DespawnSharks();
+                if (me->IsSummon())
+                    me->DespawnOrUnsummon(2000);
+            }
+        }
+
+        void JustSummoned(Creature* summon) override
+        {
+            if (summon->GetEntry() == NPC_STEAMWHEEDLE_SHARK)
+            {
+                _sharkGUIDs.push_back(summon->GetGUID());
+                summon->SetReactState(REACT_PASSIVE);
+                summon->SetFacingTo(0.0f);
+            }
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            VehicleAI::UpdateAI(diff);
+            _events.Update(diff);
+
+            while (uint32 eventId = _events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                    case EVENT_BOARD_OWNER:
+                        if (Player* owner = ObjectAccessor::GetPlayer(*me, _ownerGUID))
+                            if (!owner->GetVehicle() && me->GetVehicleKit())
+                                owner->EnterVehicle(me, 0);
+                        break;
+                    case EVENT_SUMMON_SHARKS:
+                        for (Position const& pos : SharkPositions)
+                            me->SummonCreature(NPC_STEAMWHEEDLE_SHARK, pos, TEMPSUMMON_TIMED_DESPAWN, 5min);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+    private:
+        void DespawnSharks()
+        {
+            for (ObjectGuid const& guid : _sharkGUIDs)
+                if (Creature* shark = ObjectAccessor::GetCreature(*me, guid))
+                    shark->DespawnOrUnsummon();
+            _sharkGUIDs.clear();
+        }
+
+        EventMap _events;
+        ObjectGuid _ownerGUID;
+        std::vector<ObjectGuid> _sharkGUIDs;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_bilgewater_buccaneerAI(creature);
+    }
+};
+
+// 69993 - Throw Footbomb (impact): feign the shark, credit the driver.
+class spell_kezan_footbomb_impact : public SpellScriptLoader
+{
+public:
+    spell_kezan_footbomb_impact() : SpellScriptLoader("spell_kezan_footbomb_impact") { }
+
+    class spell_kezan_footbomb_impact_SpellScript : public SpellScript
+    {
+    public:
+        void HandleDummy(SpellEffIndex /*effIndex*/)
+        {
+            Creature* shark = GetHitCreature();
+            if (!shark || shark->GetEntry() != NPC_STEAMWHEEDLE_SHARK)
+                return;
+
+            if (shark->HasAura(SPELL_PERMANENT_FEIGN_DEATH))
+                return;
+
+            shark->CastSpell(shark, SPELL_PERMANENT_FEIGN_DEATH, true);
+            shark->DespawnOrUnsummon(15000);
+
+            Unit* caster = GetCaster();
+            if (!caster)
+                return;
+
+            Player* driver = caster->GetCharmer() ? caster->GetCharmer()->ToPlayer() : nullptr;
+            if (!driver)
+                if (Vehicle* kit = caster->GetVehicleKit())
+                    if (Unit* seat0 = kit->GetPassenger(0))
+                        driver = seat0->ToPlayer();
+
+            if (driver)
+                driver->KilledMonsterCredit(NPC_STEAMWHEEDLE_SHARK);
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_kezan_footbomb_impact_SpellScript::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_footbomb_impact_SpellScript();
+    }
+};
+
+// 70052 - Kick Footbomb (impact): goal detection between the smokestacks.
+class spell_kezan_footbomb_kick_impact : public SpellScriptLoader
+{
+public:
+    spell_kezan_footbomb_kick_impact() : SpellScriptLoader("spell_kezan_footbomb_kick_impact") { }
+
+    class spell_kezan_footbomb_kick_impact_SpellScript : public SpellScript
+    {
+    public:
+        void HandleAfterCast()
+        {
+            Unit* caster = GetCaster();
+            if (!caster)
+                return;
+
+            WorldLocation const* dest = GetExplTargetDest();
+            if (!dest)
+                return;
+
+            Player* driver = caster->GetCharmer() ? caster->GetCharmer()->ToPlayer() : nullptr;
+            if (!driver)
+                if (Vehicle* kit = caster->GetVehicleKit())
+                    if (Unit* seat0 = kit->GetPassenger(0))
+                        driver = seat0->ToPlayer();
+
+            if (!driver)
+                return;
+
+            if (driver->GetQuestStatus(QUEST_FOURTH_AND_GOAL) != QUEST_STATUS_INCOMPLETE &&
+                driver->GetQuestStatus(QUEST_FOURTH_AND_GOAL_ALT) != QUEST_STATUS_INCOMPLETE)
+                return;
+
+            Creature* target = caster->FindNearestCreature(NPC_FOURTH_AND_GOAL_TARGET, 200.0f);
+            if (!target || target->GetExactDist2d(dest->GetPositionX(), dest->GetPositionY()) > 15.0f)
+                return;
+
+            driver->KilledMonsterCredit(NPC_FOURTH_AND_GOAL_TARGET);
+            if (CreatureAI* ai = target->AI())
+                ai->DoAction(ACTION_DEATHWING_FLYOVER);
+        }
+
+        void Register() override
+        {
+            AfterCast.Register(&spell_kezan_footbomb_kick_impact_SpellScript::HandleAfterCast);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_footbomb_kick_impact_SpellScript();
+    }
+};
+
+// 37203 - Fourth And Goal Target: summons the Deathwing flyover after the goal.
+class npc_fourth_and_goal_target : public CreatureScript
+{
+public:
+    npc_fourth_and_goal_target() : CreatureScript("npc_fourth_and_goal_target") { }
+
+    struct npc_fourth_and_goal_targetAI : public ScriptedAI
+    {
+        npc_fourth_and_goal_targetAI(Creature* creature) : ScriptedAI(creature), _flyoverCooldown(0) { }
+
+        void DoAction(int32 action) override
+        {
+            if (action != ACTION_DEATHWING_FLYOVER)
+                return;
+
+            if (_flyoverCooldown > 0)
+                return;
+
+            _flyoverCooldown = 60 * IN_MILLISECONDS;
+            me->SummonCreature(NPC_DEATHWING, { -8178.59f, 1482.14f, 84.0f, 3.106686f }, TEMPSUMMON_TIMED_DESPAWN, 45s);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            if (_flyoverCooldown > 0)
+                _flyoverCooldown = _flyoverCooldown > diff ? _flyoverCooldown - diff : 0;
+        }
+
+    private:
+        uint32 _flyoverCooldown;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_fourth_and_goal_targetAI(creature);
+    }
+};
+
+// 48572 - Deathwing: cinematic flyover across the stadium (path from sniff).
+enum DeathwingEvents
+{
+    EVENT_DEATHWING_LEG_1           = 1,
+    EVENT_DEATHWING_YELL            = 2,
+    EVENT_DEATHWING_LEG_2           = 3,
+    EVENT_DEATHWING_CIRCUIT         = 4,
+    EVENT_DEATHWING_COSMETIC        = 5,
+    EVENT_DEATHWING_EXIT            = 6
+};
+
+Position const DeathwingLeg2[2] =
+{
+    { -8357.739f, 1482.9305f, 150.9125f },
+    { -8544.15f, 1481.06f, 276.202f }
+};
+
+Position const DeathwingCircuit[6] =
+{
+    { -8562.12f, 1483.93f, 283.8f },
+    { -8644.45f, 1499.07f, 312.9f },
+    { -8707.98f, 1559.36f, 312.9f },
+    { -8689.69f, 1657.08f, 312.9f },
+    { -8565.21f, 1675.97f, 285.0f },
+    { -8311.69f, 1501.69f, 93.48f }
+};
+
+Position const DeathwingExit[4] =
+{
+    { -8262.02f, 1468.5f, 93.79f },
+    { -8140.4f, 1405.29f, 89.01f },
+    { -7904.96f, 1380.62f, 89.01f },
+    { -7736.61f, 1402.56f, 89.01f }
+};
+
+class npc_kezan_deathwing : public CreatureScript
+{
+public:
+    npc_kezan_deathwing() : CreatureScript("npc_kezan_deathwing") { }
+
+    struct npc_kezan_deathwingAI : public ScriptedAI
+    {
+        npc_kezan_deathwingAI(Creature* creature) : ScriptedAI(creature) { }
+
+        void IsSummonedBy(Unit* /*summoner*/) override
+        {
+            me->SetCanFly(true);
+            me->SetDisableGravity(true);
+            me->SetSpeedRate(MOVE_FLIGHT, 3.5f);
+            me->SetReactState(REACT_PASSIVE);
+
+            _events.ScheduleEvent(EVENT_DEATHWING_LEG_1, 1500ms);
+            _events.ScheduleEvent(EVENT_DEATHWING_YELL, 4800ms);
+            _events.ScheduleEvent(EVENT_DEATHWING_LEG_2, 6s);
+            _events.ScheduleEvent(EVENT_DEATHWING_CIRCUIT, 10400ms);
+            _events.ScheduleEvent(EVENT_DEATHWING_COSMETIC, 26500ms);
+            _events.ScheduleEvent(EVENT_DEATHWING_EXIT, 29s);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            _events.Update(diff);
+
+            while (uint32 eventId = _events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                    case EVENT_DEATHWING_LEG_1:
+                        me->GetMotionMaster()->MovePoint(0, -8307.88f, 1483.6702f, 137.1013f, false);
+                        break;
+                    case EVENT_DEATHWING_YELL:
+                        Talk(SAY_DEATHWING_FLYOVER);
+                        break;
+                    case EVENT_DEATHWING_LEG_2:
+                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingLeg2, std::size(DeathwingLeg2), false, true);
+                        break;
+                    case EVENT_DEATHWING_CIRCUIT:
+                        if (sSpellMgr->GetSpellInfo(SPELL_DEATHWING_FIRE_BREATH))
+                            me->CastSpell(me, SPELL_DEATHWING_FIRE_BREATH, true);
+                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingCircuit, std::size(DeathwingCircuit), false, true);
+                        break;
+                    case EVENT_DEATHWING_COSMETIC:
+                        if (sSpellMgr->GetSpellInfo(SPELL_DEATHWING_FLYOVER_COSMETIC))
+                            me->CastSpell(me, SPELL_DEATHWING_FLYOVER_COSMETIC, true);
+                        break;
+                    case EVENT_DEATHWING_EXIT:
+                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingExit, std::size(DeathwingExit), false, true);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+    private:
+        EventMap _events;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_kezan_deathwingAI(creature);
+    }
+};
+
+// -----------------------------------------------------------------------------
+// Life of the Party (14113 / 14153)
+// -----------------------------------------------------------------------------
+
+enum PartygoerWants
+{
+    WANT_BUBBLY                     = 0,
+    WANT_BUCKET                     = 1,
+    WANT_DANCE                      = 2,
+    WANT_FIREWORKS                  = 3,
+    WANT_HORS_DOEUVRES              = 4,
+    WANT_MAX
+};
+
+// action spell cast by the player (from the Awesome Party Ensemble bar)
+uint32 const PartygoerActionSpells[WANT_MAX] = { 66909, 66910, 66911, 66912, 66913 };
+// self-cast "wanted" bubble visual
+uint32 const PartygoerWantVisuals[WANT_MAX] = { 75042, 75044, 75046, 75048, 75050 };
+// creature_text groups (want bark / served response) - layout from TDB 35186 texts
+uint8 const PartygoerWantTexts[WANT_MAX] = { 2, 1, 0, 3, 4 };
+uint8 const PartygoerServedTexts[WANT_MAX] = { 5, 6, 7, 8, 9 };
+
+enum PartygoerEvents
+{
+    EVENT_PARTYGOER_WANT_BARK       = 1,
+    EVENT_PARTYGOER_RESET           = 2
+};
+
+class npc_kezan_partygoer : public CreatureScript
+{
+public:
+    npc_kezan_partygoer() : CreatureScript("npc_kezan_partygoer") { }
+
+    struct npc_kezan_partygoerAI : public ScriptedAI
+    {
+        npc_kezan_partygoerAI(Creature* creature) : ScriptedAI(creature), _want(WANT_BUBBLY), _served(false) { }
+
+        void Reset() override
+        {
+            _served = false;
+            RollNewWant();
+            _events.Reset();
+            _events.ScheduleEvent(EVENT_PARTYGOER_WANT_BARK, 5s, 60s);
+        }
+
+        uint32 GetData(uint32 type) const override
+        {
+            if (type == DATA_PARTYGOER_WANT)
+                return _served ? WANT_MAX : _want;
+            return 0;
+        }
+
+        void DoAction(int32 action) override
+        {
+            if (action != ACTION_PARTYGOER_SERVED || _served)
+                return;
+
+            _served = true;
+            me->RemoveAurasDueToSpell(PartygoerWantVisuals[_want]);
+
+            if (sSpellMgr->GetSpellInfo(SPELL_HAPPY_PARTYGOER))
+                me->CastSpell(me, SPELL_HAPPY_PARTYGOER, true);
+
+            if (_want == WANT_DANCE && sSpellMgr->GetSpellInfo(SPELL_SUMMON_DISCO_BALL))
+                me->CastSpell(me, SPELL_SUMMON_DISCO_BALL, true);
+
+            Talk(PartygoerServedTexts[_want]);
+
+            _events.CancelEvent(EVENT_PARTYGOER_WANT_BARK);
+            _events.ScheduleEvent(EVENT_PARTYGOER_RESET, 30s);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            _events.Update(diff);
+
+            while (uint32 eventId = _events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                    case EVENT_PARTYGOER_WANT_BARK:
+                        if (!_served)
+                            Talk(PartygoerWantTexts[_want]);
+                        _events.ScheduleEvent(EVENT_PARTYGOER_WANT_BARK, 30s, 90s);
+                        break;
+                    case EVENT_PARTYGOER_RESET:
+                        _served = false;
+                        me->RemoveAurasDueToSpell(SPELL_HAPPY_PARTYGOER);
+                        RollNewWant();
+                        _events.ScheduleEvent(EVENT_PARTYGOER_WANT_BARK, 5s, 30s);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+    private:
+        void RollNewWant()
+        {
+            me->RemoveAurasDueToSpell(PartygoerWantVisuals[_want]);
+            _want = urand(0, WANT_MAX - 1);
+            if (sSpellMgr->GetSpellInfo(PartygoerWantVisuals[_want]))
+                me->CastSpell(me, PartygoerWantVisuals[_want], true);
+        }
+
+        EventMap _events;
+        uint32 _want;
+        bool _served;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_kezan_partygoerAI(creature);
+    }
+};
+
+// 66909-66913 - party actions: only the wanted action serves a partygoer.
+class spell_kezan_party_action : public SpellScriptLoader
+{
+public:
+    spell_kezan_party_action() : SpellScriptLoader("spell_kezan_party_action") { }
+
+    class spell_kezan_party_action_SpellScript : public SpellScript
+    {
+    public:
+        static bool IsPartygoer(Unit const* unit)
+        {
+            switch (unit->GetEntry())
+            {
+                case NPC_PARTYGOER_1:
+                case NPC_PARTYGOER_2:
+                case NPC_PARTYGOER_3:
+                case NPC_PARTYGOER_4:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        uint32 GetWantIndex() const
+        {
+            for (uint8 i = 0; i < WANT_MAX; ++i)
+                if (PartygoerActionSpells[i] == GetSpellInfo()->Id)
+                    return i;
+            return WANT_MAX;
+        }
+
+        SpellCastResult CheckTarget()
+        {
+            Unit* target = GetExplTargetUnit();
+            if (!target || !IsPartygoer(target) || !target->IsAlive())
+                return SPELL_FAILED_BAD_TARGETS;
+
+            Creature* partygoer = target->ToCreature();
+            if (!partygoer || !partygoer->AI())
+                return SPELL_FAILED_BAD_TARGETS;
+
+            if (partygoer->AI()->GetData(DATA_PARTYGOER_WANT) != GetWantIndex())
+                return SPELL_FAILED_BAD_TARGETS;
+
+            return SPELL_CAST_OK;
+        }
+
+        void HandleDummy(SpellEffIndex /*effIndex*/)
+        {
+            Player* player = GetCaster()->ToPlayer();
+            Creature* partygoer = GetHitCreature();
+            if (!player || !partygoer || !IsPartygoer(partygoer))
+                return;
+
+            if (!partygoer->AI() || partygoer->AI()->GetData(DATA_PARTYGOER_WANT) != GetWantIndex())
+                return;
+
+            partygoer->AI()->DoAction(ACTION_PARTYGOER_SERVED);
+            player->KilledMonsterCredit(NPC_PARTYGOER_1);
+        }
+
+        void Register() override
+        {
+            OnCheckCast.Register(&spell_kezan_party_action_SpellScript::CheckTarget);
+            OnEffectHitTarget.Register(&spell_kezan_party_action_SpellScript::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_party_action_SpellScript();
+    }
+};
+
+// -----------------------------------------------------------------------------
+// The Great Bank Heist (14122)
+// -----------------------------------------------------------------------------
+
+enum VaultEvents
+{
+    EVENT_VAULT_INTRO_1             = 1,
+    EVENT_VAULT_INTRO_2             = 2,
+    EVENT_VAULT_INTRO_3             = 3,
+    EVENT_VAULT_INTRO_4             = 4,
+    EVENT_VAULT_NEXT_PROMPT         = 5,
+    EVENT_VAULT_TIMEOUT             = 6
+};
+
+enum VaultTools
+{
+    TOOL_G_RAY                      = 0,
+    TOOL_BLASTCRACKERS              = 1,
+    TOOL_EAR_O_SCOPE                = 2,
+    TOOL_INFINIFOLD_LOCKPICK        = 3,
+    TOOL_KAJAMITE_DRILL             = 4,
+    TOOL_MAX
+};
+
+uint32 const VaultToolSpells[TOOL_MAX] = { SPELL_TOOL_AMAZING_G_RAY, SPELL_TOOL_BLASTCRACKERS, SPELL_TOOL_EAR_O_SCOPE, SPELL_TOOL_INFINIFOLD_LOCKPICK, SPELL_TOOL_KAJAMITE_DRILL };
+uint8 const VaultToolTexts[TOOL_MAX] = { SAY_VAULT_PROMPT_G_RAY, SAY_VAULT_PROMPT_BLASTCRACKERS, SAY_VAULT_PROMPT_EAR_O_SCOPE, SAY_VAULT_PROMPT_LOCKPICK, SAY_VAULT_PROMPT_DRILL };
+
+class npc_first_bank_vault : public CreatureScript
+{
+public:
+    npc_first_bank_vault() : CreatureScript("npc_first_bank_vault") { }
+
+    struct npc_first_bank_vaultAI : public VehicleAI
+    {
+        npc_first_bank_vaultAI(Creature* creature) : VehicleAI(creature), _progress(0), _currentTool(TOOL_MAX), _awaitingInput(false) { }
+
+        void PassengerBoarded(Unit* passenger, int8 /*seatId*/, bool apply) override
+        {
+            Player* player = passenger->ToPlayer();
+            if (!player)
+                return;
+
+            if (apply)
+            {
+                _playerGUID = player->GetGUID();
+                _progress = 0;
+                _currentTool = TOOL_MAX;
+                _awaitingInput = false;
+
+                me->SetPowerType(POWER_MANA);
+                me->SetMaxPower(POWER_MANA, 100);
+                me->SetPower(POWER_MANA, 0);
+
+                player->KilledMonsterCredit(NPC_FBOK_VAULT);
+
+                _events.Reset();
+                _events.ScheduleEvent(EVENT_VAULT_INTRO_1, 500ms);
+                _events.ScheduleEvent(EVENT_VAULT_INTRO_2, 5s);
+                _events.ScheduleEvent(EVENT_VAULT_INTRO_3, 10s);
+                _events.ScheduleEvent(EVENT_VAULT_INTRO_4, 15s);
+                _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 18s);
+            }
+            else
+            {
+                _events.Reset();
+                _playerGUID.Clear();
+                _awaitingInput = false;
+                if (me->IsSummon())
+                    me->DespawnOrUnsummon(2000);
+            }
+        }
+
+        void DoAction(int32 action) override
+        {
+            // action = tool index used by the passenger (from spell_kezan_vault_tool)
+            if (action < 0 || action >= TOOL_MAX || !_awaitingInput)
+                return;
+
+            _awaitingInput = false;
+            _events.CancelEvent(EVENT_VAULT_TIMEOUT);
+
+            Player* player = ObjectAccessor::GetPlayer(*me, _playerGUID);
+            if (!player)
+                return;
+
+            if (uint32(action) == _currentTool)
+            {
+                _progress = std::min<int32>(_progress + 5, 100);
+                Talk(SAY_VAULT_CORRECT, player);
+            }
+            else
+            {
+                _progress = std::max<int32>(_progress - 5, 0);
+                Talk(SAY_VAULT_INCORRECT, player);
+            }
+
+            me->SetPower(POWER_MANA, _progress);
+
+            if (_progress >= 100)
+            {
+                Talk(SAY_VAULT_SUCCESS, player);
+                player->AddItem(ITEM_PERSONAL_RICHES, 1);
+                player->ExitVehicle();
+            }
+            else
+                _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 2s);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            VehicleAI::UpdateAI(diff);
+            _events.Update(diff);
+
+            Player* player = ObjectAccessor::GetPlayer(*me, _playerGUID);
+
+            while (uint32 eventId = _events.ExecuteEvent())
+            {
+                if (!player)
+                    break;
+
+                switch (eventId)
+                {
+                    case EVENT_VAULT_INTRO_1:
+                        Talk(SAY_VAULT_INTRO_1, player);
+                        break;
+                    case EVENT_VAULT_INTRO_2:
+                        Talk(SAY_VAULT_INTRO_2, player);
+                        break;
+                    case EVENT_VAULT_INTRO_3:
+                        Talk(SAY_VAULT_INTRO_3, player);
+                        break;
+                    case EVENT_VAULT_INTRO_4:
+                        Talk(SAY_VAULT_INTRO_4, player);
+                        break;
+                    case EVENT_VAULT_NEXT_PROMPT:
+                        _currentTool = urand(0, TOOL_MAX - 1);
+                        _awaitingInput = true;
+                        Talk(VaultToolTexts[_currentTool], player);
+                        if (sSpellMgr->GetSpellInfo(SPELL_VAULT_PROMPT_TIMER))
+                            me->CastSpell(me, SPELL_VAULT_PROMPT_TIMER, true);
+                        _events.ScheduleEvent(EVENT_VAULT_TIMEOUT, 5s);
+                        break;
+                    case EVENT_VAULT_TIMEOUT:
+                        _awaitingInput = false;
+                        _progress = std::max<int32>(_progress - 5, 0);
+                        me->SetPower(POWER_MANA, _progress);
+                        Talk(SAY_VAULT_INCORRECT, player);
+                        _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 2s);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+    private:
+        EventMap _events;
+        ObjectGuid _playerGUID;
+        int32 _progress;
+        uint32 _currentTool;
+        bool _awaitingInput;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_first_bank_vaultAI(creature);
+    }
+};
+
+// 67555 - The Great Bank Heist: Vault Interact (cast by the vault door GO).
+class spell_kezan_vault_interact : public SpellScriptLoader
+{
+public:
+    spell_kezan_vault_interact() : SpellScriptLoader("spell_kezan_vault_interact") { }
+
+    class spell_kezan_vault_interact_SpellScript : public SpellScript
+    {
+    public:
+        void HandleScript(SpellEffIndex /*effIndex*/)
+        {
+            Player* player = GetHitPlayer();
+            if (!player)
+                return;
+
+            if (player->GetQuestStatus(QUEST_GREAT_BANK_HEIST) != QUEST_STATUS_INCOMPLETE)
+                return;
+
+            if (player->GetVehicle())
+                return;
+
+            // Summons a personal vault console (35486) and boards it (67476).
+            player->CastSpell(player, SPELL_SUMMON_VAULT_VEHICLE, true);
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_kezan_vault_interact_SpellScript::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_vault_interact_SpellScript();
+    }
+};
+
+// 67526/67508/67524/67525/67522 - vault cracking tools.
+class spell_kezan_vault_tool : public SpellScriptLoader
+{
+public:
+    spell_kezan_vault_tool() : SpellScriptLoader("spell_kezan_vault_tool") { }
+
+    class spell_kezan_vault_tool_SpellScript : public SpellScript
+    {
+    public:
+        void HandleAfterCast()
+        {
+            Unit* caster = GetCaster();
+            if (!caster)
+                return;
+
+            Creature* vault = nullptr;
+            if (caster->GetEntry() == NPC_FBOK_VAULT)
+                vault = caster->ToCreature();
+            else if (Unit* base = caster->GetVehicleBase())
+                if (base->GetEntry() == NPC_FBOK_VAULT)
+                    vault = base->ToCreature();
+
+            if (!vault || !vault->AI())
+                return;
+
+            for (uint8 i = 0; i < TOOL_MAX; ++i)
+            {
+                if (VaultToolSpells[i] == GetSpellInfo()->Id)
+                {
+                    vault->AI()->DoAction(i);
+                    break;
+                }
+            }
+        }
+
+        void Register() override
+        {
+            AfterCast.Register(&spell_kezan_vault_tool_SpellScript::HandleAfterCast);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_vault_tool_SpellScript();
+    }
+};
+
+// -----------------------------------------------------------------------------
+// Waltz Right In (14123)
+// -----------------------------------------------------------------------------
+
+// 67435 - Mook Disguise: forces the Villa Mook faction friendly and makes the
+// player a vehicle (1362); we mount the disguise prop on top.
+class spell_kezan_mook_disguise : public SpellScriptLoader
+{
+public:
+    spell_kezan_mook_disguise() : SpellScriptLoader("spell_kezan_mook_disguise") { }
+
+    class spell_kezan_mook_disguise_AuraScript : public AuraScript
+    {
+    public:
+        void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+        {
+            Player* player = GetTarget()->ToPlayer();
+            if (!player)
+                return;
+
+            ObjectGuid playerGUID = player->GetGUID();
+            player->m_Events.AddEventAtOffset([playerGUID]()
+            {
+                Player* owner = ObjectAccessor::FindPlayer(playerGUID);
+                if (!owner || !owner->HasAura(SPELL_MOOK_DISGUISE) || !owner->GetVehicleKit())
+                    return;
+
+                if (owner->GetVehicleKit()->GetPassenger(0))
+                    return;
+
+                if (Creature* disguise = owner->SummonCreature(NPC_MOOK_DISGUISE, owner->GetPosition(), TEMPSUMMON_MANUAL_DESPAWN))
+                {
+                    disguise->SetReactState(REACT_PASSIVE);
+                    disguise->EnterVehicle(owner, 0);
+                }
+            }, 1s);
+        }
+
+        void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+        {
+            Player* player = GetTarget()->ToPlayer();
+            if (!player)
+                return;
+
+            if (Vehicle* kit = player->GetVehicleKit())
+                if (Unit* passenger = kit->GetPassenger(0))
+                    if (passenger->GetEntry() == NPC_MOOK_DISGUISE)
+                    {
+                        passenger->ExitVehicle();
+                        if (Creature* disguise = passenger->ToCreature())
+                            disguise->DespawnOrUnsummon();
+                    }
+        }
+
+        void Register() override
+        {
+            AfterEffectApply.Register(&spell_kezan_mook_disguise_AuraScript::OnApply, EFFECT_0, SPELL_AURA_FORCE_REACTION, AURA_EFFECT_HANDLE_REAL);
+            AfterEffectRemove.Register(&spell_kezan_mook_disguise_AuraScript::OnRemove, EFFECT_0, SPELL_AURA_FORCE_REACTION, AURA_EFFECT_HANDLE_REAL);
+        }
+    };
+
+    AuraScript* GetAuraScript() const override
+    {
+        return new spell_kezan_mook_disguise_AuraScript();
+    }
+};
+
+// -----------------------------------------------------------------------------
+// 447 (14125)
+// -----------------------------------------------------------------------------
+
+enum GasbotData
+{
+    GO_DEFECTIVE_GENERATOR          = 201735,
+    GO_LEAKY_STOVE                  = 201733,
+    GO_FLAMMABLE_BED                = 201734,
+
+    POINT_GASBOT_KTC                = 1
+};
+
+Position const GasbotDetonatePos = { -8424.346f, 1328.0365f, 102.042694f, 1.570796f };
+
+class npc_gasbot : public CreatureScript
+{
+public:
+    npc_gasbot() : CreatureScript("npc_gasbot") { }
+
+    struct npc_gasbotAI : public ScriptedAI
+    {
+        npc_gasbotAI(Creature* creature) : ScriptedAI(creature), _detonating(false), _failsafeTimer(0) { }
+
+        void IsSummonedBy(Unit* summoner) override
+        {
+            if (!summoner)
+                return;
+
+            _ownerGUID = summoner->GetGUID();
+            me->SetReactState(REACT_PASSIVE);
+            me->GetMotionMaster()->MoveFollow(summoner, 2.5f, float(M_PI / 4));
+        }
+
+        void DoAction(int32 action) override
+        {
+            if (action != ACTION_GASBOT_DETONATE || _detonating)
+                return;
+
+            _detonating = true;
+            _failsafeTimer = 15 * IN_MILLISECONDS;
+            me->GetMotionMaster()->Clear();
+            me->GetMotionMaster()->MovePoint(POINT_GASBOT_KTC, GasbotDetonatePos);
+        }
+
+        void MovementInform(uint32 type, uint32 pointId) override
+        {
+            if (type != POINT_MOTION_TYPE || pointId != POINT_GASBOT_KTC)
+                return;
+
+            Detonate();
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            if (_detonating && _failsafeTimer)
+            {
+                if (_failsafeTimer <= diff)
+                {
+                    _failsafeTimer = 0;
+                    Detonate();
+                }
+                else
+                    _failsafeTimer -= diff;
+            }
+        }
+
+    private:
+        void Detonate()
+        {
+            if (!me->IsAlive() || me->GetEntry() != NPC_GASBOT)
+                return;
+
+            if (_detonated)
+                return;
+            _detonated = true;
+
+            if (sSpellMgr->GetSpellInfo(SPELL_GASBOT_EXPLOSION))
+                me->CastSpell(me, SPELL_GASBOT_EXPLOSION, true);
+
+            if (Player* owner = ObjectAccessor::GetPlayer(*me, _ownerGUID))
+                owner->KilledMonsterCredit(NPC_GASBOT);
+
+            me->DespawnOrUnsummon(1500);
+        }
+
+        ObjectGuid _ownerGUID;
+        bool _detonating;
+        bool _detonated = false;
+        uint32 _failsafeTimer;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_gasbotAI(creature);
+    }
+};
+
+// 201736 - Gasbot Control Panel: summons the player's Gasbot, then detonates it
+// once the three arson credits are in.
+class go_gasbot_control_panel : public GameObjectScript
+{
+public:
+    go_gasbot_control_panel() : GameObjectScript("go_gasbot_control_panel") { }
+
+    struct go_gasbot_control_panelAI : public GameObjectAI
+    {
+        go_gasbot_control_panelAI(GameObject* go) : GameObjectAI(go) { }
+
+        bool GossipHello(Player* player) override
+        {
+            if (player->GetQuestStatus(QUEST_447) != QUEST_STATUS_INCOMPLETE)
+                return true;
+
+            if (player->GetReqKillOrCastCurrentCount(QUEST_447, NPC_GASBOT) > 0)
+                return true; // fourth credit already earned
+
+            // Always make sure the player has a Gasbot first - the houses can
+            // be burned in any order, including before ever using the panel.
+            Creature* gasbot = FindPlayerGasbot(player);
+            if (!gasbot)
+            {
+                gasbot = player->SummonCreature(NPC_GASBOT, me->GetPosition(), TEMPSUMMON_MANUAL_DESPAWN);
+                if (gasbot && sSpellMgr->GetSpellInfo(SPELL_GASBOT_COMPANION))
+                    player->CastSpell(player, SPELL_GASBOT_COMPANION, true);
+                return true;
+            }
+
+            bool housesDone =
+                player->GetReqKillOrCastCurrentCount(QUEST_447, -int32(GO_DEFECTIVE_GENERATOR)) > 0 &&
+                player->GetReqKillOrCastCurrentCount(QUEST_447, -int32(GO_LEAKY_STOVE)) > 0 &&
+                player->GetReqKillOrCastCurrentCount(QUEST_447, -int32(GO_FLAMMABLE_BED)) > 0;
+
+            if (housesDone && gasbot->AI())
+                gasbot->AI()->DoAction(ACTION_GASBOT_DETONATE);
+
+            return true;
+        }
+
+    private:
+        static Creature* FindPlayerGasbot(Player* player)
+        {
+            std::list<Creature*> gasbots;
+            player->GetCreatureListWithEntryInGrid(gasbots, NPC_GASBOT, 150.0f);
+            for (Creature* gasbot : gasbots)
+            {
+                if (gasbot->GetOwnerGUID() == player->GetGUID())
+                    return gasbot;
+                if (TempSummon* summon = gasbot->ToTempSummon())
+                    if (summon->GetSummonerGUID() == player->GetGUID())
+                        return gasbot;
+            }
+            return nullptr;
+        }
+    };
+
+    GameObjectAI* GetAI(GameObject* go) const override
+    {
+        return new go_gasbot_control_panelAI(go);
+    }
+};
+
+// -----------------------------------------------------------------------------
+// Life Savings (14126)
+// -----------------------------------------------------------------------------
+
+// 92629 - Last Chance Yacht Boarding Mortar - Cover: launch onto the yacht deck.
+class spell_kezan_yacht_mortar : public SpellScriptLoader
+{
+public:
+    spell_kezan_yacht_mortar() : SpellScriptLoader("spell_kezan_yacht_mortar") { }
+
+    class spell_kezan_yacht_mortar_SpellScript : public SpellScript
+    {
+    public:
+        void HandleScript(SpellEffIndex /*effIndex*/)
+        {
+            Unit* target = GetHitUnit();
+            if (!target)
+                return;
+
+            // The player may still be sitting in the Hot Rod; the launch moves
+            // the passenger, not the car.
+            Player* player = target->ToPlayer();
+            if (!player)
+                if (Vehicle* kit = target->GetVehicleKit())
+                    if (Unit* seat0 = kit->GetPassenger(0))
+                        player = seat0->ToPlayer();
+
+            if (!player)
+                return;
+
+            if (player->GetQuestStatus(QUEST_LIFE_SAVINGS) == QUEST_STATUS_NONE)
+                return;
+
+            player->ExitVehicle();
+            player->CastSpell(player, SPELL_YACHT_MORTAR_LAUNCH, true);
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_kezan_yacht_mortar_SpellScript::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_yacht_mortar_SpellScript();
+    }
+};
+
+// -----------------------------------------------------------------------------
+// Shared player script: class quest credits, boat lifecycle, zone exit.
+// -----------------------------------------------------------------------------
+
+class player_script_kezan_events : public PlayerScript
+{
+public:
+    player_script_kezan_events() : PlayerScript("player_script_kezan_events") { }
+
+    void OnLogin(Player* player, bool /*firstLogin*/) override
+    {
+        // Catch-up: logged out during the escape movie.
+        if (player->GetZoneId() == ZONE_KEZAN && player->GetQuestStatus(QUEST_LIFE_SAVINGS) == QUEST_STATUS_REWARDED)
+            player->TeleportTo(648, KezanLostIslesShore.GetPositionX(), KezanLostIslesShore.GetPositionY(), KezanLostIslesShore.GetPositionZ(), KezanLostIslesShore.GetOrientation());
+    }
+
+    void OnSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
+    {
+        // Kezan class quests: practice the new ability (quest_template.RequiredSpell).
+        if (player->GetZoneId() != ZONE_KEZAN)
+            return;
+
+        uint32 spellId = spell->GetSpellInfo()->Id;
+        for (uint32 questId = QUEST_CLASS_FIRST; questId <= QUEST_CLASS_LAST; ++questId)
+        {
+            if (player->GetQuestStatus(questId) != QUEST_STATUS_INCOMPLETE)
+                continue;
+
+            Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+            if (!quest || quest->GetRequiredSpell() != spellId)
+                continue;
+
+            player->KilledMonsterCredit(NPC_SPELL_PRACTICE_CREDIT);
+            break;
+        }
+    }
+
+    void OnQuestStatusChange(Player* player, uint32 questId) override
+    {
+        QuestStatus status = player->GetQuestStatus(questId);
+
+        switch (questId)
+        {
+            case QUEST_FOURTH_AND_GOAL:
+            case QUEST_FOURTH_AND_GOAL_ALT:
+                if (status == QUEST_STATUS_INCOMPLETE)
+                {
+                    // The quest auto-accepts while the player may still sit in
+                    // the throw-boat; summon the kick-boat (native 70075) once
+                    // they are back on the ground.
+                    uint32 activeQuestId = questId;
+                    ObjectGuid playerGUID = player->GetGUID();
+                    player->m_Events.AddEventAtOffset([playerGUID, activeQuestId]()
+                    {
+                        Player* rookie = ObjectAccessor::FindPlayer(playerGUID);
+                        if (!rookie || rookie->GetQuestStatus(activeQuestId) != QUEST_STATUS_INCOMPLETE)
+                            return;
+
+                        if (!rookie->GetVehicle())
+                            rookie->CastSpell(rookie, SPELL_SUMMON_KICK_BUCCANEER, true);
+                    }, 2s);
+                }
+                else if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+                    CleanupOwnedCreatures(player, { NPC_BILGEWATER_BUCCANEER_KICK });
+                break;
+            case QUEST_NECESSARY_ROUGHNESS:
+                if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+                    CleanupOwnedCreatures(player, { NPC_BILGEWATER_BUCCANEER_THROW });
+                break;
+            case QUEST_GREAT_BANK_HEIST:
+                if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED)
+                    CleanupOwnedCreatures(player, { NPC_FBOK_VAULT });
+                break;
+            case QUEST_WALTZ_RIGHT_IN:
+                if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+                    player->RemoveAurasDueToSpell(SPELL_MOOK_DISGUISE);
+                break;
+            case QUEST_447:
+                if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+                    CleanupOwnedCreatures(player, { NPC_GASBOT });
+                break;
+            case QUEST_LIFE_SAVINGS:
+                if (status == QUEST_STATUS_REWARDED)
+                {
+                    // RewardSpell 91847 plays the escape movie (22) natively;
+                    // move the castaway to the Lost Isles once it has played.
+                    ObjectGuid playerGUID = player->GetGUID();
+                    player->m_Events.AddEventAtOffset([playerGUID]()
+                    {
+                        Player* castaway = ObjectAccessor::FindPlayer(playerGUID);
+                        if (!castaway || castaway->GetZoneId() != ZONE_KEZAN)
+                            return;
+
+                        castaway->ExitVehicle();
+                        castaway->TeleportTo(648, KezanLostIslesShore.GetPositionX(), KezanLostIslesShore.GetPositionY(), KezanLostIslesShore.GetPositionZ(), KezanLostIslesShore.GetOrientation());
+                    }, 9s);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+private:
+    static void CleanupOwnedCreatures(Player* player, std::initializer_list<uint32> entries)
+    {
+        std::list<Creature*> creatures;
+        for (uint32 entry : entries)
+            player->GetCreatureListWithEntryInGrid(creatures, entry, 250.0f);
+
+        for (Creature* creature : creatures)
+        {
+            bool ownedByPlayer = creature->GetOwnerGUID() == player->GetGUID();
+            if (TempSummon* summon = creature->ToTempSummon())
+                if (summon->GetSummonerGUID() == player->GetGUID())
+                    ownedByPlayer = true;
+
+            if (!ownedByPlayer)
+                continue;
+
+            if (player->GetVehicleBase() == creature)
+                player->ExitVehicle();
+
+            creature->DespawnOrUnsummon(500);
+        }
+    }
+};
+
+void AddSC_kezan_quests()
+{
+    new npc_bilgewater_buccaneer();
+    new spell_kezan_footbomb_impact();
+    new spell_kezan_footbomb_kick_impact();
+    new npc_fourth_and_goal_target();
+    new npc_kezan_deathwing();
+    new npc_kezan_partygoer();
+    new spell_kezan_party_action();
+    new npc_first_bank_vault();
+    new spell_kezan_vault_interact();
+    new spell_kezan_vault_tool();
+    new spell_kezan_mook_disguise();
+    new npc_gasbot();
+    new go_gasbot_control_panel();
+    new spell_kezan_yacht_mortar();
+    new player_script_kezan_events();
+}
