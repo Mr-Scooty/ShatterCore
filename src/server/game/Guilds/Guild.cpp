@@ -729,6 +729,9 @@ void Guild::Member::LoadProfessionDataFromDB(ObjectGuid guid)
     {
         do
         {
+            if (professionIndex >= GUILD_PROFESSION_COUNT)
+                break;
+
             Field* fields = result->Fetch();
             uint16 skill = fields[0].GetUInt16();
             uint16 value = fields[1].GetUInt16();
