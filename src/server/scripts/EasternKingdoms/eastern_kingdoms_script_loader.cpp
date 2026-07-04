@@ -92,6 +92,8 @@ void AddSC_boss_vanessa_van_cleef();
 void AddSC_deadmines();
 void AddSC_gilneas_chapter_1();              //Gilneas
 void AddSC_gilneas_chapter_2();
+void AddSC_gilneas_chapter_3();
+void AddSC_gilneas_chapter_4();
 void AddSC_gnomeregan();                     //Gnomeregan
 void AddSC_instance_gnomeregan();
 void AddSC_instance_grim_batol();            //Grim Batol
@@ -325,6 +327,8 @@ void AddEasternKingdomsScripts()
     AddSC_deadmines();
     AddSC_gilneas_chapter_1();              //Gilneas
     AddSC_gilneas_chapter_2();
+    AddSC_gilneas_chapter_3();
+    AddSC_gilneas_chapter_4();
     AddSC_gnomeregan();                     //Gnomeregan
     AddSC_instance_gnomeregan();
     AddSC_instance_grim_batol();            //Grim Batol
