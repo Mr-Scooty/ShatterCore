@@ -23,6 +23,9 @@
 #include "Player.h"
 #include "ScriptedEscortAI.h"
 #include "ScriptedGossip.h"
+#include "SpellHistory.h"
+#include "SpellInfo.h"
+#include "SpellScript.h"
 #include "TemporarySummon.h"
 #include "WorldStateMgr.h"
 
@@ -1656,6 +1659,87 @@ public:
     };
 
 };
+
+/*######
+## Quests 13188 "Where Kings Walk" (Alliance) / 13189 "Warchief's Blessing" (Horde)
+## Capital-city guards heckle the returning Death Knight.
+######*/
+
+// 58533 - Return to Stormwind / 58552 - Return to Orgrimmar
+// (a periodic AoE dummy cast by the returning DK's ride aura, handled here on the guard side)
+enum ReturnToCapital
+{
+    SPELL_RETURN_APPLE        = 58509,
+    SPELL_RETURN_BANANA       = 58513,
+    SPELL_RETURN_SPIT         = 58520,
+
+    SAY_THROW_APPLE           = 2, // guard creature_text groups
+    SAY_THROW_BANANA          = 3,
+    SAY_THROW_SPIT            = 4,
+    SAY_INSULT_TO_DK          = 5,
+
+    NPC_SW_GUARD              = 68,
+    NPC_SW_ROYAL_GUARD        = 1756,
+    NPC_SW_CITY_PATROLLER     = 1976,
+    NPC_OG_GRUNT              = 3296,
+    NPC_OG_KORKRON_ELITE      = 14304
+};
+
+uint32 const ReturnToCapitalFood[3] = { SPELL_RETURN_APPLE, SPELL_RETURN_BANANA, SPELL_RETURN_SPIT };
+
+class spell_chapter5_return_to_capital : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_RETURN_APPLE, SPELL_RETURN_BANANA, SPELL_RETURN_SPIT });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Creature* creature = GetHitUnit() ? GetHitUnit()->ToCreature() : nullptr;
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!creature || !player || player->IsGameMaster() || !player->IsAlive() || !creature->IsAlive() || creature->IsInCombat())
+            return;
+
+        switch (creature->GetEntry())
+        {
+            case NPC_SW_GUARD:
+            case NPC_SW_ROYAL_GUARD:
+            case NPC_SW_CITY_PATROLLER:
+            case NPC_OG_GRUNT:
+            case NPC_OG_KORKRON_ELITE:
+                break;
+            default:
+                return;
+        }
+
+        uint32 spellId = GetSpellInfo()->Id;
+        if (creature->GetSpellHistory()->HasCooldown(spellId))
+            return;
+
+        creature->PauseMovement(5000);
+        creature->SetFacingToObject(player);
+
+        if (roll_chance_i(30))
+        {
+            uint8 group = urand(SAY_THROW_APPLE, SAY_THROW_SPIT);
+            creature->AI()->Talk(group, player);
+            creature->CastSpell(player, ReturnToCapitalFood[group - SAY_THROW_APPLE]);
+        }
+        else
+        {
+            creature->AI()->Talk(SAY_INSULT_TO_DK, player);
+            creature->HandleEmoteCommand(RAND(EMOTE_ONESHOT_POINT, EMOTE_ONESHOT_RUDE));
+        }
+
+        creature->GetSpellHistory()->AddCooldown(spellId, 0, std::chrono::seconds(30));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget.Register(&spell_chapter5_return_to_capital::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
 }
 
 void AddSC_the_scarlet_enclave_chapter_5()
@@ -1663,4 +1747,5 @@ void AddSC_the_scarlet_enclave_chapter_5()
     using namespace TheScarletEnclave::Chapter3;
     new npc_highlord_darion_mograine();
     new npc_the_lich_king_tirion_dawn();
+    RegisterSpellScript(spell_chapter5_return_to_capital);
 }
