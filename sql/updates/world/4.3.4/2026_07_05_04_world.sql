@@ -1,0 +1,21 @@
+--
+-- Death Knight starting zone (Scarlet Enclave) — unblock the Havenshire mine cart.
+-- Quest 12678 "If Chaos Drives, Let Suffering Hold the Reins".
+--
+-- Flow: the DK clicks GO 190767 "Inconspicuous Mine Car" -> it casts 52463 -> force-casts
+-- 52462 on the player with basepoint 46598 ("Ride Vehicle Hardcoded", a CONTROL_VEHICLE
+-- spell). 52462 SUMMONs the Mine Car (28817) with SummonProperties record 493. A vehicle
+-- (category 4) summon is meant to summon-and-seat the caster, reading the ride spell to cast
+-- from the custom `summon_properties_parameters` table.
+--
+-- Record 493 was typed ParamType=3 (SeatNumber): the engine (SpellEffects.cpp) then treats
+-- the basepoint 46598 as a seat index, tests `46598 < MAX_VEHICLE_SEATS (8)` (false), and
+-- never seats the player. With no passenger the cart's SmartAI PASSENGER_BOARDED never fires,
+-- so it never summons the Scarlet Miner (28841) that drags it — hence "board cart, nothing
+-- happens". ParamType=4 (RideSpell) makes the engine cast 46598 (the ride spell) on the cart
+-- and seat the player, after which the existing miner/drag/waypoint chain runs.
+--
+-- 52462 is the only spell in the 4.3.4 Spell DBC using SummonProperties 493, so this is fully
+-- contained to the mine cart.
+--
+UPDATE `summon_properties_parameters` SET `ParamType` = 4 WHERE `RecID` = 493;
