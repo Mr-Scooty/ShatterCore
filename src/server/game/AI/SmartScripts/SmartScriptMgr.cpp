@@ -32,6 +32,7 @@
 #include "Unit.h"
 #include "UnitDefines.h"
 #include "WaypointDefines.h"
+#include "WaypointManager.h"
 
 SmartWaypointMgr* SmartWaypointMgr::instance()
 {
@@ -1386,6 +1387,17 @@ bool SmartAIMgr::IsEventValid(SmartScriptHolder& e)
                 if (e.action.wpStart.reactState > REACT_AGGRESSIVE)
                 {
                     TC_LOG_ERROR("sql.sql", "SmartAIMgr: Creature %d Event %u Action %u uses invalid React State %u, skipped.", e.entryOrGuid, e.event_id, e.GetActionType(), e.action.wpStart.reactState);
+                    return false;
+                }
+                break;
+            }
+        case SMART_ACTION_WAYPOINT_DATA_START:
+            {
+                WaypointPath const* path = sWaypointMgr->GetPath(e.action.waypointDataStart.pathID);
+                if (!path || path->Nodes.empty())
+                {
+                    TC_LOG_ERROR("sql.sql", "SmartAIMgr: Creature %d Event %u Action %u uses non-existent waypoint_data path id %u, skipped.",
+                        e.entryOrGuid, e.event_id, e.GetActionType(), e.action.waypointDataStart.pathID);
                     return false;
                 }
                 break;

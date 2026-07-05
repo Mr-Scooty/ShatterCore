@@ -3237,6 +3237,12 @@ void Creature::ReacquireSpellFocusTarget()
 
 bool Creature::IsMovementPreventedByCasting() const
 {
+    // A movement-allowed channel (no Moving/Turning channel-interrupt flags) must not pin the
+    // creature via its spell focus, e.g. 52465 "Drag Mine Cart" (infinite channel while walking)
+    if (Spell* spell = m_currentSpells[CURRENT_CHANNELED_SPELL])
+        if (spell->getState() != SPELL_STATE_FINISHED && spell->IsChannelActive() && spell->GetSpellInfo()->IsMoveAllowedChannel())
+            return false;
+
     if (!Unit::IsMovementPreventedByCasting() && !HasSpellFocus())
         return false;
 
