@@ -1434,6 +1434,18 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             ENSURE_AI(SmartAI, me->AI())->SetDespawnTime(DespawnTime);
             break;
         }
+        case SMART_ACTION_WAYPOINT_DATA_START:
+        {
+            for (WorldObject* target : targets)
+            {
+                if (Creature* creature = target->ToCreature())
+                {
+                    creature->LoadPath(e.action.waypointDataStart.pathID);
+                    creature->GetMotionMaster()->MovePath(e.action.waypointDataStart.pathID, e.action.waypointDataStart.repeat != 0);
+                }
+            }
+            break;
+        }
         case SMART_ACTION_WP_PAUSE:
         {
             if (!IsSmart())

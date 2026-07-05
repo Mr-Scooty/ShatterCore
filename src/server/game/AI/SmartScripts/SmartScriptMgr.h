@@ -593,8 +593,9 @@ enum SMART_ACTION
     SMART_ACTION_OVERRIDE_WEATHER                   = 139,    // zoneId, weatherId, intensity
     SMART_ACTION_SET_AI_ANIM_KIT                    = 140,    // animKitId
     SMART_ACTION_SET_HOVER                          = 141,    // enable
+    SMART_ACTION_WAYPOINT_DATA_START                = 142,    // pathId, repeat
 
-    SMART_ACTION_END                                = 142
+    SMART_ACTION_END                                = 143
 };
 
 struct SmartAction
@@ -863,6 +864,12 @@ struct SmartAction
             uint32 despawnTime;
             uint32 reactState;
         } wpStart;
+
+        struct
+        {
+            uint32 pathID;
+            uint32 repeat;
+        } waypointDataStart;
 
         struct
         {
