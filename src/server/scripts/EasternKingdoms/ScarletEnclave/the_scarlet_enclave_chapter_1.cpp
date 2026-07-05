@@ -770,11 +770,8 @@ enum SalanarTheHorseman
     GOSSIP_SALANAR_OPTION             = 0,
     SALANAR_SAY                       = 0,
     QUEST_INTO_REALM_OF_SHADOWS       = 12687,
-    NPC_DARK_RIDER_OF_ACHERUS         = 28654,
     NPC_SALANAR_IN_REALM_OF_SHADOWS   = 28788,
-    SPELL_EFFECT_STOLEN_HORSE         = 52263,
     SPELL_DELIVER_STOLEN_HORSE        = 52264,
-    SPELL_CALL_DARK_RIDER             = 52266,
     SPELL_EFFECT_OVERTAKE             = 52349,
     SPELL_REALM_OF_SHADOWS            = 52693
 };
@@ -800,26 +797,12 @@ public:
 
         void SpellHit(WorldObject* caster, SpellInfo const* spell) override
         {
-            if (spell->Id == SPELL_DELIVER_STOLEN_HORSE)
-            {
-                if (caster->GetTypeId() == TYPEID_UNIT && caster->ToCreature()->IsVehicle())
-                {
-                    Creature* creatureCaster = caster->ToCreature();
+            if (spell->Id != SPELL_DELIVER_STOLEN_HORSE)
+                return;
 
-                    if (Unit* charmer = creatureCaster->GetCharmer())
-                    {
-                        if (charmer->HasAura(SPELL_EFFECT_STOLEN_HORSE))
-                        {
-                            charmer->RemoveAurasDueToSpell(SPELL_EFFECT_STOLEN_HORSE);
-                            creatureCaster->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_SPELLCLICK);
-                            creatureCaster->SetFaction(FACTION_FRIENDLY);
-                            DoCast(creatureCaster, SPELL_CALL_DARK_RIDER, true);
-                            if (Creature* Dark_Rider = me->FindNearestCreature(NPC_DARK_RIDER_OF_ACHERUS, 15))
-                                ENSURE_AI(npc_dark_rider_of_acherus::npc_dark_rider_of_acherusAI, Dark_Rider->AI())->InitDespawnHorse(creatureCaster);
-                        }
-                    }
-                }
-            }
+            if (Creature* horse = caster->ToCreature())
+                if (horse->IsVehicle())
+                    horse->DespawnOrUnsummon(500);
         }
 
         void MoveInLineOfSight(Unit* who) override
