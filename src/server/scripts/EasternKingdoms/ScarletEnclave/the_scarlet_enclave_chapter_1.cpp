@@ -28,6 +28,7 @@
 #include "Player.h"
 #include "ScriptedEscortAI.h"
 #include "ScriptedGossip.h"
+#include "SpellAuraEffects.h"
 #include "SpellScript.h"
 #include "SpellInfo.h"
 #include "Vehicle.h"
@@ -1067,6 +1068,55 @@ class spell_gift_of_the_harvester : public SpellScript
         OnEffectHitTarget.Register(&spell_gift_of_the_harvester::HandleScriptEffect, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
     }
 };
+
+/*######
+## Quest 12848 "The Endless Hunger" - The Lich King whispers to the fledgling Death Knight
+######*/
+
+enum LichKingWhisper
+{
+    SPELL_LICH_KING_WHISPER_FIRST = 58208,
+    SPELL_LICH_KING_WHISPER_LAST  = 58223
+};
+
+// 58207 - Lich King VO Blocker: when applied to the player, the Lich King random-whispers one line
+class spell_lich_king_vo_blocker : public AuraScript
+{
+    void HandleEffectApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Player* target = GetTarget()->ToPlayer())
+            if (Unit* caster = GetCaster())
+                caster->CastSpell(target, urand(SPELL_LICH_KING_WHISPER_FIRST, SPELL_LICH_KING_WHISPER_LAST), true);
+    }
+
+    void Register() override
+    {
+        OnEffectApply.Register(&spell_lich_king_vo_blocker::HandleEffectApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 58208 - 58223 - Lich King whisper: EFFECT_0 whispers a broadcast text, EFFECT_1 plays a distance sound
+class spell_lich_king_whisper : public SpellScript
+{
+    void HandleScript(SpellEffIndex /*effIndex*/)
+    {
+        if (Player* player = GetHitPlayer())
+            if (Unit* caster = GetCaster())
+                caster->Whisper(uint32(GetEffectValue()), player, false);
+    }
+
+    void HandleSound(SpellEffIndex /*effIndex*/)
+    {
+        if (Player* player = GetHitPlayer())
+            player->PlayDistanceSound(uint32(GetEffectValue()), player);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget.Register(&spell_lich_king_whisper::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        OnEffectHitTarget.Register(&spell_lich_king_whisper::HandleSound, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
+};
 }
 
 void AddSC_the_scarlet_enclave_chapter_1()
@@ -1083,4 +1133,6 @@ void AddSC_the_scarlet_enclave_chapter_1()
     new npc_dkc1_gothik();
     RegisterCreatureAI(npc_scarlet_ghoul);
     RegisterSpellScript(spell_gift_of_the_harvester);
+    RegisterSpellScript(spell_lich_king_vo_blocker);
+    RegisterSpellScript(spell_lich_king_whisper);
 }
