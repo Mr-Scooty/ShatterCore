@@ -46,6 +46,8 @@ enum Spells
     SPELL_HAND_OF_RAGNAROS                      = 98237,
     SPELL_MAGMA_TRAP_AOE                        = 98159,
     SPELL_MAGMA_BLAST                           = 98313,
+    SPELL_LAVA_BOLT                             = 98981,
+    SPELL_BERSERK                               = 26662,
     SPELL_SULFURAS_SMASH_AOE                    = 98703,
     SPELL_SULFURAS_SMASH_SUMMON                 = 98706,
     SPELL_SULFURAS_SMASH                        = 98710,
@@ -220,6 +222,8 @@ enum Events
     EVENT_SULFURAS_SMASH,
     EVENT_SET_AGGRESSIVE_REACT_STATE,
     EVENT_SPLITTING_BLOW,
+    EVENT_LAVA_BOLT,
+    EVENT_BERSERK,
     EVENT_MOLTEN_SEED,
     EVENT_ENGULFING_FLAMES,
     EVENT_ANNOUNCE_END_OF_INTERMISSION,
@@ -424,6 +428,7 @@ struct boss_ragnaros_firelands : public BossAI
         events.ScheduleEvent(EVENT_HAND_OF_RAGNAROS, 26s, 0, PHASE_ONE);
         events.ScheduleEvent(EVENT_MAGMA_TRAP, 16s, 0, PHASE_ONE);
         events.ScheduleEvent(EVENT_SULFURAS_SMASH, 31s, 0, PHASE_ONE);
+        events.ScheduleEvent(EVENT_BERSERK, 18min); // no phase mask so it survives all phase transitions
     }
 
     void EnterEvadeMode(EvadeReason /*why*/) override
@@ -738,7 +743,15 @@ struct boss_ragnaros_firelands : public BossAI
                         me->SetFacingToObject(splittingBlow);
                         me->SetOrientationTowards(splittingBlow);
                         DoCastSelf(SPELL_SPLITTING_BLOW);
+                        events.ScheduleEvent(EVENT_LAVA_BOLT, 16s, 0, events.IsInPhase(PHASE_INTERMISSION_1) ? PHASE_INTERMISSION_1 : PHASE_INTERMISSION_2);
                     }
+                    break;
+                case EVENT_LAVA_BOLT:
+                    DoCastAOE(SPELL_LAVA_BOLT, CastSpellExtraArgs().AddSpellMod(SPELLVALUE_MAX_TARGETS, 1));
+                    events.Repeat(4s);
+                    break;
+                case EVENT_BERSERK:
+                    DoCastSelf(SPELL_BERSERK, true);
                     break;
                 case EVENT_MOLTEN_SEED:
                     DoCastAOE(SPELL_MOLTEN_SEED, CastSpellExtraArgs().AddSpellMod(SPELLVALUE_MAX_TARGETS, Is25ManRaid() ? 20 : 10));
@@ -747,7 +760,7 @@ struct boss_ragnaros_firelands : public BossAI
                 case EVENT_ENGULFING_FLAMES:
                     DoCastAOE(IsHeroic() ? SPELL_WORLD_IN_FLAMES : static_cast<uint32>(SPELL_ENGULFING_FLAMES), CastSpellExtraArgs().AddSpellBP0(urand(0, 2)));
                     Talk(IsHeroic() ? SAY_ANNOUNCE_WORLD_IN_FLAMES : SAY_ANNOUNCE_ENGULFING_FLAMES);
-                    events.Repeat(events.IsInPhase(PHASE_TWO) ? 1min : 30s);
+                    events.Repeat(events.IsInPhase(PHASE_TWO) ? (IsHeroic() ? 60s : 40s) : 30s);
                     break;
                 case EVENT_ANNOUNCE_END_OF_INTERMISSION:
                     Talk(SAY_ANNOUNCE_EMERGE);
@@ -761,7 +774,7 @@ struct boss_ragnaros_firelands : public BossAI
                     events.RescheduleEvent(EVENT_SULFURAS_SMASH, Milliseconds(events.GetTimeUntilEvent(EVENT_SULFURAS_SMASH)) + 2s, 0, PHASE_THREE);
 
                     DoCastAOE(SPELL_LIVING_METEOR, CastSpellExtraArgs().AddSpellMod(SPELLVALUE_MAX_TARGETS, 1));
-                    events.Repeat(1min);
+                    events.Repeat(45s);
                     break;
                 case EVENT_LEGS_HEAL:
                 {
@@ -813,9 +826,11 @@ struct boss_ragnaros_firelands : public BossAI
                     _canBeKilled = true;
                     events.ScheduleEvent(EVENT_SET_AGGRESSIVE_REACT_STATE, 5s, 0, PHASE_FOUR);
                     events.ScheduleEvent(EVENT_SUPERHEATED, 5s, 0, PHASE_FOUR);
-                    events.ScheduleEvent(EVENT_ENTRAPPING_ROOTS, 41s, 0, PHASE_FOUR);
-                    events.ScheduleEvent(EVENT_DREADFLAME, 16s, 0, PHASE_FOUR);
-                    events.ScheduleEvent(EVENT_BREADTH_OF_FROST, 6s, 0, PHASE_FOUR);
+                    // DBM 4.3.4 anchors these to the "Too soon!" yell, which happened 10 seconds ago:
+                    // Breadth of Frost 33s, Dreadflame 48s, Entrapping Roots 67s, Empower Sulfuras ~83s
+                    events.ScheduleEvent(EVENT_ENTRAPPING_ROOTS, 57s, 0, PHASE_FOUR);
+                    events.ScheduleEvent(EVENT_DREADFLAME, 38s, 0, PHASE_FOUR);
+                    events.ScheduleEvent(EVENT_BREADTH_OF_FROST, 23s, 0, PHASE_FOUR);
                     break;
                 case EVENT_SUPERHEATED:
                     DoCastSelf(SPELL_SUPERHEATED);
@@ -823,7 +838,7 @@ struct boss_ragnaros_firelands : public BossAI
                 case EVENT_ENTRAPPING_ROOTS:
                     DoCastAOE(SPELL_ENTRAPPING_ROOTS);
                     events.ScheduleEvent(EVENT_EMPOWER_SULFURAS, 15s, 0, PHASE_FOUR);
-                    events.Repeat(55s);
+                    events.Repeat(56s);
                     break;
                 case EVENT_EMPOWER_SULFURAS:
                     if (!me->HasUnitState(UNIT_STATE_STUNNED))
@@ -837,7 +852,7 @@ struct boss_ragnaros_firelands : public BossAI
                     break;
                 case EVENT_BREADTH_OF_FROST:
                     DoCastAOE(SPELL_BREADTH_OF_FROST_TRIGGER);
-                    events.Repeat(46s);
+                    events.Repeat(45s);
                     break;
                 default:
                     break;
@@ -866,6 +881,7 @@ private:
         if (Creature* sulfuras = instance->GetCreature(DATA_SULFURAS_HAND_OF_RAGNAROS))
             sulfuras->DespawnOrUnsummon(3s);
 
+        events.CancelEvent(EVENT_LAVA_BOLT);
         me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
         me->RemoveAurasDueToSpell(SPELL_SUBMERGE_AURA);
         Talk(SAY_PICK_UP_SULFURAS);
@@ -876,8 +892,10 @@ private:
 
         if (nextPhase == PHASE_TWO)
         {
-            events.ScheduleEvent(EVENT_SULFURAS_SMASH, 5s + 500ms, 0, PHASE_TWO);
-            events.ScheduleEvent(EVENT_MOLTEN_SEED, 15s, 0, PHASE_TWO);
+            // DBM 4.3.4: normal mode opens with Sulfuras Smash at ~15.5s and Molten Seed at ~21.5s,
+            // heroic tightens both (smash ~6s, seeds ~15s)
+            events.ScheduleEvent(EVENT_SULFURAS_SMASH, IsHeroic() ? 5s + 500ms : 15s + 500ms, 0, PHASE_TWO);
+            events.ScheduleEvent(EVENT_MOLTEN_SEED, IsHeroic() ? 15s : 21s + 500ms, 0, PHASE_TWO);
             events.ScheduleEvent(EVENT_ENGULFING_FLAMES, 40s, 0, PHASE_TWO);
         }
         else if (nextPhase == PHASE_THREE)
@@ -890,6 +908,14 @@ private:
 
     void EndEncounter(bool victorious)
     {
+        // Ragnar-Os! (5855) requires the defeat to happen while at least 3 Sons of Flame are alive,
+        // so their count has to be snapshotted before the summon cleanup below
+        uint8 sonsAlive = 0;
+        for (ObjectGuid const& guid : summons)
+            if (Creature const* son = ObjectAccessor::GetCreature(*me, guid))
+                if (son->GetEntry() == NPC_SON_OF_FLAME && son->IsAlive())
+                    ++sonsAlive;
+
         EntryCheckPredicate pred(NPC_LAVA_SCION);
         summons.DoAction(ACTION_DISENGAGE, pred);
         summons.DespawnAll();
@@ -901,7 +927,10 @@ private:
 
         if (victorious)
         {
-            DoCastAOE(SPELL_ACHIEVEMENT_CHECK);
+            // 101091 has entry-based implicit targets and no conditions, so a plain AOE cast never
+            // reaches the players - grant the criteria (BE_SPELL_TARGET 101091) directly instead
+            if (sonsAlive >= 3)
+                instance->DoUpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_BE_SPELL_TARGET, SPELL_ACHIEVEMENT_CHECK, 0, me);
             DoCastAOE(SPELL_AWARD_REPUTATION_BOSS_KILL);
             //DoCastAOE(SPELL_HEART_OF_RAGNAROS);
 
@@ -1255,6 +1284,7 @@ struct npc_ragnaros_archdruid : public NullCreatureAI
         switch (action)
         {
             case ACTION_RAGNAROS_KILLED:
+                _events.CancelEvent(EVENT_CLOUDBURST);
                 switch (me->GetEntry())
                 {
                     case NPC_MALFURION_STORMRAGE:
@@ -1302,7 +1332,8 @@ struct npc_ragnaros_archdruid : public NullCreatureAI
                     if (me->GetEntry() == NPC_MALFURION_STORMRAGE)
                     {
                         _events.ScheduleEvent(EVENT_SAY_RAGNAROS_BOUND, 14s);
-                        _events.ScheduleEvent(EVENT_CLOUDBURST, 27s);
+                        // DBM 4.3.4 starts a 50s Cloudburst cooldown when phase four begins (~yell time = draw out + 8s)
+                        _events.ScheduleEvent(EVENT_CLOUDBURST, 42s);
                     }
                     break;
                 }
@@ -1312,6 +1343,7 @@ struct npc_ragnaros_archdruid : public NullCreatureAI
                     break;
                 case EVENT_CLOUDBURST:
                     DoCastAOE(SPELL_CLOUDBURST, CastSpellExtraArgs().AddSpellMod(SPELLVALUE_MAX_TARGETS, 1));
+                    _events.Repeat(50s);
                     break;
                 case EVENT_OUTRO_1:
                     if (me->GetEntry() == NPC_MALFURION_STORMRAGE)
