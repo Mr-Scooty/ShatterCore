@@ -47,7 +47,8 @@ enum Texts
     SAY_ANNOUNCE_ARMOR_BROKEN   = 6,
     SAY_ARMOR_BROKEN            = 7,
     SAY_DEATH                   = 8,
-    SAY_SLAY                    = 9
+    SAY_SLAY                    = 9,
+    SAY_THERMAL_IGNITION        = 10
 };
 
 enum Spells
@@ -69,6 +70,8 @@ enum Spells
     SPELL_SUMMON_ARMOR_FRAGMENT         = 98558,
     SPELL_SUPERHEATED                   = 101304,
     SPELL_BURNING_FEET                  = 98837,
+    SPELL_SMOULDERING_1                 = 101089,
+    SPELL_SMOULDERING_2                 = 101092,
 
     // Feet
     SPELL_RIDE_VEHICLE                  = 98843,
@@ -84,7 +87,7 @@ enum Spells
     SPELL_MAGMA_FLOW                    = 97225,
     SPELL_MAGMA_FLOW_MISSILE            = 97230,
     SPELL_MAGMA_FLOW_DAMAGE             = 97234,
-    SPELL_MOLTEN_ARMOR_10N              = 98255, // Duplicate enum as NullCreatureAI does not have access to the raid mode macro
+    SPELL_MOLTEN_ARMOR_10N              = 98255, // Base spell id, cast by volcanos (difficulty variants resolve via SpellDifficulty.dbc)
 
     // Pillar
     SPELL_LAVA_TUBE                     = 98265,
@@ -120,6 +123,7 @@ enum Events
     EVENT_UNLEASHED_FLAME,
     EVENT_SUPERHEATED,
     EVENT_SEARCH_FOR_VOLANOS,
+    EVENT_MOLTEN_ARMOR_DECAY,
 
     // Movement Controller - Lord Rhyolith
     EVENT_TELEPORT,
@@ -142,7 +146,7 @@ enum Phases
 enum Actions
 {
     // Lord Rhyolith
-    ACTION_DROP_MOLTEN_ARMOR_CHARGE = 1,
+    ACTION_MOLTEN_SPEW_CAST = 1,
 
     // Feet
     ACTION_RECALCULATE_DAMAGE_REDUCTION_MOD = 1,
@@ -210,7 +214,7 @@ static std::array<float, 2> BalanceDamageThresholds =
 struct boss_lord_rhyolith : public BossAI
 {
     boss_lord_rhyolith(Creature* creature) : BossAI(creature, DATA_LORD_RHYOLITH),
-        _currentBalance(CENTER_BALANCE), _transformationCount(0), _hasBrokenFirstVolcano(false), _achievementFailed(false), _hasBurningFeet(false) { }
+        _currentBalance(CENTER_BALANCE), _transformationCount(0), _hasBrokenFirstVolcano(false), _achievementFailed(false), _hasBurningFeet(false), _moltenArmorDecayScheduled(false) { }
 
     void InitializeAI() override
     {
@@ -295,6 +299,8 @@ struct boss_lord_rhyolith : public BossAI
     void JustDied(Unit* killer) override
     {
         Talk(SAY_DEATH);
+        DoCastSelf(SPELL_SMOULDERING_1, true);
+        DoCastSelf(SPELL_SMOULDERING_2, true);
         CleanupEncounter();
         BossAI::JustDied(killer);
     }
@@ -326,6 +332,13 @@ struct boss_lord_rhyolith : public BossAI
             case NPC_VOLCANO:
                 summon->CastSpell(nullptr, SPELL_VOLCANO_BASE);
                 summon->SetDisplayFromModel(1);
+                // Each born volcano empowers Lord Rhyolith (conditions route the effects to the boss and both feet)
+                summon->CastSpell(nullptr, SPELL_MOLTEN_ARMOR_10N);
+                if (!_moltenArmorDecayScheduled)
+                {
+                    events.ScheduleEvent(EVENT_MOLTEN_ARMOR_DECAY, 15s);
+                    _moltenArmorDecayScheduled = true;
+                }
                 summons.Summon(summon);
                 break;
             case NPC_PILLAR:
@@ -436,6 +449,9 @@ struct boss_lord_rhyolith : public BossAI
             // Hotfix (2011-07-14): The Eruption debuff is now cleared when transitioning into phase 2 of the fight.
             instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_ERUPTION_AURA);
 
+            // The volcanos empowering Lord Rhyolith are gone at this point
+            me->RemoveAurasDueToSpell(SPELL_MOLTEN_ARMOR);
+
             events.SetPhase(PHASE_TWO);
             events.ScheduleEvent(EVENT_STAND_UP, 3s);
             events.ScheduleEvent(EVENT_CONCUSSIVE_STOMP, 7s, 0, PHASE_TWO);
@@ -452,14 +468,10 @@ struct boss_lord_rhyolith : public BossAI
     {
         switch (action)
         {
-            case ACTION_DROP_MOLTEN_ARMOR_CHARGE:
-                if (Aura* armorAura = me->GetAura(SPELL_MOLTEN_ARMOR))
-                    armorAura->ModStackAmount(-1);
-
-                for (uint32 type : { DATA_LEFT_FOOT, DATA_RIGHT_FOOT })
-                    if (Creature* foot = instance->GetCreature(type))
-                        if (Aura* armorAura = foot->GetAura(SPELL_MOLTEN_ARMOR))
-                            armorAura->ModStackAmount(-1);
+            case ACTION_MOLTEN_SPEW_CAST:
+                // Lord Rhyolith stomps right after he has finished spewing molten magma at his foes
+                if (events.IsInPhase(PHASE_ONE))
+                    events.RescheduleEvent(EVENT_CONCUSSIVE_STOMP, 5s, 0, PHASE_ONE);
                 break;
             default:
                 break;
@@ -553,7 +565,7 @@ struct boss_lord_rhyolith : public BossAI
                 case EVENT_HEATED_VOLCANO:
                     Talk(SAY_HEATED_VOLCANO);
                     DoCastAOE(SPELL_HEATED_VOLCANO, CastSpellExtraArgs().AddSpellMod(SPELLVALUE_MAX_TARGETS, 1));
-                    events.Repeat(25s);
+                    events.Repeat(40s);
                     break;
                 case EVENT_BALANCE_FEET_HEALTH:
                 {
@@ -586,9 +598,31 @@ struct boss_lord_rhyolith : public BossAI
                     events.Repeat(10s);
                     break;
                 case EVENT_THERMAL_VENT:
+                    Talk(SAY_THERMAL_IGNITION);
                     DoCastAOE(SPELL_SUMMON_ROCK_ELEMENTALS);
                     events.Repeat(23s);
                     break;
+                case EVENT_MOLTEN_ARMOR_DECAY:
+                {
+                    // Molten Armor fades one application at a time, 15 seconds after the first empowering volcano
+                    bool decayed = false;
+                    if (Aura* armorAura = me->GetAura(SPELL_MOLTEN_ARMOR))
+                    {
+                        armorAura->ModStackAmount(-1);
+                        decayed = true;
+                    }
+
+                    for (uint32 type : { DATA_LEFT_FOOT, DATA_RIGHT_FOOT })
+                        if (Creature* foot = instance->GetCreature(type))
+                            if (Aura* armorAura = foot->GetAura(SPELL_MOLTEN_ARMOR))
+                                armorAura->ModStackAmount(-1);
+
+                    if (decayed)
+                        events.Repeat(15s);
+                    else
+                        _moltenArmorDecayScheduled = false;
+                    break;
+                }
                 case EVENT_STAND_UP:
                     me->SetAIAnimKitId(0);
                     events.ScheduleEvent(EVENT_TURN_AGGRESSIVE, 3s + 600ms);
@@ -716,6 +750,7 @@ private:
     bool _hasBrokenFirstVolcano;
     bool _achievementFailed;
     bool _hasBurningFeet; // used instead of HasAura(SPELL_BURNING_FEET) to increase performance
+    bool _moltenArmorDecayScheduled;
     std::queue<ObjectGuid> _recentlyBrokenVolcanos;
 };
 
@@ -981,7 +1016,7 @@ struct npc_rhyolith_liquid_obsidian : public PassiveAI
                     if (Creature* rhyolith = _instance->GetCreature(DATA_LORD_RHYOLITH))
                     {
                         if (me->GetExactDist2d(rhyolith) < 10.f)
-                            DoCastSelf(SPELL_FUSE);
+                            DoCastAOE(SPELL_FUSE); // restores Obsidian Armor and kills the caster via its instakill effect
                         else
                         {
                             me->GetMotionMaster()->MovePoint(POINT_NONE, rhyolith->GetPosition());
@@ -1016,6 +1051,9 @@ class spell_rhyolith_drink_magma : public SpellScript
         target->SetFacingTo(target->GetAngle(PlateauPlatformCenterPosition));
         target->SetOrientation(target->GetAngle(PlateauPlatformCenterPosition));
         target->CastSpell(nullptr, SPELL_MOLTEN_SPEW);
+
+        if (CreatureAI* ai = target->AI())
+            ai->DoAction(ACTION_MOLTEN_SPEW_CAST);
     }
 
     void Register() override
@@ -1031,7 +1069,7 @@ class spell_rhyolith_concussive_stomp : public SpellScript
         if (targets.empty())
             return;
 
-        uint8 volcanoTargetCount = urand(2, 3);
+        uint8 volcanoTargetCount = 3;
         for (uint8 i = 0; i < volcanoTargetCount; ++i)
             _volcanoTargetGUIDs.emplace_back(Trinity::Containers::SelectRandomContainerElement(targets)->GetGUID());
     }
@@ -1041,9 +1079,6 @@ class spell_rhyolith_concussive_stomp : public SpellScript
         Creature* caster = GetHitCreature();
         if (!caster)
             return;
-
-        if (CreatureAI* ai = caster->AI())
-            ai->DoAction(ACTION_DROP_MOLTEN_ARMOR_CHARGE);
 
         // The Volcanos are not getting summoned when Lord Rhyolith is in his final phase
         if (caster->GetEntry() == NPC_LORD_RHYOLITH_PHASE_TWO)
@@ -1332,6 +1367,49 @@ private:
     std::list<WorldObject*> _storedTargets;
 };
 
+class spell_rhyolith_fuse : public SpellScript
+{
+    bool Validate(SpellInfo const* spell) override
+    {
+        return ValidateSpellInfo({ uint32(spell->Effects[EFFECT_0].BasePoints) });
+    }
+
+    void HandleScriptEffect(SpellEffIndex /*effIndex*/)
+    {
+        Unit* target = GetHitUnit();
+        InstanceScript* instance = target->GetInstanceScript();
+        if (!instance)
+            return;
+
+        // The effect value carries the Obsidian Armor spell id. Boss and feet share the aura, so keep all three in sync
+        uint32 armorSpellId = uint32(GetEffectValue());
+        auto restoreArmorCharge = [armorSpellId](Unit* unit)
+        {
+            if (Aura* armorAura = unit->GetAura(armorSpellId))
+                armorAura->ModStackAmount(1);
+            else
+                unit->CastSpell(unit, armorSpellId, true);
+        };
+
+        restoreArmorCharge(target);
+
+        for (uint32 type : { DATA_LEFT_FOOT, DATA_RIGHT_FOOT })
+        {
+            if (Creature* foot = instance->GetCreature(type))
+            {
+                restoreArmorCharge(foot);
+                if (CreatureAI* ai = foot->AI())
+                    ai->DoAction(ACTION_RECALCULATE_DAMAGE_REDUCTION_MOD);
+            }
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget.Register(&spell_rhyolith_fuse::HandleScriptEffect, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
 class spell_rhyolith_summon_rock_elementals : public SpellScript
 {
     void StoreElementalTargets(std::list<WorldObject*>& targets)
@@ -1339,10 +1417,8 @@ class spell_rhyolith_summon_rock_elementals : public SpellScript
         if (targets.empty())
             return;
 
-        _summonSpellId = RAND(GetSpellInfo()->Effects[EFFECT_0].BasePoints, GetSpellInfo()->Effects[EFFECT_1].BasePoints);
-
-        uint8 elementalTargetCount = _summonSpellId == SPELL_SUMMON_FRAGMENT_OF_RHYOLITH ? 5 : 1;
-        for (uint8 i = 0; i < elementalTargetCount; ++i)
+        // Each wave summons one Fragment of Rhyolith and one Spark of Rhyolith, each at a random player
+        for (uint8 i = 0; i < 2; ++i)
             _elementalTargetGUIDs.emplace_back(Trinity::Containers::SelectRandomContainerElement(targets)->GetGUID());
     }
 
@@ -1352,13 +1428,10 @@ class spell_rhyolith_summon_rock_elementals : public SpellScript
         if (!caster)
             return;
 
-        if (Creature* creatureCaster = caster->ToCreature())
-            if (CreatureAI* ai = creatureCaster->AI())
-                ai->DoAction(ACTION_DROP_MOLTEN_ARMOR_CHARGE);
-
-        for (ObjectGuid const& guid : _elementalTargetGUIDs)
-            if (Unit* target = ObjectAccessor::GetUnit(*caster, guid))
-                caster->CastSpell(target, _summonSpellId);
+        std::array<uint32, 2> summonSpellIds = { uint32(GetSpellInfo()->Effects[EFFECT_0].BasePoints), uint32(GetSpellInfo()->Effects[EFFECT_1].BasePoints) };
+        for (std::size_t i = 0; i < _elementalTargetGUIDs.size(); ++i)
+            if (Unit* target = ObjectAccessor::GetUnit(*caster, _elementalTargetGUIDs[i]))
+                caster->CastSpell(target, summonSpellIds[i]);
     }
 
     void Register() override
@@ -1369,7 +1442,6 @@ class spell_rhyolith_summon_rock_elementals : public SpellScript
 
 private:
     std::vector<ObjectGuid> _elementalTargetGUIDs;
-    uint32 _summonSpellId = 0;
 };
 }
 
@@ -1391,5 +1463,6 @@ void AddSC_boss_lord_rhyolith()
     RegisterSpellScript(spell_rhyolith_magma_flow);
     RegisterSpellScript(spell_rhyolith_immolation);
     RegisterSpellScript(spell_rhyolith_meltdown);
+    RegisterSpellScript(spell_rhyolith_fuse);
     RegisterSpellScript(spell_rhyolith_summon_rock_elementals);
 }
