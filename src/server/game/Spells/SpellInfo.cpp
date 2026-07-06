@@ -2323,6 +2323,7 @@ void SpellInfo::_LoadAuraState()
         {
             case 71465: // Divine Surge
             case 50241: // Evasive Charges
+            case 99252: // Blaze of Glory - queried by Vital Flame's SPELL_AURA_MOD_HEALING_DONE_VERSUS_AURASTATE (misc 22)
                 return AURA_STATE_UNKNOWN22;
             case 9991:  // Touch of Zanzil
             case 35325: // Glowing Blood
