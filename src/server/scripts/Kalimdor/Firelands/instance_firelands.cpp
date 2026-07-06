@@ -118,6 +118,20 @@ uint32 const AlysrazorWipeAuras[] =
     100640  // Harsh Winds
 };
 
+uint32 const MajordomoWipeAuras[] =
+{
+    98450,  // Searing Seeds (removal here is not AuraRemoveFlags::Expired, so it does not detonate)
+    98229,  // Concentration (alternate power enabler - infinite duration on players)
+    98254,  // Uncommon Concentration
+    98253,  // Rare Concentration
+    98252,  // Epic Concentration
+    98245,  // Legendary Concentration
+    98584,  // Burning Orb
+    100209, // Burning Orb (25 player)
+    100210, // Burning Orb (10 player heroic)
+    100211  // Burning Orb (25 player heroic)
+};
+
 Position const MajordomoStaghelmSpawnPosition   = { 570.2274f, -61.82986f,  90.42272f, 3.1415927f };
 Position const MajordomoStaghelmRespawnPosition = { 523.4965f, -61.987846f, 83.94701f, 3.1415927f };
 
@@ -225,6 +239,9 @@ class instance_firelands : public InstanceMapScript
                                     majordomo->AI()->DoAction(ACTION_BALEROC_DIED);
                         break;
                     case DATA_MAJORDOMO_STAGHELM:
+                        if (state == FAIL || state == DONE)
+                            for (uint32 spellId : MajordomoWipeAuras)
+                                DoRemoveAurasDueToSpellOnPlayers(spellId);
                         if (state == FAIL)
                             _events.ScheduleEvent(EVENT_RESPAWN_MAJORDOMO_STAGHELM, 30s);
                         break;
