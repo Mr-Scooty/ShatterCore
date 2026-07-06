@@ -55,6 +55,7 @@ enum FLDataTypes
     DATA_MAGMA_KNOCKBACK,
     DATA_RIPLIMB,
     DATA_RAGEFACE,
+    DATA_MAJORDOMO_STAGHELM_ALYSRAZOR,
 };
 
 enum FLCreatureIds
@@ -103,6 +104,27 @@ enum FLCreatureIds
     NPC_HARBINGER_OF_FLAME                  = 53793,
     NPC_MOLTEN_EGG_TRASH                    = 53914,
     NPC_SMOULDERING_HATCHLING               = 53794,
+    NPC_MAJORDOMO_STAGHELM_ALYSRAZOR        = 54015,
+    NPC_VORACIOUS_HATCHLING_1               = 53509,
+    NPC_VORACIOUS_HATCHLING_2               = 53898,
+    NPC_BLAZING_TALON_INITIATE_1            = 53896,
+    NPC_BLAZING_TALON_INITIATE_2            = 53369,
+    NPC_BLAZING_BROODMOTHER_1               = 53680,
+    NPC_BLAZING_BROODMOTHER_2               = 53900,
+    NPC_MOLTEN_EGG_1                        = 53681,
+    NPC_MOLTEN_EGG_2                        = 53899,
+    NPC_PLUMP_LAVA_WORM                     = 53520,
+    NPC_LAVA_WORM_TARGET                    = 53521,
+    NPC_INCENDIARY_CLOUD                    = 53541,
+    NPC_BLAZING_POWER                       = 53554,
+    NPC_BLAZING_TALON_CLAWSHAPER            = 53734,
+    NPC_MOLTEN_METEOR                       = 53784,
+    NPC_METEOR_CALLER                       = 53487,
+    NPC_FIERY_VORTEX                        = 53693,
+    NPC_FIERY_TORNADO                       = 53698,
+    NPC_HERALD_OF_THE_BURNING_END           = 53375,
+    NPC_MOLTEN_FEATHER                      = 53089,
+    NPC_BRUSHFIRE                           = 53372,
 
     // Majordomo Staghelm
     NPC_SPIRIT_OF_THE_FLAME                 = 52593,
@@ -139,6 +161,12 @@ enum FLGameobjectIds
     GO_MAJORDOMO_FIREWALL                   = 208906,
     GO_RAGNAROS_DOOR                        = 209073,
     GO_RAGNAROS_PLATFORM                    = 208835,
+};
+
+enum FLSharedActions
+{
+    // Alysrazor intro (shared between instance script and boss_alysrazor.cpp)
+    ACTION_RESET_ALYSRAZOR_INTRO = -1000001
 };
 
 enum FLSpawnGroups
