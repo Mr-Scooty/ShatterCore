@@ -76,7 +76,13 @@ enum BoTDataTypes
     DATA_VALIONA_AURA_DUMMY,
 
     /*Cho'Gall*/
-    DATA_FULL_HEROIC_ID
+    DATA_FULL_HEROIC_ID,
+
+    /*Sinestra*/
+    DATA_CALEN,
+    DATA_SINESTRA_CHANNEL_TARGET,
+    DATA_EGG_LEFT,
+    DATA_EGG_RIGHT
 };
 
 enum BoTCreatures
@@ -141,6 +147,13 @@ enum BoTCreatures
     NPC_TWILIGHT_ESSENCE_POOL           = 48018,
     NPC_CALEN                           = 46277,
     NPC_PULSING_TWILIGHT_EGG            = 46842,
+    NPC_SINESTRA_CONTROLLER             = 46834,
+    NPC_SINESTRA_CHANNEL_TARGET         = 46835,  // Anchor for the Sinestra <-> Calen duel beams
+    NPC_TWILIGHT_SPITECALLER            = 48415,
+    NPC_TWILIGHT_DRAKE_SINESTRA         = 48436,
+    NPC_BARRIER_COSMETIC_STALKER        = 51608,  // Fiery Barrier dome visual
+    NPC_EGG_COSMETIC_STALKER            = 51609,
+    NPC_FLAMES_DND                      = 51629,
 
     // Generic Creatures
     NPC_CHOGALL                         = 46965,
@@ -160,7 +173,8 @@ enum BoTGameObjects
     GO_WHELP_CAGE                       = 205087,
     GO_WHELP_CAGE_BASE                  = 205088,
     GO_GRIM_BATOL_RAID_TRAP_DOOR        = 205898,
-    GO_CACHE_OF_THE_BROODMOTHER         = 208045
+    GO_CACHE_OF_THE_BROODMOTHER_10H     = 208044,
+    GO_CACHE_OF_THE_BROODMOTHER_25H     = 208045
 };
 
 enum BoTActions
@@ -182,6 +196,20 @@ enum BoTActions
     ACTION_TALK_ASCENDANT_COUNCIL_INTRO_2   = 4,
     ACTION_TALK_ASCENDANT_COUNCIL_INTRO_3   = 5,
     ACTION_TALK_CHOGALL_INTRO               = 6
+};
+
+// Shared between boss_sinestra.cpp and the instance script.
+// Values start at 10 to stay clear of the encounter-internal actions in boss_sinestra.cpp.
+enum SinestraActions
+{
+    ACTION_EGG_DESTROYED    = 10,
+    ACTION_EGG_RESET        = 11,
+    ACTION_CALEN_ENGAGE     = 12,
+    ACTION_CALEN_FINALE     = 13,
+    ACTION_CALEN_DEFEATED   = 14,
+    ACTION_CALEN_RESET      = 15,
+    ACTION_CARAPACE_DOWN    = 16,
+    ACTION_CARAPACE_UP      = 17
 };
 
 enum BoTEvents

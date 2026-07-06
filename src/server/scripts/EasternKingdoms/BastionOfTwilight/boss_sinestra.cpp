@@ -21,6 +21,7 @@
 #include "InstanceScript.h"
 #include "Map.h"
 #include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "PassiveAI.h"
 #include "Player.h"
@@ -33,6 +34,7 @@
 #include "TemporarySummon.h"
 #include "Unit.h"
 #include "bastion_of_twilight.h"
+#include <cmath>
 
 namespace BastionOfTwilight::Sinestra
 {
@@ -58,30 +60,52 @@ enum Texts
 
 enum Spells
 {
-    // Sinestra Phase 1
-    SPELL_DRAINED                       = 89350,  // Boss debuff - 40% damage reduction in Phase 1
-    SPELL_WRACK                         = 92955,  // 89421 in 10-man, periodic shadow damage that increases each tick
-    SPELL_WRACK_10N                     = 89421,
-    SPELL_FLAME_BREATH                  = 92944,  // 90125 in 10-man, raid-wide fire damage
-    SPELL_FLAME_BREATH_10N              = 90125,
-    // Shadow Orb / Twilight Slicer spells (from Wowhead)
-    SPELL_TWILIGHT_SLICER               = 92852,  // 100 yd range, instant - Fires beam of twilight energy
-    SPELL_TWILIGHT_SLICER_BEAM          = 92851,  // 200 yd range, Channeled - Beam damage between orbs
-    SPELL_TWILIGHT_PULSE                = 92958,  // Shadow Orb AoE damage pulse every 1 sec
+    // Sinestra Phase 1 / 3
+    SPELL_DRAINED                       = 89350,  // -40% damage done while in Phase 1
+    SPELL_WRACK                         = 92955,  // 25-man
+    SPELL_WRACK_10N                     = 89421,  // 10-man
+    SPELL_FLAME_BREATH                  = 92944,  // 25-man
+    SPELL_FLAME_BREATH_10N              = 90125,  // 10-man
+    SPELL_TWILIGHT_SLICER               = 92852,  // Beam contact damage
+    SPELL_TWILIGHT_SLICER_BEAM          = 92851,  // Beam visual channel between the orbs
+    SPELL_TWILIGHT_PULSE                = 92958,  // Shadow Orb proximity damage
     SPELL_TWILIGHT_BLAST                = 89280,  // Anti-kiting nuke
-    SPELL_CALL_FLAMES                   = 95855,  // Environmental effect at pull
+    SPELL_CALL_FLAMES                   = 95855,  // Environmental effect at pull / phase transitions
+    SPELL_PHASE_TRANSITION_VISUAL       = 64651,  // Sniffed companion visual to Call Flames
 
     // Twilight Whelps
-    SPELL_TWILIGHT_SPIT                 = 92953,  // Shadow bolt + debuff
-    SPELL_TWILIGHT_ESSENCE_AURA         = 89284,  // Visual aura cast by Twilight Essence on itself
+    SPELL_TWILIGHT_SPIT                 = 92953,  // 25-man
+    SPELL_TWILIGHT_SPIT_10N             = 89299,  // 10-man
+    SPELL_TWILIGHT_ESSENCE_AURA         = 89284,  // Periodic trigger aura carried by the essence pool
 
-    // Phase 2 Transition
-    SPELL_MANA_BARRIER                  = 87299,  // Shield during transition
-    SPELL_TWILIGHT_EXTINCTION           = 87945,  // 86226 in 10-man
-    SPELL_TWILIGHT_EXTINCTION_10N       = 86226,
+    // Phase 2
+    SPELL_MANA_BARRIER                  = 87299,  // Converts damage taken into mana loss (spell_sinestra_mana_barrier)
+    SPELL_TWILIGHT_EXTINCTION_CHANNEL   = 86227,  // Visible channel while Extinction builds up
+    SPELL_TWILIGHT_EXTINCTION_DMG       = 87945,  // ~475k shadow to the whole room, resolved after the channel
+    SPELL_SINESTRA_DUEL_CHANNEL         = 87220,  // Sinestra's endless beam at the channel target
+    SPELL_TWILIGHT_INFUSION             = 87655,  // Sinestra -> egg siphon
+    SPELL_TWILIGHT_INFUSION_VISUAL      = 95564,  // Egg-side siphon visual
+    SPELL_EGG_SIPHON_VISUAL             = 95789,  // Egg-side siphon visual
+    SPELL_TWILIGHT_CARAPACE             = 87654,  // Egg absorb shield
 
     // Calen
-    SPELL_FIERY_BARRIER                 = 87231,  // Protection barrier
+    SPELL_CALEN_DUEL_CHANNEL            = 87221,  // Calen's endless beam at Sinestra
+    SPELL_FIERY_BARRIER_PERIODIC        = 87229,  // Periodic dome application (spell_calen_fiery_barrier)
+    SPELL_FIERY_BARRIER_PROTECTION      = 87231,  // -99% damage taken inside the dome
+    SPELL_PYRRHIC_FOCUS                 = 87323,  // +500% healing taken, self-burn (spell_calen_pyrrhic_focus)
+    SPELL_ESSENCE_OF_THE_RED            = 87946,  // +100% haste, 5% mana/s, 3 min
+
+    // Twilight Spitecaller
+    SPELL_UNLEASH_ESSENCE               = 90028,  // 10-man
+    SPELL_UNLEASH_ESSENCE_25            = 92947,  // 25-man
+    SPELL_INDOMITABLE                   = 90045,  // 10-man: knockback + 40k + CC immunity
+    SPELL_INDOMITABLE_25                = 92946,  // 25-man
+    SPELL_INDOMITABLE_BUFF              = 90044,  // Dispellable enrage component
+
+    // Twilight Drake
+    SPELL_TWILIGHT_BREATH               = 76817,  // 10-man
+    SPELL_TWILIGHT_BREATH_25            = 92942,  // 25-man
+    SPELL_ABSORB_ESSENCE                = 90107,  // +10% damage/health per absorbed pool
 
     // Misc
     SPELL_BERSERK                       = 26662
@@ -89,13 +113,27 @@ enum Spells
 
 enum Events
 {
-    // Sinestra Phase 1
+    // Sinestra Phase 1 / 3
     EVENT_WRACK = 1,
     EVENT_FLAME_BREATH,
     EVENT_TWILIGHT_SLICER,
     EVENT_SPAWN_TWILIGHT_WHELPS,
     EVENT_CHECK_MELEE_RANGE,
     EVENT_BERSERK,
+
+    // Sinestra Phase 2
+    EVENT_EXTINCTION_RESOLVE,
+    EVENT_ACTIVATE_CALEN,
+    EVENT_MANA_CHECK,
+    EVENT_FORCED_WINDOW,
+    EVENT_CLOSE_CARAPACE_WINDOW,
+    EVENT_SUMMON_SPITECALLER,
+    EVENT_SUMMON_DRAKE,
+
+    // Sinestra Phase 3
+    EVENT_SLAY_CALEN,
+    EVENT_GRANT_ESSENCE,
+    EVENT_RESUME_ABILITIES,
 
     // Twilight Whelps
     EVENT_TWILIGHT_SPIT,
@@ -109,7 +147,18 @@ enum Events
     EVENT_DESPAWN_ORB,
 
     // Twilight Essence
-    EVENT_CHECK_NEARBY_WHELPS
+    EVENT_CHECK_NEARBY_WHELPS,
+
+    // Calen
+    EVENT_CALEN_TAUNT,
+
+    // Twilight Spitecaller
+    EVENT_UNLEASH_ESSENCE,
+    EVENT_ENGAGE_FAILSAFE,
+
+    // Twilight Drake
+    EVENT_TWILIGHT_BREATH,
+    EVENT_ABSORB_ESSENCE_CHECK
 };
 
 enum Phases
@@ -119,6 +168,8 @@ enum Phases
     PHASE_3 = 3
 };
 
+// Encounter-internal actions. The cross-script actions (eggs, Calen) live in
+// bastion_of_twilight.h as SinestraActions (values 10+).
 enum Actions
 {
     ACTION_WRACK_DISPELLED = 1,
@@ -129,37 +180,54 @@ enum Actions
 
 enum Points
 {
-    POINT_NONE = 0
+    POINT_NONE = 0,
+    POINT_ENTER_ROOM = 1,
+    POINT_LAND = 2
 };
 
-enum NPCs
+// Positions taken from the 25H sniff.
+Position const WhelpSpawnerPos[] =
 {
-    NPC_TWILIGHT_WHELP_25H              = 47265,
-    NPC_TWILIGHT_WHELP_25N              = 48049,
-    NPC_TWILIGHT_WHELP_10H              = 48048,
-    NPC_TWILIGHT_WHELP_10N              = 48047,
-    NPC_SHADOW_ORB                      = 49863,
-    NPC_TWILIGHT_ESSENCE                = 48018,
-    NPC_CALEN                           = 46277,
-    NPC_PULSING_TWILIGHT_EGG            = 46842
+    { -1003.56f, -588.10f, 455.98f },
+    { -1146.20f, -684.11f, 459.44f },
+    {  -837.81f, -761.04f, 466.38f },
+    { -1139.64f, -668.27f, 457.50f },
+    {  -961.92f, -592.00f, 453.75f }
 };
 
-
-Position const SinestraSpawnPos = { -1130.75f, -817.314f, 467.747f, 5.191174f };
+Position const SpitecallerSpawnPos = { -1123.58f, -826.16f, 466.90f };
+Position const SpitecallerEntryPos = { -1027.36f, -800.61f, 438.68f }; // room floor near the rear tunnel - verify in-game
+Position const DrakePerchPos       = { -1195.29f, -614.29f, 500.28f };
+Position const DrakeLandingPos     = { -1043.00f, -709.00f, 438.20f }; // main floor landing point - verify in-game
+Position const CacheSpawnPos       = { -962.9202f, -749.7118f, 438.5929f, 4.031712f };
 
 // Twilight Essence revival range for dead whelps
 float const TWILIGHT_ESSENCE_REVIVAL_RANGE = 5.0f;
+
+// Phase 2 mana economy. Mana drained per barrier tick is
+// missingHealthPct * maxMana * MANA_DRAIN_FACTOR, i.e. the raid opens the
+// first carapace window (100% -> 50% mana) after dealing 50 / MANA_DRAIN_FACTOR
+// percent of her max health in damage.
+float const MANA_DRAIN_FACTOR       = 4.0f;
+float const WINDOW_OPEN_MANA_PCT    = 50.0f;
+float const WINDOW_REFILL_MANA_PCT  = 90.0f;
 
 struct boss_sinestra final : public BossAI
 {
     boss_sinestra(Creature* creature) : BossAI(creature, DATA_SINESTRA)
     {
         Initialize();
+        // She fights the entire encounter from her spot; ranged cheese is
+        // punished by Twilight Blast instead of chasing.
+        SetCombatMovement(false);
     }
 
     void Initialize()
     {
-        _wrackActive = false;
+        _eggsDestroyed = 0;
+        _windowOpen = false;
+        _duelLost = false;
+        _duelBanterDone = false;
     }
 
     void JustEngagedWith(Unit* who) override
@@ -174,12 +242,12 @@ struct boss_sinestra final : public BossAI
         DoCastSelf(SPELL_CALL_FLAMES, true);
 
         events.SetPhase(PHASE_1);
-        events.ScheduleEvent(EVENT_WRACK, 5s, 0, PHASE_1);
+        events.ScheduleEvent(EVENT_WRACK, 15s, 0, PHASE_1);
         events.ScheduleEvent(EVENT_FLAME_BREATH, 20s, 0, PHASE_1);
         events.ScheduleEvent(EVENT_TWILIGHT_SLICER, 30s, 0, PHASE_1);
-        events.ScheduleEvent(EVENT_SPAWN_TWILIGHT_WHELPS, 50s, 0, PHASE_1);
-        events.ScheduleEvent(EVENT_CHECK_MELEE_RANGE, 2s, 0, PHASE_1);
-        events.ScheduleEvent(EVENT_BERSERK, 10min);
+        events.ScheduleEvent(EVENT_SPAWN_TWILIGHT_WHELPS, 16s, 0, PHASE_1);
+        events.ScheduleEvent(EVENT_CHECK_MELEE_RANGE, 2s); // phase-agnostic, internally gated
+        events.ScheduleEvent(EVENT_BERSERK, 15min);
     }
 
     void Reset() override
@@ -189,6 +257,8 @@ struct boss_sinestra final : public BossAI
 
         // Sinestra always appears at 60% health with Drained debuff
         me->SetHealth(me->GetMaxHealth() * 60 / 100);
+        me->SetFullPower(POWER_MANA);
+        me->SetReactState(REACT_AGGRESSIVE);
         DoCastSelf(SPELL_DRAINED, true);
     }
 
@@ -198,8 +268,12 @@ struct boss_sinestra final : public BossAI
         Talk(SAY_DEATH);
         instance->SendEncounterUnit(ENCOUNTER_FRAME_DISENGAGE, me);
 
+        instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_WRACK);
+        instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_WRACK_10N);
+
         // Spawn Cache of the Broodmother loot chest (604800 seconds = 7 days)
-        me->SummonGameObject(GO_CACHE_OF_THE_BROODMOTHER, -962.9202f, -749.7118f, 438.5929f, 4.031712f, QuaternionData(), 604800);
+        me->SummonGameObject(Is25ManRaid() ? GO_CACHE_OF_THE_BROODMOTHER_25H : GO_CACHE_OF_THE_BROODMOTHER_10H,
+            CacheSpawnPos.GetPositionX(), CacheSpawnPos.GetPositionY(), CacheSpawnPos.GetPositionZ(), CacheSpawnPos.GetOrientation(), QuaternionData(), 604800);
     }
 
     void EnterEvadeMode(EvadeReason /*why*/) override
@@ -207,6 +281,8 @@ struct boss_sinestra final : public BossAI
         _EnterEvadeMode();
         instance->SendEncounterUnit(ENCOUNTER_FRAME_DISENGAGE, me);
         summons.DespawnAll();
+        // _DespawnAtEvade sets the boss state to FAIL, which makes the
+        // instance script respawn/reset the eggs and Calen.
         _DespawnAtEvade();
     }
 
@@ -220,14 +296,16 @@ struct boss_sinestra final : public BossAI
             case NPC_TWILIGHT_WHELP_10H:
             case NPC_TWILIGHT_WHELP_25N:
             case NPC_TWILIGHT_WHELP_25H:
-                Talk(SAY_FEED_CHILDREN);
-
                 // Ensure whelps spawn without any immunity flags
                 summon->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
                 summon->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_ATTACKABLE_1);
 
                 if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.0f, true))
                     summon->AI()->AttackStart(target);
+                break;
+            case NPC_TWILIGHT_SPITECALLER:
+            case NPC_TWILIGHT_DRAKE_SINESTRA:
+                // They engage on their own once they have entered the room.
                 break;
             default:
                 break;
@@ -236,20 +314,39 @@ struct boss_sinestra final : public BossAI
 
     void DamageTaken(Unit* /*attacker*/, uint32& damage) override
     {
-        // Phase 2 transition at 30% health
-        if (me->HealthBelowPctDamaged(30, damage) && events.IsInPhase(PHASE_1))
+        // Phase 1 -> 2 trip at 30%. Clamp the killing blow so she lands exactly
+        // on the line and can never skip the transition.
+        if (events.IsInPhase(PHASE_1))
         {
-            events.SetPhase(PHASE_2);
-            events.CancelEvent(EVENT_WRACK);
-            events.CancelEvent(EVENT_FLAME_BREATH);
-            events.CancelEvent(EVENT_TWILIGHT_SLICER);
-            events.CancelEvent(EVENT_SPAWN_TWILIGHT_WHELPS);
+            if (me->HealthBelowPctDamaged(30, damage))
+            {
+                uint32 threshold = me->CountPctFromMaxHealth(30);
+                damage = me->GetHealth() > threshold ? uint32(me->GetHealth() - threshold) : 0;
+                StartPhaseTwo();
+            }
+            return;
+        }
 
-            me->RemoveAurasDueToSpell(SPELL_DRAINED);
-            DoCastSelf(SPELL_MANA_BARRIER, true);
-            me->SetHealth(me->GetMaxHealth()); // Heals to 100%
+        // Phase 2: unkillable. The Mana Barrier heals the loss back and pays in
+        // mana; this clamp only guards the one-shot edge case.
+        if (events.IsInPhase(PHASE_2) && damage >= me->GetHealth())
+            damage = uint32(me->GetHealth() - 1);
+    }
 
-            Talk(SAY_PHASE_2);
+    void DoAction(int32 action) override
+    {
+        switch (action)
+        {
+            case ACTION_EGG_DESTROYED:
+                if (events.IsInPhase(PHASE_2) && ++_eggsDestroyed >= 2)
+                    StartPhaseThree();
+                break;
+            case ACTION_CALEN_DEFEATED:
+                if (events.IsInPhase(PHASE_2) && !_duelLost)
+                    OnDuelLost();
+                break;
+            default:
+                break;
         }
     }
 
@@ -260,7 +357,9 @@ struct boss_sinestra final : public BossAI
 
         events.Update(diff);
 
-        if (me->HasUnitState(UNIT_STATE_CASTING))
+        // Phase 2 runs an endless duel channel; without this exception the
+        // casting guard would starve every Phase 2 event.
+        if (me->HasUnitState(UNIT_STATE_CASTING) && !events.IsInPhase(PHASE_2))
             return;
 
         while (uint32 eventId = events.ExecuteEvent())
@@ -268,12 +367,10 @@ struct boss_sinestra final : public BossAI
             switch (eventId)
             {
                 case EVENT_WRACK:
-                    if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.0f, true))
-                    {
-                        DoCast(target, Is25ManRaid() ? SPELL_WRACK : SPELL_WRACK_10N);
-                        _wrackActive = true;
-                    }
-                    // Wrack reschedules itself after the previous one expires (handled by aura removal)
+                    // Never a tank, never someone already afflicted.
+                    if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.0f, true, false, -int32(Is25ManRaid() ? SPELL_WRACK : SPELL_WRACK_10N)))
+                        DoCast(target, Is25ManRaid() ? SPELL_WRACK : SPELL_WRACK_10N, true);
+                    events.Repeat(events.IsInPhase(PHASE_3) ? 60s : 70s);
                     break;
                 case EVENT_FLAME_BREATH:
                     DoCastAOE(Is25ManRaid() ? SPELL_FLAME_BREATH : SPELL_FLAME_BREATH_10N);
@@ -284,43 +381,76 @@ struct boss_sinestra final : public BossAI
                     events.Repeat(30s);
                     break;
                 case EVENT_SPAWN_TWILIGHT_WHELPS:
-                {
-                    // Spawn 5 whelps from eggs around the room
-                    uint32 whelpEntry = NPC_TWILIGHT_WHELP_10N;
-                    if (IsHeroic())
-                        whelpEntry = Is25ManRaid() ? NPC_TWILIGHT_WHELP_25H : NPC_TWILIGHT_WHELP_10H;
-                    else if (Is25ManRaid())
-                        whelpEntry = NPC_TWILIGHT_WHELP_25N;
-
-                    for (uint8 i = 0; i < 5; ++i)
-                    {
-                        // Spawn whelps around the boss in a circle
-                        float angle = (i * 2 * M_PI / 5);
-                        float x = me->GetPositionX() + 30.0f * cos(angle);
-                        float y = me->GetPositionY() + 30.0f * sin(angle);
-                        float z = me->GetPositionZ();
-                        me->SummonCreature(whelpEntry, x, y, z, 0.0f, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 300000);
-                    }
-                    events.Repeat(50s, 60s);
+                    SummonWhelpWave();
+                    events.Repeat(50s);
                     break;
-                }
                 case EVENT_BERSERK:
                     DoCastSelf(SPELL_BERSERK, true);
                     break;
                 case EVENT_CHECK_MELEE_RANGE:
                     // Anti-kiting mechanic: Cast Twilight Blast on targets out of melee range
-                    if (Unit* victim = me->GetVictim())
-                    {
-                        if (!me->IsWithinMeleeRange(victim))
-                        {
-                            // DEBUG: Log that we're attempting to cast
-                            TC_LOG_DEBUG("scripts", "Sinestra: Target out of melee range, casting Twilight Blast");
+                    if (!events.IsInPhase(PHASE_2))
+                        if (Unit* victim = me->GetVictim())
+                            if (!me->IsWithinMeleeRange(victim))
+                                me->CastSpell(victim, SPELL_TWILIGHT_BLAST, true);
+                    events.Repeat(2s);
+                    break;
 
-                            // Cast Twilight Blast - use triggered to bypass restrictions
-                            me->CastSpell(victim, SPELL_TWILIGHT_BLAST, true);
+                // ---- Phase 2
+                case EVENT_EXTINCTION_RESOLVE:
+                    ResolveExtinction();
+                    break;
+                case EVENT_ACTIVATE_CALEN:
+                    if (Creature* calen = instance->GetCreature(DATA_CALEN))
+                        calen->AI()->DoAction(ACTION_CALEN_ENGAGE);
+                    break;
+                case EVENT_MANA_CHECK:
+                    HandleManaCheck();
+                    break;
+                case EVENT_FORCED_WINDOW:
+                    // Anti-deadlock failsafe: a stalled raid still gets a window.
+                    OpenCarapaceWindow();
+                    break;
+                case EVENT_CLOSE_CARAPACE_WINDOW:
+                    CloseCarapaceWindow();
+                    break;
+                case EVENT_SUMMON_SPITECALLER:
+                    me->SummonCreature(NPC_TWILIGHT_SPITECALLER, SpitecallerSpawnPos, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 20s);
+                    events.Repeat(Is25ManRaid() ? 25s : 30s);
+                    break;
+                case EVENT_SUMMON_DRAKE:
+                {
+                    uint8 count = Is25ManRaid() ? 2 : 1;
+                    for (uint8 i = 0; i < count; ++i)
+                        me->SummonCreature(NPC_TWILIGHT_DRAKE_SINESTRA, DrakePerchPos, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 20s);
+                    events.Repeat(50s);
+                    break;
+                }
+
+                // ---- Phase 3 transition
+                case EVENT_SLAY_CALEN:
+                    if (Creature* calen = instance->GetCreature(DATA_CALEN))
+                    {
+                        if (calen->IsAlive())
+                        {
+                            me->CastSpell(calen, SPELL_TWILIGHT_BLAST, true);
+                            calen->AI()->DoAction(ACTION_CALEN_FINALE);
                         }
                     }
-                    events.ScheduleEvent(EVENT_CHECK_MELEE_RANGE, 2s, 0, events.IsInPhase(PHASE_1) ? PHASE_1 : PHASE_3);
+                    break;
+                case EVENT_GRANT_ESSENCE:
+                    // Primary path is Calen's own AoE cast in his finale; this
+                    // covers players who were out of range or a missing Calen.
+                    for (MapReference const& ref : me->GetMap()->GetPlayers())
+                        if (Player* player = ref.GetSource())
+                            if (player->IsAlive() && !player->IsGameMaster() && !player->HasAura(SPELL_ESSENCE_OF_THE_RED))
+                                me->AddAura(SPELL_ESSENCE_OF_THE_RED, player);
+                    break;
+                case EVENT_RESUME_ABILITIES:
+                    events.ScheduleEvent(EVENT_FLAME_BREATH, 20s, 0, PHASE_3);
+                    events.ScheduleEvent(EVENT_WRACK, 15s, 0, PHASE_3);
+                    events.ScheduleEvent(EVENT_TWILIGHT_SLICER, 30s, 0, PHASE_3);
+                    events.ScheduleEvent(EVENT_SPAWN_TWILIGHT_WHELPS, 50s, 0, PHASE_3);
                     break;
                 default:
                     break;
@@ -331,31 +461,212 @@ struct boss_sinestra final : public BossAI
     }
 
 private:
+    void StartPhaseTwo()
+    {
+        events.SetPhase(PHASE_2);
+        events.CancelEvent(EVENT_WRACK);
+        events.CancelEvent(EVENT_FLAME_BREATH);
+        events.CancelEvent(EVENT_TWILIGHT_SLICER);
+        events.CancelEvent(EVENT_SPAWN_TWILIGHT_WHELPS);
+
+        Talk(SAY_PHASE_2);
+        me->InterruptNonMeleeSpells(true);
+        me->AttackStop();
+        me->SetReactState(REACT_PASSIVE);
+
+        me->RemoveAurasDueToSpell(SPELL_DRAINED);
+        // Heal to full BEFORE the barrier goes up - the barrier converts missing
+        // health into mana loss, and the transition heal must not be billed.
+        me->SetFullHealth();
+        me->SetFullPower(POWER_MANA);
+        DoCastSelf(SPELL_MANA_BARRIER, true);
+        DoCastSelf(SPELL_PHASE_TRANSITION_VISUAL, true);
+        DoCastSelf(SPELL_CALL_FLAMES, true);
+
+        // Visible build-up; the damage resolves via EVENT_EXTINCTION_RESOLVE.
+        DoCastSelf(SPELL_TWILIGHT_EXTINCTION_CHANNEL);
+        events.ScheduleEvent(EVENT_EXTINCTION_RESOLVE, 10s, 0, PHASE_2);
+
+        events.ScheduleEvent(EVENT_ACTIVATE_CALEN, 2s, 0, PHASE_2);
+        events.ScheduleEvent(EVENT_MANA_CHECK, 1s, 0, PHASE_2);
+        events.ScheduleEvent(EVENT_FORCED_WINDOW, 60s, 0, PHASE_2);
+        events.ScheduleEvent(EVENT_SUMMON_SPITECALLER, 25s, 0, PHASE_2);
+        events.ScheduleEvent(EVENT_SUMMON_DRAKE, 30s, 0, PHASE_2);
+        events.ScheduleEvent(EVENT_SPAWN_TWILIGHT_WHELPS, 30s, 0, PHASE_2);
+    }
+
+    void ResolveExtinction()
+    {
+        me->InterruptNonMeleeSpells(true);
+        // Lethal to everyone outside Calen's Fiery Barrier; players inside
+        // carry the -99% damage taken aura (87231) and shrug it off.
+        DoCastAOE(SPELL_TWILIGHT_EXTINCTION_DMG, true);
+
+        if (_duelLost)
+        {
+            // The duel is lost: she loops Extinction until the raid falls.
+            DoCastSelf(SPELL_TWILIGHT_EXTINCTION_CHANNEL);
+            events.ScheduleEvent(EVENT_EXTINCTION_RESOLVE, 12s, 0, PHASE_2);
+        }
+        else
+            BeginDuelChannel();
+    }
+
+    void BeginDuelChannel()
+    {
+        if (Creature* channelTarget = instance->GetCreature(DATA_SINESTRA_CHANNEL_TARGET))
+        {
+            me->SetFacingToObject(channelTarget);
+            me->CastSpell(channelTarget, SPELL_SINESTRA_DUEL_CHANNEL);
+        }
+    }
+
+    void HandleManaCheck()
+    {
+        uint32 maxMana = me->GetMaxPower(POWER_MANA);
+        float manaPct = maxMana ? 100.0f * float(me->GetPower(POWER_MANA)) / float(maxMana) : 0.0f;
+
+        if (_windowOpen)
+        {
+            // Siphoning the eggs: roughly 1% max mana per second flows back.
+            if (manaPct < WINDOW_REFILL_MANA_PCT)
+                me->ModifyPower(POWER_MANA, int32(maxMana / 100));
+        }
+        else if (manaPct < WINDOW_OPEN_MANA_PCT)
+            OpenCarapaceWindow();
+
+        // Out of mana with the duel still live: the barrier collapses outright
+        // and she proceeds to Phase 3 (matches the retail zero-mana fallback).
+        if (me->GetPower(POWER_MANA) == 0 && !_duelLost)
+        {
+            StartPhaseThree();
+            return;
+        }
+
+        events.Repeat(1s);
+    }
+
+    void OpenCarapaceWindow()
+    {
+        if (_windowOpen || _duelLost || !events.IsInPhase(PHASE_2))
+            return;
+
+        _windowOpen = true;
+        Talk(SAY_BARRIER_DISSIPATES);
+        me->InterruptNonMeleeSpells(true);
+
+        if (!_duelBanterDone)
+        {
+            _duelBanterDone = true;
+            Talk(SAY_WEAKNESS_FOOL);
+            if (Creature* calen = instance->GetCreature(DATA_CALEN))
+                if (calen->IsAlive())
+                    calen->AI()->Talk(SAY_CALEN_WEAKENING);
+        }
+
+        for (uint32 data : { DATA_EGG_LEFT, DATA_EGG_RIGHT })
+        {
+            if (Creature* egg = ObjectAccessor::GetCreature(*me, instance->GetGuidData(data)))
+            {
+                if (egg->IsAlive())
+                {
+                    egg->AI()->DoAction(ACTION_CARAPACE_DOWN);
+                    me->CastSpell(egg, SPELL_TWILIGHT_INFUSION, true);
+                }
+            }
+        }
+
+        events.ScheduleEvent(EVENT_CLOSE_CARAPACE_WINDOW, 30s, 0, PHASE_2);
+        events.RescheduleEvent(EVENT_FORCED_WINDOW, 60s, 0, PHASE_2);
+    }
+
+    void CloseCarapaceWindow()
+    {
+        if (!_windowOpen)
+            return;
+
+        _windowOpen = false;
+        for (uint32 data : { DATA_EGG_LEFT, DATA_EGG_RIGHT })
+            if (Creature* egg = ObjectAccessor::GetCreature(*me, instance->GetGuidData(data)))
+                if (egg->IsAlive())
+                    egg->AI()->DoAction(ACTION_CARAPACE_UP);
+
+        if (!_duelLost && events.IsInPhase(PHASE_2))
+            BeginDuelChannel();
+    }
+
+    void OnDuelLost()
+    {
+        // Calen fell: the carapace never drops again and she has infinite
+        // staying power. Modeled as an Extinction loop until the raid wipes.
+        _duelLost = true;
+        if (_windowOpen)
+            CloseCarapaceWindow();
+
+        events.CancelEvent(EVENT_FORCED_WINDOW);
+        events.CancelEvent(EVENT_CLOSE_CARAPACE_WINDOW);
+
+        me->InterruptNonMeleeSpells(true);
+        DoCastSelf(SPELL_TWILIGHT_EXTINCTION_CHANNEL);
+        events.ScheduleEvent(EVENT_EXTINCTION_RESOLVE, 10s, 0, PHASE_2);
+    }
+
+    void StartPhaseThree()
+    {
+        events.SetPhase(PHASE_3);
+        events.CancelEvent(EVENT_EXTINCTION_RESOLVE);
+        events.CancelEvent(EVENT_MANA_CHECK);
+        events.CancelEvent(EVENT_FORCED_WINDOW);
+        events.CancelEvent(EVENT_CLOSE_CARAPACE_WINDOW);
+        events.CancelEvent(EVENT_SUMMON_SPITECALLER);
+        events.CancelEvent(EVENT_SUMMON_DRAKE);
+        _windowOpen = false;
+
+        Talk(SAY_PHASE_3);
+        me->InterruptNonMeleeSpells(true);
+        me->RemoveAurasDueToSpell(SPELL_MANA_BARRIER);
+        me->SetFullHealth();
+        me->SetReactState(REACT_AGGRESSIVE);
+        DoCastSelf(SPELL_PHASE_TRANSITION_VISUAL, true);
+        DoCastSelf(SPELL_CALL_FLAMES, true);
+
+        events.ScheduleEvent(EVENT_SLAY_CALEN, 3s, 0, PHASE_3);
+        events.ScheduleEvent(EVENT_GRANT_ESSENCE, 6s, 0, PHASE_3);
+        // Grace period: she melees her tank but casts nothing while the raid
+        // clears the leftover Phase 2 adds.
+        events.ScheduleEvent(EVENT_RESUME_ABILITIES, 30s, 0, PHASE_3);
+    }
+
+    void SummonWhelpWave()
+    {
+        Talk(SAY_FEED_CHILDREN);
+
+        uint32 whelpEntry = NPC_TWILIGHT_WHELP_10N;
+        if (IsHeroic())
+            whelpEntry = Is25ManRaid() ? NPC_TWILIGHT_WHELP_25H : NPC_TWILIGHT_WHELP_10H;
+        else if (Is25ManRaid())
+            whelpEntry = NPC_TWILIGHT_WHELP_25N;
+
+        // One whelp per spawner point (positions from sniff).
+        for (Position const& pos : WhelpSpawnerPos)
+            me->SummonCreature(whelpEntry, pos, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 300s);
+    }
+
     void SpawnTwilightSlicerOrbs()
     {
-        TC_LOG_ERROR("scripts.sinestra", "SpawnTwilightSlicerOrbs called");
-
         // Use GetPlayerListInGrid instead of SelectTargetList to work with GM mode testing
         // SelectTargetList relies on threat list which is empty in GM mode
         std::list<Player*> players;
         me->GetPlayerListInGrid(players, 100.0f);
 
-        // Filter to only alive players
         players.remove_if([](Player* player) {
             return !player || !player->IsAlive();
         });
 
-        TC_LOG_ERROR("scripts.sinestra", "Twilight Slicer: Found {} players in range", players.size());
-
         if (players.empty())
-        {
-            TC_LOG_ERROR("scripts.sinestra", "Twilight Slicer: No players found, aborting");
             return;
-        }
 
         std::vector<Player*> targetVec(players.begin(), players.end());
-
-        // Shuffle for random selection
         Trinity::Containers::RandomShuffle(targetVec);
 
         // If only 1 target (solo testing), use the same target for both orbs
@@ -365,63 +676,422 @@ private:
         Creature* orb1 = nullptr;
         Creature* orb2 = nullptr;
 
-        // Spawn first orb near first target
         if (target1)
         {
             Position spawnPos = target1->GetPosition();
             spawnPos.m_positionX += 5.0f;  // Offset slightly so orbs don't overlap
-            TC_LOG_ERROR("scripts.sinestra", "Attempting to spawn Shadow Orb 1 (NPC {}) at ({}, {}, {})",
-                NPC_SHADOW_ORB, spawnPos.GetPositionX(), spawnPos.GetPositionY(), spawnPos.GetPositionZ());
-
-            orb1 = me->SummonCreature(NPC_SHADOW_ORB, spawnPos, TEMPSUMMON_TIMED_DESPAWN, 16s);
-            if (orb1)
-            {
-                TC_LOG_ERROR("scripts.sinestra", "Shadow Orb 1 spawned successfully");
-                if (orb1->AI())
-                    orb1->AI()->SetGUID(target1->GetGUID(), ACTION_SET_FIXATE_TARGET);
-            }
-            else
-            {
-                TC_LOG_ERROR("scripts.sinestra", "FAILED to spawn Shadow Orb 1! Check creature_template for entry {}", NPC_SHADOW_ORB);
-            }
+            orb1 = me->SummonCreature(NPC_SINESTRA_SHADOW_ORB, spawnPos, TEMPSUMMON_TIMED_DESPAWN, 16s);
+            if (orb1 && orb1->AI())
+                orb1->AI()->SetGUID(target1->GetGUID(), ACTION_SET_FIXATE_TARGET);
         }
 
-        // Spawn second orb near second target
         if (target2)
         {
             Position spawnPos = target2->GetPosition();
             spawnPos.m_positionX -= 5.0f;  // Offset in opposite direction
-            TC_LOG_ERROR("scripts.sinestra", "Attempting to spawn Shadow Orb 2 (NPC {}) at ({}, {}, {})",
-                NPC_SHADOW_ORB, spawnPos.GetPositionX(), spawnPos.GetPositionY(), spawnPos.GetPositionZ());
-
-            orb2 = me->SummonCreature(NPC_SHADOW_ORB, spawnPos, TEMPSUMMON_TIMED_DESPAWN, 16s);
-            if (orb2)
-            {
-                TC_LOG_ERROR("scripts.sinestra", "Shadow Orb 2 spawned successfully");
-                if (orb2->AI())
-                    orb2->AI()->SetGUID(target2->GetGUID(), ACTION_SET_FIXATE_TARGET);
-            }
-            else
-            {
-                TC_LOG_ERROR("scripts.sinestra", "FAILED to spawn Shadow Orb 2! Check creature_template for entry {}", NPC_SHADOW_ORB);
-            }
+            orb2 = me->SummonCreature(NPC_SINESTRA_SHADOW_ORB, spawnPos, TEMPSUMMON_TIMED_DESPAWN, 16s);
+            if (orb2 && orb2->AI())
+                orb2->AI()->SetGUID(target2->GetGUID(), ACTION_SET_FIXATE_TARGET);
         }
 
         // Pair the orbs together (first orb tracks second orb for beam)
         if (orb1 && orb2 && orb1->AI())
-        {
             orb1->AI()->SetGUID(orb2->GetGUID(), ACTION_SET_PAIRED_ORB);
-            TC_LOG_ERROR("scripts.sinestra", "Shadow Orbs paired for Twilight Slicer beam");
+    }
+
+    uint8 _eggsDestroyed;
+    bool _windowOpen;
+    bool _duelLost;
+    bool _duelBanterDone;
+};
+
+// Calen (46277) - permanent spawn. Duels Sinestra during Phase 2 from his spawn
+// position behind the Fiery Barrier and dies delivering Essence of the Red.
+struct npc_sinestra_calen final : public ScriptedAI
+{
+    enum CalenState : uint8
+    {
+        CALEN_IDLE,
+        CALEN_DUELING,
+        CALEN_FINISHED
+    };
+
+    npc_sinestra_calen(Creature* creature) : ScriptedAI(creature), _instance(creature->GetInstanceScript()), _state(CALEN_IDLE), _powerWanesWarned(false)
+    {
+        SetCombatMovement(false);
+    }
+
+    void Reset() override
+    {
+        _events.Reset();
+        _state = CALEN_IDLE;
+        _powerWanesWarned = false;
+
+        me->InterruptNonMeleeSpells(true);
+        me->RemoveAurasDueToSpell(SPELL_PYRRHIC_FOCUS);
+        me->SetStandState(UNIT_STAND_STATE_STAND);
+        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+        me->SetReactState(REACT_PASSIVE);
+        me->SetFullHealth();
+
+        // The Fiery Barrier dome rides along as a creature_addon aura; restore
+        // it in case an aura wipe removed it.
+        if (!me->HasAura(SPELL_FIERY_BARRIER_PERIODIC))
+            DoCastSelf(SPELL_FIERY_BARRIER_PERIODIC, true);
+    }
+
+    void DoAction(int32 action) override
+    {
+        switch (action)
+        {
+            case ACTION_CALEN_ENGAGE:
+                if (_state != CALEN_IDLE)
+                    break;
+                _state = CALEN_DUELING;
+                Talk(SAY_CALEN_INTRO);
+                _events.ScheduleEvent(EVENT_CALEN_TAUNT, 4s);
+                if (Creature* sinestra = _instance->GetCreature(DATA_SINESTRA))
+                {
+                    me->SetFacingToObject(sinestra);
+                    me->CastSpell(sinestra, SPELL_CALEN_DUEL_CHANNEL);
+                }
+                DoCastSelf(SPELL_PYRRHIC_FOCUS, true);
+                break;
+            case ACTION_CALEN_FINALE:
+                if (_state == CALEN_FINISHED)
+                    break;
+                _state = CALEN_FINISHED;
+                me->InterruptNonMeleeSpells(true);
+                me->RemoveAurasDueToSpell(SPELL_PYRRHIC_FOCUS);
+                Talk(SAY_CALEN_LAST_POWER);
+                DoCastAOE(SPELL_ESSENCE_OF_THE_RED, true);
+                me->SetStandState(UNIT_STAND_STATE_DEAD);
+                me->DespawnOrUnsummon(15s, 5min);
+                break;
+            case ACTION_CALEN_DEFEATED:
+                // Sent by the Pyrrhic Focus burn when he runs dry.
+                Defeated();
+                break;
+            case ACTION_CALEN_RESET:
+                Reset();
+                break;
+            default:
+                break;
         }
     }
 
-    bool _wrackActive;
+    void DamageTaken(Unit* /*attacker*/, uint32& damage) override
+    {
+        if (_state != CALEN_DUELING)
+        {
+            damage = 0;
+            return;
+        }
+
+        if (damage >= me->GetHealth())
+        {
+            damage = 0;
+            Defeated();
+            return;
+        }
+
+        if (!_powerWanesWarned && me->HealthBelowPctDamaged(25, damage))
+        {
+            _powerWanesWarned = true;
+            Talk(SAY_CALEN_POWER_WANES);
+        }
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        _events.Update(diff);
+
+        while (uint32 eventId = _events.ExecuteEvent())
+        {
+            switch (eventId)
+            {
+                case EVENT_CALEN_TAUNT:
+                    Talk(SAY_CALEN_AGGRO);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+private:
+    void Defeated()
+    {
+        if (_state == CALEN_FINISHED)
+            return;
+        _state = CALEN_FINISHED;
+
+        Talk(SAY_CALEN_DEATH);
+        me->InterruptNonMeleeSpells(true);
+        me->RemoveAurasDueToSpell(SPELL_PYRRHIC_FOCUS);
+        me->SetStandState(UNIT_STAND_STATE_DEAD);
+
+        if (Creature* sinestra = _instance->GetCreature(DATA_SINESTRA))
+            if (sinestra->IsAIEnabled())
+                sinestra->AI()->DoAction(ACTION_CALEN_DEFEATED);
+
+        me->DespawnOrUnsummon(8s, 5min);
+    }
+
+    InstanceScript* _instance;
+    EventMap _events;
+    CalenState _state;
+    bool _powerWanesWarned;
+};
+
+// Pulsing Twilight Egg (46842) - two permanent spawns. Impervious behind the
+// Twilight Carapace except while Sinestra siphons them.
+struct npc_sinestra_pulsing_twilight_egg final : public ScriptedAI
+{
+    npc_sinestra_pulsing_twilight_egg(Creature* creature) : ScriptedAI(creature), _instance(creature->GetInstanceScript())
+    {
+        SetCombatMovement(false);
+        me->SetReactState(REACT_PASSIVE);
+    }
+
+    void Reset() override
+    {
+        me->SetFullHealth();
+        ApplyCarapace(true);
+    }
+
+    void DoAction(int32 action) override
+    {
+        switch (action)
+        {
+            case ACTION_CARAPACE_DOWN:
+                ApplyCarapace(false);
+                break;
+            case ACTION_CARAPACE_UP:
+                ApplyCarapace(true);
+                break;
+            case ACTION_EGG_RESET:
+                Reset();
+                break;
+            default:
+                break;
+        }
+    }
+
+    void JustDied(Unit* /*killer*/) override
+    {
+        if (Creature* sinestra = _instance->GetCreature(DATA_SINESTRA))
+            if (sinestra->IsAIEnabled())
+                sinestra->AI()->DoAction(ACTION_EGG_DESTROYED);
+    }
+
+    void UpdateAI(uint32 /*diff*/) override { }
+
+private:
+    void ApplyCarapace(bool apply)
+    {
+        if (apply)
+        {
+            me->RemoveAurasDueToSpell(SPELL_TWILIGHT_INFUSION);
+            me->RemoveAurasDueToSpell(SPELL_TWILIGHT_INFUSION_VISUAL);
+            if (!me->HasAura(SPELL_TWILIGHT_CARAPACE))
+                DoCastSelf(SPELL_TWILIGHT_CARAPACE, true);
+            me->ApplySpellImmune(0, IMMUNITY_DAMAGE, SPELL_SCHOOL_MASK_ALL, true);
+        }
+        else
+        {
+            me->RemoveAurasDueToSpell(SPELL_TWILIGHT_CARAPACE);
+            me->ApplySpellImmune(0, IMMUNITY_DAMAGE, SPELL_SCHOOL_MASK_ALL, false);
+            DoCastSelf(SPELL_EGG_SIPHON_VISUAL, true);
+            DoCastSelf(SPELL_TWILIGHT_INFUSION_VISUAL, true);
+        }
+    }
+
+    InstanceScript* _instance;
+};
+
+// Twilight Spitecaller (48415) - Phase 2 add. Unleash Essence cannot be stopped
+// by interrupts; hard crowd control instead triggers Indomitable.
+struct npc_sinestra_twilight_spitecaller final : public ScriptedAI
+{
+    static uint32 constexpr HARD_CC_MASK =
+        (1 << MECHANIC_STUN) | (1 << MECHANIC_FEAR) | (1 << MECHANIC_SILENCE) |
+        (1 << MECHANIC_HORROR) | (1 << MECHANIC_FREEZE) | (1 << MECHANIC_BANISH);
+
+    npc_sinestra_twilight_spitecaller(Creature* creature) : ScriptedAI(creature), _engaged(false) { }
+
+    void Reset() override
+    {
+        // Unleash Essence is immune to conventional interrupts; the intended
+        // counterplay is loss-of-control effects (polymorph, disorient, ...).
+        me->ApplySpellImmune(0, IMMUNITY_EFFECT, SPELL_EFFECT_INTERRUPT_CAST, true);
+        me->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_INTERRUPT, true);
+    }
+
+    void IsSummonedBy(Unit* /*summoner*/) override
+    {
+        // Untargetable until it has entered the combat area (retail hotfix).
+        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+        me->SetReactState(REACT_PASSIVE);
+        me->GetMotionMaster()->MovePoint(POINT_ENTER_ROOM, SpitecallerEntryPos);
+        _events.ScheduleEvent(EVENT_ENGAGE_FAILSAFE, 8s);
+    }
+
+    void MovementInform(uint32 type, uint32 pointId) override
+    {
+        if (type == POINT_MOTION_TYPE && pointId == POINT_ENTER_ROOM)
+            Engage();
+    }
+
+    void SpellHit(WorldObject* /*caster*/, SpellInfo const* spellInfo) override
+    {
+        if (!(spellInfo->GetAllEffectsMechanicMask() & HARD_CC_MASK))
+            return;
+
+        if (me->HasAura(SPELL_INDOMITABLE_BUFF))
+            return;
+
+        // Surge of will: purge the control, punish the raid. The buff is a
+        // dispellable enrage granting CC immunity while present.
+        me->RemoveAurasWithMechanic(HARD_CC_MASK);
+        DoCastSelf(Is25ManRaid() ? SPELL_INDOMITABLE_25 : SPELL_INDOMITABLE, true);
+        DoCastSelf(SPELL_INDOMITABLE_BUFF, true);
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        _events.Update(diff);
+
+        while (uint32 eventId = _events.ExecuteEvent())
+        {
+            switch (eventId)
+            {
+                case EVENT_ENGAGE_FAILSAFE:
+                    Engage();
+                    break;
+                case EVENT_UNLEASH_ESSENCE:
+                    if (me->GetVictim() && !me->HasUnitState(UNIT_STATE_CASTING))
+                    {
+                        DoCastAOE(Is25ManRaid() ? SPELL_UNLEASH_ESSENCE_25 : SPELL_UNLEASH_ESSENCE);
+                        _events.Repeat(22s);
+                    }
+                    else
+                        _events.Repeat(2s);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (!UpdateVictim())
+            return;
+
+        if (me->HasUnitState(UNIT_STATE_CASTING))
+            return;
+
+        DoMeleeAttackIfReady();
+    }
+
+private:
+    void Engage()
+    {
+        if (_engaged)
+            return;
+        _engaged = true;
+
+        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+        me->SetReactState(REACT_AGGRESSIVE);
+        DoZoneInCombat();
+        _events.CancelEvent(EVENT_ENGAGE_FAILSAFE);
+        _events.ScheduleEvent(EVENT_UNLEASH_ESSENCE, 8s, 12s);
+    }
+
+    EventMap _events;
+    bool _engaged;
+};
+
+// Twilight Drake (48436) - Phase 2 add. Flies in from its perch, breathes on
+// the tank and consumes Twilight Essence pools for a stacking buff.
+struct npc_sinestra_twilight_drake final : public ScriptedAI
+{
+    npc_sinestra_twilight_drake(Creature* creature) : ScriptedAI(creature), _landed(false) { }
+
+    void IsSummonedBy(Unit* /*summoner*/) override
+    {
+        me->SetDisableGravity(true);
+        me->SetCanFly(true);
+        me->SetReactState(REACT_PASSIVE);
+        me->GetMotionMaster()->MoveLand(POINT_LAND, DrakeLandingPos);
+        _events.ScheduleEvent(EVENT_ENGAGE_FAILSAFE, 10s);
+    }
+
+    void MovementInform(uint32 type, uint32 pointId) override
+    {
+        if ((type == EFFECT_MOTION_TYPE || type == POINT_MOTION_TYPE) && pointId == POINT_LAND)
+            Land();
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        _events.Update(diff);
+
+        while (uint32 eventId = _events.ExecuteEvent())
+        {
+            switch (eventId)
+            {
+                case EVENT_ENGAGE_FAILSAFE:
+                    Land();
+                    break;
+                case EVENT_TWILIGHT_BREATH:
+                    DoCastVictim(Is25ManRaid() ? SPELL_TWILIGHT_BREATH_25 : SPELL_TWILIGHT_BREATH);
+                    _events.Repeat(12s, 16s);
+                    break;
+                case EVENT_ABSORB_ESSENCE_CHECK:
+                    if (Creature* pool = me->FindNearestCreature(NPC_TWILIGHT_ESSENCE_POOL, 6.0f))
+                    {
+                        pool->DespawnOrUnsummon();
+                        DoCastSelf(SPELL_ABSORB_ESSENCE, true);
+                    }
+                    _events.Repeat(1s);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (!UpdateVictim())
+            return;
+
+        if (me->HasUnitState(UNIT_STATE_CASTING))
+            return;
+
+        DoMeleeAttackIfReady();
+    }
+
+private:
+    void Land()
+    {
+        if (_landed)
+            return;
+        _landed = true;
+
+        me->SetCanFly(false);
+        me->SetDisableGravity(false);
+        me->SetReactState(REACT_AGGRESSIVE);
+        DoZoneInCombat();
+        _events.CancelEvent(EVENT_ENGAGE_FAILSAFE);
+        _events.ScheduleEvent(EVENT_TWILIGHT_BREATH, 8s, 12s);
+        _events.ScheduleEvent(EVENT_ABSORB_ESSENCE_CHECK, 1s);
+    }
+
+    EventMap _events;
+    bool _landed;
 };
 
 // Twilight Whelp AI
 struct npc_sinestra_twilight_whelp final : public ScriptedAI
 {
-    npc_sinestra_twilight_whelp(Creature* creature) : ScriptedAI(creature)
+    npc_sinestra_twilight_whelp(Creature* creature) : ScriptedAI(creature), _instance(creature->GetInstanceScript())
     {
         Initialize();
     }
@@ -444,29 +1114,28 @@ struct npc_sinestra_twilight_whelp final : public ScriptedAI
     void JustDied(Unit* /*killer*/) override
     {
         // First death: spawn Twilight Essence pool at whelp's location
-        if (!_hasDroppedPool)
+        if (_hasDroppedPool)
+            return;
+        _hasDroppedPool = true;
+
+        // The pool is summoned by the boss so it lands in her summon list and
+        // gets cleaned up on evade/kill.
+        Creature* summoner = _instance ? _instance->GetCreature(DATA_SINESTRA) : nullptr;
+
+        Creature* essence = nullptr;
+        if (summoner)
+            essence = summoner->SummonCreature(NPC_TWILIGHT_ESSENCE_POOL, me->GetPosition(), TEMPSUMMON_MANUAL_DESPAWN);
+        else
+            essence = me->SummonCreature(NPC_TWILIGHT_ESSENCE_POOL, me->GetPosition(), TEMPSUMMON_MANUAL_DESPAWN);
+
+        if (essence)
         {
-            _hasDroppedPool = true;
-
-            // Spawn the Twilight Essence NPC at the whelp's death location
-            Position pos = me->GetPosition();
-            TC_LOG_DEBUG("scripts.sinestra", "Twilight Whelp JustDied: Spawning Twilight Essence at ({}, {}, {})", pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ());
-
-            if (Creature* essence = me->SummonCreature(NPC_TWILIGHT_ESSENCE, pos, TEMPSUMMON_MANUAL_DESPAWN))
-            {
-                TC_LOG_DEBUG("scripts.sinestra", "Twilight Essence spawned successfully, applying visual aura");
-                // Make the essence non-interactive
-                essence->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
-                essence->SetReactState(REACT_PASSIVE);
-                essence->AttackStop();
-                essence->StopMoving();
-                // Cast the visual aura on itself
-                essence->CastSpell(essence, SPELL_TWILIGHT_ESSENCE_AURA, true);
-            }
-            else
-            {
-                TC_LOG_ERROR("scripts.sinestra", "Failed to spawn Twilight Essence NPC {} at whelp death location!", NPC_TWILIGHT_ESSENCE);
-            }
+            // Make the essence non-interactive
+            essence->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+            essence->SetReactState(REACT_PASSIVE);
+            essence->AttackStop();
+            essence->StopMoving();
+            essence->CastSpell(essence, SPELL_TWILIGHT_ESSENCE_AURA, true);
         }
     }
 
@@ -485,7 +1154,7 @@ struct npc_sinestra_twilight_whelp final : public ScriptedAI
             switch (eventId)
             {
                 case EVENT_TWILIGHT_SPIT:
-                    DoCastVictim(SPELL_TWILIGHT_SPIT);
+                    DoCastVictim(Is25ManRaid() ? SPELL_TWILIGHT_SPIT : SPELL_TWILIGHT_SPIT_10N);
                     _events.Repeat(3s, 5s);
                     break;
                 default:
@@ -498,15 +1167,13 @@ struct npc_sinestra_twilight_whelp final : public ScriptedAI
 
     void DoAction(int32 action) override
     {
+        // Revived whelps do not drop a second pool.
         if (action == ACTION_MARK_AS_RESPAWNED)
-        {
-            // Mark this whelp as respawned - it won't drop a pool on next death
             _hasDroppedPool = true;
-            TC_LOG_DEBUG("scripts.sinestra", "Twilight Whelp marked as respawned - will not drop pool on death");
-        }
     }
 
 private:
+    InstanceScript* _instance;
     EventMap _events;
     bool _hasDroppedPool;
 };
@@ -557,9 +1224,6 @@ private:
         {
             if (!whelp->IsAlive())
             {
-                TC_LOG_DEBUG("scripts.sinestra", "Twilight Essence reviving dead whelp at ({}, {}, {})",
-                    whelp->GetPositionX(), whelp->GetPositionY(), whelp->GetPositionZ());
-
                 // Properly revive the whelp in place
                 whelp->setDeathState(JUST_RESPAWNED);
                 whelp->SetFullHealth();
@@ -618,11 +1282,9 @@ struct npc_sinestra_shadow_orb final : public ScriptedAI
             case ACTION_SET_PAIRED_ORB:
                 _pairedOrb = guid;
                 _isFirstOrb = true; // The orb that receives the paired GUID is the "first" one responsible for beam
-                TC_LOG_DEBUG("scripts.sinestra", "Shadow Orb %s received paired orb GUID", me->GetGUID().ToString().c_str());
                 break;
             case ACTION_SET_FIXATE_TARGET:
                 _fixateTarget = guid;
-                TC_LOG_DEBUG("scripts.sinestra", "Shadow Orb %s received fixate target GUID", me->GetGUID().ToString().c_str());
                 break;
             default:
                 break;
@@ -631,8 +1293,6 @@ struct npc_sinestra_shadow_orb final : public ScriptedAI
 
     void IsSummonedBy(Unit* /*summoner*/) override
     {
-        TC_LOG_ERROR("scripts.sinestra", "Shadow Orb IsSummonedBy called - orb spawned successfully");
-
         // Make the orb float and move fast (speed ~2.5 from sniff data)
         me->SetDisableGravity(true);
         me->SetCanFly(true);
@@ -640,7 +1300,6 @@ struct npc_sinestra_shadow_orb final : public ScriptedAI
         me->SetSpeed(MOVE_WALK, 2.5f);
         me->SetSpeed(MOVE_FLIGHT, 2.5f);
 
-        // Schedule events
         _events.ScheduleEvent(EVENT_START_FIXATE, 200ms);  // Start following quickly
         _events.ScheduleEvent(EVENT_TWILIGHT_PULSE, 1s);   // Start pulsing every 1 sec
         _events.ScheduleEvent(EVENT_START_BEAM, 3s);       // Beam starts after 3s
@@ -656,16 +1315,8 @@ struct npc_sinestra_shadow_orb final : public ScriptedAI
             switch (eventId)
             {
                 case EVENT_START_FIXATE:
-                    if (Unit* target = ObjectAccessor::GetUnit(*me, _fixateTarget))
-                    {
-                        TC_LOG_ERROR("scripts.sinestra", "Shadow Orb fixating on player %s", target->GetName().c_str());
-                        // Start periodic movement updates toward target
+                    if (ObjectAccessor::GetUnit(*me, _fixateTarget))
                         _events.ScheduleEvent(EVENT_UPDATE_FIXATE_POSITION, 100ms);
-                    }
-                    else
-                    {
-                        TC_LOG_ERROR("scripts.sinestra", "Shadow Orb EVENT_START_FIXATE: Could not find fixate target!");
-                    }
                     break;
 
                 case EVENT_UPDATE_FIXATE_POSITION:
@@ -799,50 +1450,167 @@ private:
     bool _isFirstOrb;
 };
 
-// Wrack spell script - handles dispel jumping
+// Wrack (89421 / 92955). The DoT ramps every tick; a dispel bounces it to the
+// two nearest eligible allies with the remaining duration but a fresh ramp.
 class spell_sinestra_wrack : public AuraScript
 {
+    static float constexpr WRACK_GROWTH_PER_TICK = 1.22f;
+    static float constexpr WRACK_TICK_CAP = 60000.0f;
+
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_WRACK, SPELL_WRACK_10N });
     }
 
-    void HandleDispel(DispelInfo* dispelInfo)
+    void HandleUpdatePeriodic(AuraEffect* aurEff)
     {
-        if (Unit* target = GetTarget())
+        uint32 tick = std::max<uint32>(aurEff->GetTickNumber(), 1);
+        float base = float(std::max(aurEff->GetBaseAmount(), 1));
+        aurEff->SetAmount(int32(std::min(base * std::pow(WRACK_GROWTH_PER_TICK, float(tick - 1)), WRACK_TICK_CAP)));
+    }
+
+    void HandleDispel(DispelInfo* /*dispelInfo*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* host = GetUnitOwner();
+        if (!caster || !host)
+            return;
+
+        int32 remaining = GetDuration();
+        if (remaining <= 2000) // about to expire anyway: no bounce
+            return;
+
+        std::list<Player*> candidates;
+        host->GetPlayerListInGrid(candidates, 15.0f);
+        candidates.remove_if([&](Player* player)
         {
-            uint32 remainingDuration = GetDuration();
+            if (!player || !player->IsAlive() || player->IsGameMaster())
+                return true;
+            if (player == host)
+                return true;
+            if (player->HasAura(SPELL_WRACK) || player->HasAura(SPELL_WRACK_10N))
+                return true;
+            if (player == caster->GetVictim()) // never a tank
+                return true;
+            return false;
+        });
 
-            // Find 2 nearest allies to jump to
-            std::list<Player*> nearbyPlayers;
-            target->GetPlayerListInGrid(nearbyPlayers, 15.0f);
+        candidates.sort([host](Player* a, Player* b)
+        {
+            return host->GetDistance2d(a) < host->GetDistance2d(b);
+        });
 
-            if (!nearbyPlayers.empty())
+        uint8 applied = 0;
+        for (Player* ally : candidates)
+        {
+            if (applied >= 2)
+                break;
+
+            // A fresh aura restarts the tick counter, which resets the ramp -
+            // exactly the retail semantics.
+            if (Aura* bounced = caster->AddAura(GetId(), ally))
             {
-                Trinity::Containers::RandomResize(nearbyPlayers, std::min<size_t>(2, nearbyPlayers.size()));
-
-                for (Player* ally : nearbyPlayers)
-                {
-                    if (ally != target && ally->IsAlive())
-                    {
-                        if (Aura* newWrack = ally->AddAura(GetSpellInfo()->Id, ally))
-                        {
-                            newWrack->SetDuration(remainingDuration);
-                            newWrack->SetMaxDuration(remainingDuration);
-                        }
-                    }
-                }
-            }
-
-            if (Unit* dispeller = dispelInfo->GetDispeller()->ToUnit())
-            {
+                bounced->SetMaxDuration(remaining);
+                bounced->SetDuration(remaining);
+                ++applied;
             }
         }
     }
 
     void Register() override
     {
-        OnDispel.Register(&spell_sinestra_wrack::HandleDispel);
+        OnEffectUpdatePeriodic.Register(&spell_sinestra_wrack::HandleUpdatePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE);
+        AfterDispel.Register(&spell_sinestra_wrack::HandleDispel);
+    }
+};
+
+// Mana Barrier (87299). Each tick heals Sinestra back to full and pays for the
+// healed amount in mana. See MANA_DRAIN_FACTOR for the economy.
+class spell_sinestra_mana_barrier : public AuraScript
+{
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        PreventDefaultAction();
+
+        Unit* target = GetTarget();
+        uint32 missing = target->GetMaxHealth() - target->GetHealth();
+        if (!missing)
+            return;
+
+        uint32 maxMana = target->GetMaxPower(POWER_MANA);
+        int32 drain = int32(float(missing) / float(target->GetMaxHealth()) * float(maxMana) * MANA_DRAIN_FACTOR);
+
+        target->ModifyHealth(int32(missing));
+        target->ModifyPower(POWER_MANA, -std::max(drain, 1));
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic.Register(&spell_sinestra_mana_barrier::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+};
+
+// Fiery Barrier (87229, rides on Calen). Applies the -99% damage taken aura to
+// every living player inside the dome twice a second.
+class spell_calen_fiery_barrier : public AuraScript
+{
+    static float constexpr BARRIER_RADIUS = 10.0f;
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_FIERY_BARRIER_PROTECTION });
+    }
+
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        PreventDefaultAction();
+
+        Unit* target = GetTarget();
+        std::list<Player*> players;
+        target->GetPlayerListInGrid(players, BARRIER_RADIUS);
+        for (Player* player : players)
+        {
+            if (!player->IsAlive())
+                continue;
+
+            if (Aura* protection = target->AddAura(SPELL_FIERY_BARRIER_PROTECTION, player))
+            {
+                protection->SetMaxDuration(2500);
+                protection->SetDuration(2500);
+            }
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic.Register(&spell_calen_fiery_barrier::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+};
+
+// Pyrrhic Focus (87323). Calen burns himself out: 2% of his max health per
+// second. Healers extend the duel; the +500% healing taken effect (EFFECT_1)
+// comes straight from the DBC.
+class spell_calen_pyrrhic_focus : public AuraScript
+{
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        PreventDefaultAction();
+
+        Unit* target = GetTarget();
+        uint32 burn = target->CountPctFromMaxHealth(2);
+        if (target->GetHealth() <= burn)
+        {
+            if (Creature* calen = target->ToCreature())
+                if (calen->IsAIEnabled())
+                    calen->AI()->DoAction(ACTION_CALEN_DEFEATED);
+        }
+        else
+            target->ModifyHealth(-int32(burn));
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic.Register(&spell_calen_pyrrhic_focus::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
     }
 };
 
@@ -854,8 +1622,15 @@ void AddSC_boss_sinestra()
     using namespace BastionOfTwilight::Sinestra;
 
     RegisterBastionOfTwilightCreatureAI(boss_sinestra);
+    RegisterBastionOfTwilightCreatureAI(npc_sinestra_calen);
+    RegisterBastionOfTwilightCreatureAI(npc_sinestra_pulsing_twilight_egg);
+    RegisterBastionOfTwilightCreatureAI(npc_sinestra_twilight_spitecaller);
+    RegisterBastionOfTwilightCreatureAI(npc_sinestra_twilight_drake);
     RegisterBastionOfTwilightCreatureAI(npc_sinestra_twilight_whelp);
     RegisterBastionOfTwilightCreatureAI(npc_sinestra_twilight_essence);
     RegisterBastionOfTwilightCreatureAI(npc_sinestra_shadow_orb);
     RegisterSpellScript(spell_sinestra_wrack);
+    RegisterSpellScript(spell_sinestra_mana_barrier);
+    RegisterSpellScript(spell_calen_fiery_barrier);
+    RegisterSpellScript(spell_calen_pyrrhic_focus);
 }

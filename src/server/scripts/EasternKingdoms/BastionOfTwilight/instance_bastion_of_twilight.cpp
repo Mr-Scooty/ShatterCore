@@ -39,6 +39,8 @@ ObjectData const creatureData[] =
     { BOSS_ELEMENTIUM_MONSTROSITY,      DATA_ELEMENTIUM_MONSTROSITY         },
     { BOSS_CHOGALL,                     DATA_CHOGALL                        },
     { BOSS_SINESTRA,                    DATA_SINESTRA                       },
+    { NPC_CALEN,                        DATA_CALEN                          },
+    { NPC_SINESTRA_CHANNEL_TARGET,      DATA_SINESTRA_CHANNEL_TARGET        },
     { NPC_PROTO_BEHEMOTH,               DATA_PROTO_BEHEMOTH                 },
     { NPC_SLATE_DRAGON,                 DATA_SLATE_DRAGON                   },
     { NPC_NETHER_SCION,                 DATA_NETHER_SCION                   },
@@ -78,6 +80,13 @@ enum MapEvents
 };
 
 Position const BreathFlightTargetStalkerSortPos = { -740.677f, -592.328f, 859.455f };
+
+enum SinestraInstanceSpells
+{
+    SPELL_WRACK_10                  = 89421,
+    SPELL_WRACK_25                  = 92955,
+    SPELL_ESSENCE_OF_THE_RED        = 87946
+};
 
 class instance_bastion_of_twilight final : public InstanceMapScript
 {
@@ -154,6 +163,16 @@ class instance_bastion_of_twilight final : public InstanceMapScript
                         if (Creature* chogall = GetCreature(DATA_CHOGALL))
                             chogall->AI()->JustSummoned(creature);
                         break;
+                    case BOSS_SINESTRA:
+                        UpdateSinestraAvailability(creature);
+                        break;
+                    case NPC_PULSING_TWILIGHT_EGG:
+                        // Two permanent spawns, disambiguated by which side of the lair they sit on.
+                        if (creature->GetPositionY() > -700.0f)
+                            _eggLeftGUID = creature->GetGUID();
+                        else
+                            _eggRightGUID = creature->GetGUID();
+                        break;
                     default:
                         break;
                 }
@@ -169,6 +188,11 @@ class instance_bastion_of_twilight final : public InstanceMapScript
             void OnGameObjectCreate(GameObject* go) override
             {
                 InstanceScript::OnGameObjectCreate(go);
+
+                // The trap door is broken open by Cho'gall's heroic death event; restore
+                // that state when a saved instance is reloaded.
+                if (go->GetEntry() == GO_GRIM_BATOL_RAID_TRAP_DOOR && instance->IsHeroic() && GetBossState(DATA_CHOGALL) == DONE)
+                    go->SetGoState(GO_STATE_ACTIVE);
             }
 
             bool SetBossState(uint32 type, EncounterState state) override
@@ -215,7 +239,20 @@ class instance_bastion_of_twilight final : public InstanceMapScript
                         break;
                     case DATA_CHOGALL:
                         if (state == DONE)
+                        {
                             CheckFullHeroicCompleted();
+                            if (instance->IsHeroic())
+                            {
+                                if (Creature* sinestra = GetCreature(DATA_SINESTRA))
+                                    UpdateSinestraAvailability(sinestra);
+                                if (GameObject* trapDoor = GetGameObject(DATA_GRIM_BATOL_RAID_TRAP_DOOR))
+                                    trapDoor->SetGoState(GO_STATE_ACTIVE);
+                            }
+                        }
+                        break;
+                    case DATA_SINESTRA:
+                        if (state == FAIL)
+                            ResetSinestraEncounter();
                         break;
                     default:
                         break;
@@ -278,6 +315,10 @@ class instance_bastion_of_twilight final : public InstanceMapScript
                         return Trinity::Containers::SelectRandomContainerElement(_valionaDummyGUIDs);
                     case DATA_VALIONA_AURA_DUMMY:
                         return _valionaAuraDummyGUID;
+                    case DATA_EGG_LEFT:
+                        return _eggLeftGUID;
+                    case DATA_EGG_RIGHT:
+                        return _eggRightGUID;
                     default:
                         break;
                 }
@@ -372,6 +413,52 @@ class instance_bastion_of_twilight final : public InstanceMapScript
                 }
             }
 
+            // Sinestra is only reachable once Cho'gall has fallen on heroic in this
+            // instance save. Until then she is present but hidden and inert.
+            void UpdateSinestraAvailability(Creature* sinestra)
+            {
+                if (instance->IsHeroic() && GetBossState(DATA_CHOGALL) == DONE)
+                {
+                    sinestra->SetVisible(true);
+                    sinestra->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
+                    sinestra->SetReactState(REACT_AGGRESSIVE);
+                }
+                else
+                {
+                    sinestra->SetVisible(false);
+                    sinestra->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
+                    sinestra->SetReactState(REACT_PASSIVE);
+                }
+            }
+
+            // The eggs and Calen are permanent map spawns, not summons, so a wipe
+            // has to restore them from here rather than from the boss' summon list.
+            void ResetSinestraEncounter()
+            {
+                for (ObjectGuid guid : { _eggLeftGUID, _eggRightGUID })
+                {
+                    if (Creature* egg = instance->GetCreature(guid))
+                    {
+                        if (egg->isDead())
+                            egg->Respawn(true);
+                        else if (egg->IsAIEnabled())
+                            egg->AI()->DoAction(ACTION_EGG_RESET);
+                    }
+                }
+
+                if (Creature* calen = GetCreature(DATA_CALEN))
+                {
+                    if (calen->isDead())
+                        calen->Respawn(true);
+                    else if (calen->IsAIEnabled())
+                        calen->AI()->DoAction(ACTION_CALEN_RESET);
+                }
+
+                DoRemoveAurasDueToSpellOnPlayers(SPELL_WRACK_10);
+                DoRemoveAurasDueToSpellOnPlayers(SPELL_WRACK_25);
+                DoRemoveAurasDueToSpellOnPlayers(SPELL_ESSENCE_OF_THE_RED);
+            }
+
             void CheckFullHeroicCompleted()
             {
                 if (!instance->IsHeroic())
@@ -394,6 +481,8 @@ class instance_bastion_of_twilight final : public InstanceMapScript
             GuidSet _unstableTwilightGUIDs;
             GuidSet _collapsingTwilightPortalGUIDs;
             ObjectGuid _valionaAuraDummyGUID;
+            ObjectGuid _eggLeftGUID;
+            ObjectGuid _eggRightGUID;
             uint8 _activeDragonFlags;
             bool _fullHeroicCompleted;
         };
