@@ -45,6 +45,7 @@ enum Spells
     SPELL_SEARING_SEEDS             = 98450,
     SPELL_BURNING_ORBS              = 98451,
     SPELL_BURNING_ORBS_SUMMON       = 98565,
+    SPELL_BERSERK                   = 26662,
 
     // Spirit of the Flame
     SPELL_STUN_AND_HATE             = 101224,
@@ -62,6 +63,8 @@ enum Events
     // Majordomo Staghelm
     EVENT_ALLOW_COMBAT = 1,
     EVENT_FORM_ABILITY,
+    EVENT_HUMAN_PHASE_ABILITY,
+    EVENT_BERSERK,
     EVENT_BALEROC_DIED_1,
     EVENT_BALEROC_DIED_2,
     EVENT_BALEROC_DIED_3
@@ -118,7 +121,7 @@ Position const MajordomoStaghelmMovePosition = { 523.4965f, -61.987846f, 83.9470
 struct boss_majordomo_staghelm : public BossAI
 {
     boss_majordomo_staghelm(Creature* creature) : BossAI(creature, DATA_MAJORDOMO_STAGHELM),
-        _firstTransformation(true), _splitPlayersTicks(0), _clusteredPlayersTicks(0), _currentForm(Forms::Druid), _appliedSeeds(0), _formSwitchCount(0), _killedDruidsOfTheFlameCount(0)
+        _firstTransformation(true), _castSearingSeedsNext(false), _splitPlayersTicks(0), _clusteredPlayersTicks(0), _currentForm(Forms::Druid), _formSwitchCount(0), _killedDruidsOfTheFlameCount(0)
     {
         // Grid unloading causes Majordomo to despawn when being out of cell range for too long
         // Since his respawn position differs from his initial position and we don't have a way to manipulate spawn points anymore, there is no other way (yet).
@@ -144,6 +147,7 @@ struct boss_majordomo_staghelm : public BossAI
 
         instance->SendEncounterUnit(ENCOUNTER_FRAME_ENGAGE, me);
         events.SetPhase(PHASE_COMBAT);
+        events.ScheduleEvent(EVENT_BERSERK, 10min, 0, PHASE_COMBAT);
     }
 
     void EnterEvadeMode(EvadeReason why) override
@@ -246,21 +250,14 @@ struct boss_majordomo_staghelm : public BossAI
                 me->RemoveAurasDueToSpell(SPELL_SCORPION_FORM);
                 me->RemoveAurasDueToSpell(SPELL_CAT_FORM);
                 me->RemoveAurasDueToSpell(SPELL_ADRENALINE);
+                me->SetPower(POWER_ENERGY, 0);
+                events.CancelEvent(EVENT_FORM_ABILITY);
                 DoCastAOE(SPELL_FIERY_CYCLONE);
 
-                if (_currentForm == Forms::Cat)
-                {
-                    _appliedSeeds = 0;
-                    DoCastAOE(SPELL_SEARING_SEEDS);
-                    Talk(SAY_SEARING_SEEDS);
-                    Talk(SAY_ANNOUNCE_SEARING_SEEDS);
-                }
-                else
-                {
-                    DoCastAOE(SPELL_BURNING_ORBS);
-                    Talk(SAY_BURNING_ORBS);
-                    Talk(SAY_ANNOUNCE_BURNING_ORBS);
-                }
+                // Searing Seeds and Burning Orbs have a ~2s cast time. Delay them so they
+                // land after the cyclone's 3s school immunity has worn off the players.
+                _castSearingSeedsNext = _currentForm == Forms::Cat;
+                events.ScheduleEvent(EVENT_HUMAN_PHASE_ABILITY, 1s + 500ms, 0, PHASE_COMBAT);
 
                 _currentForm = Forms::Druid;
                 _formSwitchCount = 0;
@@ -278,6 +275,7 @@ struct boss_majordomo_staghelm : public BossAI
                 _firstTransformation = false;
 
             me->RemoveAurasDueToSpell(SPELL_ADRENALINE);
+            me->SetPower(POWER_ENERGY, 0);
             events.RescheduleEvent(EVENT_FORM_ABILITY, 400ms, 0, PHASE_COMBAT);
             _currentForm = useScorpionForm ? Forms::Scorpion : Forms::Cat;
             ++_formSwitchCount;
@@ -312,6 +310,23 @@ struct boss_majordomo_staghelm : public BossAI
                     }
                     events.Repeat(400ms);
                     break;
+                case EVENT_HUMAN_PHASE_ABILITY:
+                    if (_castSearingSeedsNext)
+                    {
+                        DoCastAOE(SPELL_SEARING_SEEDS);
+                        Talk(SAY_SEARING_SEEDS);
+                        Talk(SAY_ANNOUNCE_SEARING_SEEDS);
+                    }
+                    else
+                    {
+                        DoCastAOE(SPELL_BURNING_ORBS);
+                        Talk(SAY_BURNING_ORBS);
+                        Talk(SAY_ANNOUNCE_BURNING_ORBS);
+                    }
+                    break;
+                case EVENT_BERSERK:
+                    DoCastSelf(SPELL_BERSERK, true);
+                    break;
                 case EVENT_BALEROC_DIED_1:
                     Talk(SAY_BALEROC_DIED_1);
                     events.ScheduleEvent(EVENT_BALEROC_DIED_2, 11s);
@@ -338,10 +353,10 @@ struct boss_majordomo_staghelm : public BossAI
 
 private:
     bool _firstTransformation;
+    bool _castSearingSeedsNext;
     uint32 _splitPlayersTicks;
     uint32 _clusteredPlayersTicks;
     Forms _currentForm;
-    uint8 _appliedSeeds;
     uint8 _formSwitchCount;
     uint8 _killedDruidsOfTheFlameCount;
 };
@@ -619,7 +634,8 @@ class spell_majordomo_staghelm_burning_orbs : public SpellScript
         if (!caster)
             return;
 
-        for (uint8 i = 0; i < 5; ++i)
+        uint8 orbCount = caster->GetMap()->Is25ManRaid() ? 5 : 2;
+        for (uint8 i = 0; i < orbCount; ++i)
             caster->CastSpell(nullptr, SPELL_BURNING_ORBS_SUMMON);
     }
 
