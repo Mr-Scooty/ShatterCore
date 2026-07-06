@@ -53,6 +53,8 @@ enum FLDataTypes
     DATA_DREADFLAME_CONTROLLER,
     DATA_CENARIUS,
     DATA_MAGMA_KNOCKBACK,
+    DATA_RIPLIMB,
+    DATA_RAGEFACE,
 };
 
 enum FLCreatureIds
@@ -71,6 +73,10 @@ enum FLCreatureIds
     NPC_CINDERWEB_DRONE                     = 53102,
     NPC_CINDERWEB_SPIDERLING                = 53141,
     NPC_WEB_FILAMENT                        = 53082,
+
+    // Shannox
+    NPC_RIPLIMB                             = 53694,
+    NPC_RAGEFACE                            = 53695,
 
     //Lord Rhyolith
     NPC_MOVEMENT_CONTROLLER_LORD_RHYOLITH   = 52659,
