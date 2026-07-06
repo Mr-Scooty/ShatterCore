@@ -69,10 +69,13 @@ enum FLCreatureIds
     BOSS_RAGNAROS                           = 52409,
 
     // Beth'tilac
-    NPC_CINDERWEB_SPINNER                   = 53178,
-    NPC_CINDERWEB_DRONE                     = 53102,
-    NPC_CINDERWEB_SPIDERLING                = 53141,
+    NPC_CINDERWEB_SPINNER                   = 52524,
+    NPC_CINDERWEB_DRONE                     = 52581,
+    NPC_CINDERWEB_SPIDERLING                = 52447,
+    NPC_ENGORGED_BROODLING                  = 53745,
     NPC_WEB_FILAMENT                        = 53082,
+    NPC_WEB_RIP                             = 53474,
+    NPC_SPIDERLING_STALKER                  = 53178,
 
     // Shannox
     NPC_RIPLIMB                             = 53694,

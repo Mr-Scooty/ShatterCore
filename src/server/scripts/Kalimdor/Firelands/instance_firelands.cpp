@@ -71,6 +71,7 @@ enum Spells
 
 BossBoundaryData const boundaries =
 {
+    { DATA_BETHTILAC,      new CircleBoundary(Position(55.0f, 390.0f), 110.f) },
     { DATA_LORD_RHYOLITH,  new CircleBoundary(Position(-371.577393f, -318.680725f), 60.f) }
 };
 
