@@ -58,15 +58,11 @@ DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` = 53082;
 INSERT INTO `npc_spellclick_spells` (`npc_entry`, `spell_id`, `cast_flags`, `user_type`) VALUES
 (53082, 98297, 1, 0);
 
--- SpellDifficulty chains (verified against 4.3.4 SpellDifficulty.dbc)
+-- SpellDifficulty chains: all present in the client 4.3.4 SpellDifficulty.dbc
+-- (3872/3822/3823/3837/3772/3840). The world spelldifficulty_dbc table may
+-- only ADD entries missing from the client DBC - duplicating a client id
+-- trips the DBCDatabaseLoader unique-index assertion and aborts server boot.
 DELETE FROM `spelldifficulty_dbc` WHERE `id` IN (3872, 3822, 3823, 3837, 3772, 3840);
-INSERT INTO `spelldifficulty_dbc` (`id`, `spellid0`, `spellid1`, `spellid2`, `spellid3`) VALUES
-(3872, 99333, 101128, 101129, 101130), -- Venom Rain
-(3822, 98934, 100648, 100834, 100835), -- Ember Flare (phase 1)
-(3823, 99859, 100649, 100935, 100936), -- Ember Flare (phase 2)
-(3837, 98471, 100826, 100827, 100828), -- Burning Acid
-(3772, 99463, 100121, 100832, 100833), -- Boiling Spatter
-(3840, 99990, 100838, 99990, 100838);  -- Volatile Burst (heroic-only caster)
 
 -- Spell scripts: bound to every ID of each difficulty chain (spell scripts do not
 -- follow spelldifficulty links)

@@ -34,6 +34,7 @@ ObjectData const creatureData[] =
     { NPC_RAGEFACE,                             DATA_RAGEFACE                           },
     { BOSS_LORD_RHYOLITH,                       DATA_LORD_RHYOLITH                      },
     { BOSS_ALYSRAZOR,                           DATA_ALYSRAZOR                          },
+    { NPC_MAJORDOMO_STAGHELM_ALYSRAZOR,         DATA_MAJORDOMO_STAGHELM_ALYSRAZOR       },
     { BOSS_BALEROC,                             DATA_BALEROC                            },
     { BOSS_MAJORDOMO_STAGHELM,                  DATA_MAJORDOMO_STAGHELM                 },
     { BOSS_RAGNAROS,                            DATA_RAGNAROS                           },
@@ -72,7 +73,8 @@ enum Spells
 BossBoundaryData const boundaries =
 {
     { DATA_BETHTILAC,      new CircleBoundary(Position(55.0f, 390.0f), 110.f) },
-    { DATA_LORD_RHYOLITH,  new CircleBoundary(Position(-371.577393f, -318.680725f), 60.f) }
+    { DATA_LORD_RHYOLITH,  new CircleBoundary(Position(-371.577393f, -318.680725f), 60.f) },
+    { DATA_ALYSRAZOR,      new CircleBoundary(Position(-37.66f, -279.50f), 95.f) }
 };
 
 class DelayedAttackStartEvent : public BasicEvent
@@ -98,7 +100,21 @@ enum MajordomoStaghelmActions
 
 enum Events
 {
-    EVENT_RESPAWN_MAJORDOMO_STAGHELM = 1
+    EVENT_RESPAWN_MAJORDOMO_STAGHELM = 1,
+    EVENT_RESET_ALYSRAZOR_INTRO
+};
+
+uint32 const AlysrazorWipeAuras[] =
+{
+    97128,  // Molten Feather
+    101410, // Molten Feather Bar (alternate power UI)
+    98624,  // Wings of Flame
+    98619,  // Wings of Flame (fly carrier)
+    99461,  // Blazing Power
+    100029, // Alysra's Razor
+    99308,  // Gushing Wound
+    99389,  // Imprinted
+    100640  // Harsh Winds
 };
 
 Position const MajordomoStaghelmSpawnPosition   = { 570.2274f, -61.82986f,  90.42272f, 3.1415927f };
@@ -142,6 +158,17 @@ class instance_firelands : public InstanceMapScript
                     case NPC_SMOULDERING_HATCHLING:
                         // Cannot directly start attacking here as the creature is not yet on map
                         creature->m_Events.AddEvent(new DelayedAttackStartEvent(creature), creature->m_Events.CalculateTime(500));
+                        break;
+                    case NPC_VORACIOUS_HATCHLING_1:
+                    case NPC_VORACIOUS_HATCHLING_2:
+                    case NPC_MOLTEN_EGG_1:
+                    case NPC_MOLTEN_EGG_2:
+                    case NPC_MOLTEN_FEATHER:
+                        // Summoned indirectly (eggs by broodmother vehicle eject, hatchlings by eggs),
+                        // funnel into Alysrazor's SummonList for wipe cleanup
+                        if (Creature* alysrazor = GetCreature(DATA_ALYSRAZOR))
+                            if (CreatureAI* ai = alysrazor->AI())
+                                ai->JustSummoned(creature);
                         break;
                     case NPC_SULFURAS_SMASH_1:
                     case NPC_LAVA_WAVE:
@@ -200,6 +227,13 @@ class instance_firelands : public InstanceMapScript
                         if (state == FAIL)
                             _events.ScheduleEvent(EVENT_RESPAWN_MAJORDOMO_STAGHELM, 30s);
                         break;
+                    case DATA_ALYSRAZOR:
+                        if (state == FAIL || state == DONE)
+                            for (uint32 spellId : AlysrazorWipeAuras)
+                                DoRemoveAurasDueToSpellOnPlayers(spellId);
+                        if (state == FAIL)
+                            _events.ScheduleEvent(EVENT_RESET_ALYSRAZOR_INTRO, 30s);
+                        break;
                     case DATA_RAGNAROS:
                         if (state == FAIL)
                         {
@@ -224,6 +258,11 @@ class instance_firelands : public InstanceMapScript
                     {
                         case EVENT_RESPAWN_MAJORDOMO_STAGHELM:
                             instance->SummonCreature(BOSS_MAJORDOMO_STAGHELM, MajordomoStaghelmRespawnPosition);
+                            break;
+                        case EVENT_RESET_ALYSRAZOR_INTRO:
+                            if (Creature* staghelm = GetCreature(DATA_MAJORDOMO_STAGHELM_ALYSRAZOR))
+                                if (staghelm->IsAIEnabled())
+                                    staghelm->AI()->DoAction(ACTION_RESET_ALYSRAZOR_INTRO);
                             break;
                         default:
                             break;
