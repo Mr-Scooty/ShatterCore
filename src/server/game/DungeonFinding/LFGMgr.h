@@ -314,6 +314,8 @@ struct LFGDungeonData
     uint32 Entry() const { return id + (type << 24); }
     uint32 GetMaxGroupSize() const { return requiredTanks + requiredHealers + requiredDamageDealers; }
     bool IsRaid() const;
+    // 4.3.4 Raid Finder wings are dungeon-typed LFGDungeons entries on raid maps
+    bool IsRaidFinder() const { return type == LFG_TYPE_DUNGEON && IsRaid(); }
 };
 
 class TC_GAME_API LFGMgr

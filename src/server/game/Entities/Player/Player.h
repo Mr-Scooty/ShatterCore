@@ -817,6 +817,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_CORPSE_LOCATION         = 36,
     PLAYER_LOGIN_QUERY_LOAD_ALL_PETS                = 37,
     PLAYER_LOGIN_QUERY_LOAD_LFG_REWARD_STATUS       = 38,
+    PLAYER_LOGIN_QUERY_LOAD_LFR_LOOT_LOCKOUTS       = 39,
     MAX_PLAYER_LOGIN_QUERY
 };
 
@@ -1411,6 +1412,11 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void ResetSeasonalQuestStatus(uint16 event_id, time_t eventStartTime);
         void ResetWeeklyLFGRewardStatus();
         void ResetDailyLFGRewardStatus();
+
+        // Raid Finder per-boss weekly loot lockouts
+        bool HasLFRLootLockout(uint32 bossEntry) const { return m_lfrLootLockouts.find(bossEntry) != m_lfrLootLockouts.end(); }
+        void AddLFRLootLockout(uint32 bossEntry);
+        void ResetWeeklyLFRLootLockouts() { m_lfrLootLockouts.clear(); }
 
         uint16 FindQuestSlot(uint32 quest_id) const;
         uint32 GetQuestSlotQuestId(uint16 slot) const;
@@ -2460,6 +2466,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         QuestSet m_monthlyquests;
         SeasonalQuestMapByEvent m_seasonalquests;
         LFGRewardStatusMap m_lfgrewardstatus;
+        std::unordered_set<uint32> m_lfrLootLockouts;
 
         ObjectGuid m_playerSharingQuest;
         uint32 m_sharedQuestId;
@@ -2499,6 +2506,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void _LoadCurrency(PreparedQueryResult result);
         void _LoadCUFProfiles(PreparedQueryResult result);
         void _LoadLFGRewardStatus(PreparedQueryResult result);
+        void _LoadLFRLootLockouts(PreparedQueryResult result);
 
         /*********************************************************/
         /***                   SAVE SYSTEM                     ***/

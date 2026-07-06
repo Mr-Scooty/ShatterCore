@@ -2755,10 +2755,12 @@ Map::EnterState InstanceMap::CannotEnter(Player* player)
         return CANNOT_ENTER_ZONE_IN_COMBAT;
 
     // cannot enter if player is permanent saved to a different instance id
-    if (InstancePlayerBind* playerBind = player->GetBoundInstance(GetId(), GetDifficulty()))
-        if (playerBind->perm && playerBind->save)
-            if (playerBind->save->GetInstanceId() != GetInstanceId())
-                return CANNOT_ENTER_INSTANCE_BIND_MISMATCH;
+    // (Raid Finder groups route by group bind - the player's own save does not apply)
+    if (!(player->GetGroup() && player->GetGroup()->isLFRGroup()))
+        if (InstancePlayerBind* playerBind = player->GetBoundInstance(GetId(), GetDifficulty()))
+            if (playerBind->perm && playerBind->save)
+                if (playerBind->save->GetInstanceId() != GetInstanceId())
+                    return CANNOT_ENTER_INSTANCE_BIND_MISMATCH;
 
     return Map::CannotEnter(player);
 }
@@ -2785,7 +2787,11 @@ bool InstanceMap::AddPlayerToMap(Player* player)
     ASSERT(mapSave);
 
     // check for existing instance binds
-    InstancePlayerBind* playerBind = player->GetBoundInstance(GetId(), GetDifficulty());
+    // Raid Finder groups ignore the player's own binds entirely: route/bind by
+    // the group save only and never player-bind (no perm bind, no pending bind)
+    bool const isLFRGroup = group && group->isLFRGroup();
+
+    InstancePlayerBind* playerBind = isLFRGroup ? nullptr : player->GetBoundInstance(GetId(), GetDifficulty());
     if (playerBind && playerBind->perm)
     {
         // cannot enter other instances if bound permanently
@@ -2827,7 +2833,7 @@ bool InstanceMap::AddPlayerToMap(Player* player)
                 }
                 // if the group/leader is permanently bound to the instance
                 // players also become permanently bound when they enter
-                if (groupBind->perm)
+                if (groupBind->perm && !isLFRGroup)
                 {
                     WorldPackets::Instance::PendingRaidLock pendingRaidLock;
                     pendingRaidLock.TimeUntilLock = 60000;
@@ -3009,6 +3015,11 @@ void InstanceMap::PermBindAllPlayers()
 {
     if (!IsDungeon())
         return;
+
+    // Raid Finder runs never permanently bind players (per-boss loot lockouts apply instead)
+    if (InstanceScript const* instanceScript = GetInstanceScript())
+        if (instanceScript->IsLFR())
+            return;
 
     InstanceSave* save = sInstanceSaveMgr->GetInstanceSave(GetInstanceId());
     if (!save)

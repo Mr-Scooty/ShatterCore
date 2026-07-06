@@ -1808,9 +1808,11 @@ LfgLockMap const LFGMgr::GetLockedDungeons(ObjectGuid guid)
             lockStatus = LFG_LOCKSTATUS_NOT_IN_SEASON;
         else if (DisableMgr::IsDisabledFor(DISABLE_TYPE_LFG_MAP, dungeon->map, player))
             lockStatus = LFG_LOCKSTATUS_RAID_LOCKED;
-        else if (dungeon->difficulty > DUNGEON_DIFFICULTY_NORMAL && player->GetBoundInstance(dungeon->map, Difficulty(dungeon->difficulty)))
+        // Raid Finder entries ignore instance binds - admission is governed by
+        // item level and the per-boss weekly loot lockout instead
+        else if (!dungeon->IsRaidFinder() && dungeon->difficulty > DUNGEON_DIFFICULTY_NORMAL && player->GetBoundInstance(dungeon->map, Difficulty(dungeon->difficulty)))
             lockStatus = LFG_LOCKSTATUS_RAID_LOCKED;
-        else if (dungeon->difficulty > DUNGEON_DIFFICULTY_NORMAL && player->GetBoundInstance(dungeon->map, Difficulty(dungeon->difficulty), dungeon->type == LFG_TYPE_RAID))
+        else if (!dungeon->IsRaidFinder() && dungeon->difficulty > DUNGEON_DIFFICULTY_NORMAL && player->GetBoundInstance(dungeon->map, Difficulty(dungeon->difficulty), dungeon->type == LFG_TYPE_RAID))
             lockStatus = LFG_LOCKSTATUS_RAID_LOCKED;
         else if (dungeon->minlevel > level)
             lockStatus = LFG_LOCKSTATUS_TOO_LOW_LEVEL;

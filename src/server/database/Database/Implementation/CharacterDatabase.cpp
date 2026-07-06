@@ -99,6 +99,11 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_DEL_RESET_CHARACTER_REWARDSTATUS_LFG_WEEKLY, "DELETE FROM character_rewardstatus_lfg WHERE dailyReset = 0", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_RESET_CHARACTER_REWARDSTATUS_LFG_DAILY, "DELETE FROM character_rewardstatus_lfg WHERE dailyReset = 1", CONNECTION_ASYNC);
 
+    PrepareStatement(CHAR_SEL_CHARACTER_LFR_LOCKOUT, "SELECT bossId FROM character_lfr_lockout WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_DEL_CHARACTER_LFR_LOCKOUT, "DELETE FROM character_lfr_lockout WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_INS_CHARACTER_LFR_LOCKOUT, "INSERT IGNORE INTO character_lfr_lockout (guid, bossId, killTime) VALUES (?, ?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_DEL_RESET_CHARACTER_LFR_LOCKOUT_WEEKLY, "DELETE FROM character_lfr_lockout", CONNECTION_ASYNC);
+
     PrepareStatement(CHAR_SEL_CHARACTER_REPUTATION, "SELECT faction, standing, flags FROM character_reputation WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_CHARACTER_INVENTORY, "SELECT creatorGuid, giftCreatorGuid, count, duration, charges, flags, enchantments, randomPropertyType, randomPropertyId, durability, creationTime, text, bag, slot, "
                      "item, itemEntry FROM character_inventory ci JOIN item_instance ii ON ci.item = ii.guid WHERE ci.guid = ? ORDER BY bag, slot", CONNECTION_ASYNC);

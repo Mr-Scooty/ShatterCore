@@ -162,7 +162,11 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, uint32 loginInstanceId 
     }
     else if (entry->IsDungeon())
     {
-        InstancePlayerBind* pBind = player->GetBoundInstance(mapId, player->GetDifficulty(entry->IsRaid()));
+        // Raid Finder groups route purely by the group bind - the player's own
+        // (possibly permanent guild) save must never be used or touched
+        bool const isLFRGroup = player->GetGroup() && player->GetGroup()->isLFRGroup();
+
+        InstancePlayerBind* pBind = isLFRGroup ? nullptr : player->GetBoundInstance(mapId, player->GetDifficulty(entry->IsRaid()));
         InstanceSave* pSave = pBind ? pBind->save : nullptr;
 
         // priority:
@@ -192,7 +196,9 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, uint32 loginInstanceId 
                 if (groupBind)
                 {
                     // solo saves should be reset when entering a group's instance
-                    player->UnbindInstance(mapId, player->GetDifficulty(entry->IsRaid()));
+                    // (never touch the player's save when joining a Raid Finder run)
+                    if (!isLFRGroup)
+                        player->UnbindInstance(mapId, player->GetDifficulty(entry->IsRaid()));
                     pSave = groupBind->save;
                 }
             }
