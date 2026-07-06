@@ -327,6 +327,8 @@ class instance_firelands : public InstanceMapScript
                 switch (type)
                 {
                     case DATA_RANDOM_SPLITTING_BLOW_GUID:
+                        if (_splittingBlowGUIDs.empty())
+                            return ObjectGuid::Empty;
                         return Trinity::Containers::SelectRandomContainerElement(_splittingBlowGUIDs);
                     default:
                         return InstanceScript::GetGuidData(type);
