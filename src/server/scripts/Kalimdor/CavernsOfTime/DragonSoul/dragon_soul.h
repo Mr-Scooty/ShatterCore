@@ -48,13 +48,30 @@ enum DSDataTypes
     DATA_ALEXSTRASZA_MADNESS_OF_DEATHWING,
     DATA_NOZDORMU_MADNESS_OF_DEATHWING,
     DATA_KALECGOS_MADNESS_OF_DEATHWING,
-    DATA_TAIL_TENTACLE_MADNESS_OF_DEATHWING
+    DATA_TAIL_TENTACLE_MADNESS_OF_DEATHWING,
+
+    // Morchok
+    DATA_KOHCROM,
+    DATA_MORCHOK_ACHIEVEMENT_FAILED,
+
+    // Raid Finder
+    DATA_IS_LFR
 };
+
+// Raid Finder tuning: LFR runs are 25 player normal instances with reduced
+// boss health (stats template below) and reduced outgoing boss damage.
+constexpr uint32 LFR_DAMAGE_PCT = 70;                   // playtest knob - no retail data
+constexpr uint32 NPC_MORCHOK_LFR_STATS = 58226;         // HealthModifier 350 = ~30.06M
 
 enum DSCreatures
 {
     // Bosses
+    BOSS_MORCHOK                                = 55265,
     BOSS_MADNESS_OF_DEATHWING                   = 56173,
+
+    /*Morchok*/
+    NPC_KOHCROM                                 = 57773,
+    NPC_RESONATING_CRYSTAL                      = 55346,
 
     /*Madness of Deathwing*/
     NPC_DEATHWING_MADNESS_OF_DEATHWING          = 57962,
@@ -83,6 +100,7 @@ enum DSCreatures
 
 enum DSGameObjectIds
 {
+    GO_MORCHOK_ROCK_SPIKE            = 209596,
     GO_ELEMENTIUM_FRAGMENT_10_NORMAL = 210079,
     GO_ELEMENTIUM_FRAGMENT_25_NORMAL = 210218,
     GO_ELEMENTIUM_FRAGMENT_25_LFR    = 210220,
