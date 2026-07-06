@@ -59,7 +59,7 @@ DoorData const doorData[] =
 {
     { GO_LORD_RHYOLITH_BRIDGE,  DATA_LORD_RHYOLITH,         DOOR_TYPE_ROOM      },
     { GO_BETH_TILAC_DOOR,       DATA_BETHTILAC,             DOOR_TYPE_ROOM      },
-    //{GO_BALEROC_FIREWALL,      DATA_BALEROC,               DOOR_TYPE_ROOM      },
+    { GO_BALEROC_FIREWALL,      DATA_BALEROC,               DOOR_TYPE_PASSAGE   },
     { GO_MAJORDOMO_FIREWALL,    DATA_MAJORDOMO_STAGHELM,    DOOR_TYPE_PASSAGE   },
     { GO_RAGNAROS_DOOR,         DATA_RAGNAROS,              DOOR_TYPE_ROOM      },
     { 0,                        0,                          DOOR_TYPE_ROOM      }, //END
@@ -74,7 +74,8 @@ BossBoundaryData const boundaries =
 {
     { DATA_BETHTILAC,      new CircleBoundary(Position(55.0f, 390.0f), 110.f) },
     { DATA_LORD_RHYOLITH,  new CircleBoundary(Position(-371.577393f, -318.680725f), 60.f) },
-    { DATA_ALYSRAZOR,      new CircleBoundary(Position(-37.66f, -279.50f), 95.f) }
+    { DATA_ALYSRAZOR,      new CircleBoundary(Position(-37.66f, -279.50f), 95.f) },
+    { DATA_BALEROC,        new CircleBoundary(Position(94.0f, -63.0f), 60.f) }
 };
 
 class DelayedAttackStartEvent : public BasicEvent
