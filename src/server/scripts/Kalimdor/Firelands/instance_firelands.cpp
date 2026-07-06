@@ -30,6 +30,8 @@ ObjectData const creatureData[] =
 {
     { BOSS_BETHTILAC,                           DATA_BETHTILAC                          },
     { BOSS_SHANNOX,                             DATA_SHANNOX,                           },
+    { NPC_RIPLIMB,                              DATA_RIPLIMB                            },
+    { NPC_RAGEFACE,                             DATA_RAGEFACE                           },
     { BOSS_LORD_RHYOLITH,                       DATA_LORD_RHYOLITH                      },
     { BOSS_ALYSRAZOR,                           DATA_ALYSRAZOR                          },
     { BOSS_BALEROC,                             DATA_BALEROC                            },
