@@ -35,11 +35,11 @@
  * Torment 3790, Inferno Strike 3858, Wave of Torment 3914, Decimation
  * Blade 3751).
  *
- * Vital Flame (99263) uses the unimplemented aura 359 (mod healing done
- * versus targets with Blaze of Glory); it is remapped to
- * SPELL_AURA_MOD_HEALING_DONE_PERCENT in SpellMgr corrections, so the bonus
- * applies to ALL healing done by the healer for its 15s duration. Accepted
- * simplification - healers are tank-healing during that window.
+ * Vital Flame (99263) uses SPELL_AURA_MOD_HEALING_DONE_VERSUS_AURASTATE
+ * (aura 359, misc 22): the healing bonus only applies against targets in
+ * aura state 22, which Blaze of Glory (99252) sets on the tank (see
+ * SpellInfo::_LoadAuraState and Unit::SpellHealingPctDone). The bonus
+ * amount is set at cast time (+5% per consumed Vital Spark).
  *
  * Share the Pain (5830): "...without allowing any member of your raid to
  * suffer Torment more than three times" - counted on each fresh Torment
@@ -829,8 +829,7 @@ class spell_baleroc_vital_flame : public AuraScript
 
     void Register() override
     {
-        // EFFECT_0 is remapped from the unimplemented aura 359 to MOD_HEALING_DONE_PERCENT in SpellMgr corrections.
-        AfterEffectRemove.Register(&spell_baleroc_vital_flame::OnRemove, EFFECT_0, SPELL_AURA_MOD_HEALING_DONE_PERCENT, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove.Register(&spell_baleroc_vital_flame::OnRemove, EFFECT_0, SPELL_AURA_MOD_HEALING_DONE_VERSUS_AURASTATE, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

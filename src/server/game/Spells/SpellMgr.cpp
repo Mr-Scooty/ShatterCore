@@ -4698,15 +4698,6 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->Effects[EFFECT_1].TargetBRadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_10_YARDS);
     });
 
-    // Vital Flame (Baleroc)
-    ApplySpellFix({ 99263 }, [](SpellInfo* spellInfo)
-    {
-        // DBC uses the unimplemented aura 359 (mod healing done vs Blaze of Glory targets).
-        // Simplified to a flat healing-done bonus; amount is set at cast time by
-        // spell_baleroc_blaze_of_glory (+5% per consumed Vital Spark).
-        spellInfo->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_MOD_HEALING_DONE_PERCENT;
-    });
-
     // ENDOF FIRELANDS SPELLS
 
     //

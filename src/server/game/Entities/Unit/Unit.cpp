@@ -7130,6 +7130,11 @@ float Unit::SpellHealingPctDone(Unit* victim, SpellInfo const* spellProto) const
     else
         DoneTotalMod *= GetTotalAuraMultiplier(SPELL_AURA_MOD_HEALING_DONE_PERCENT);
 
+    // Healing done percent against targets in a matching aura state (Vital Flame vs Blaze of Glory)
+    for (AuraEffect const* aurEff : GetAuraEffectsByType(SPELL_AURA_MOD_HEALING_DONE_VERSUS_AURASTATE))
+        if (victim->HasAuraState(AuraStateType(aurEff->GetMiscValue())))
+            AddPct(DoneTotalMod, aurEff->GetAmount());
+
     // done scripted mod (take it from owner)
     Unit const* owner = GetOwner() ? GetOwner() : this;
     for (AuraEffect const* overrideClassScripts : owner->GetAuraEffectsByType(SPELL_AURA_OVERRIDE_CLASS_SCRIPTS))
