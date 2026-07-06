@@ -52,6 +52,7 @@ public:
             { "savedata",     rbac::RBAC_PERM_COMMAND_INSTANCE_SAVEDATA,      false, &HandleInstanceSaveDataCommand,     "" },
             { "setbossstate", rbac::RBAC_PERM_COMMAND_INSTANCE_SET_BOSS_STATE, true, &HandleInstanceSetBossStateCommand, "" },
             { "getbossstate", rbac::RBAC_PERM_COMMAND_INSTANCE_GET_BOSS_STATE, true, &HandleInstanceGetBossStateCommand, "" },
+            { "setlfr",       rbac::RBAC_PERM_COMMAND_INSTANCE_SAVEDATA,      false, &HandleInstanceSetLfrCommand,       "" },
         };
 
         static std::vector<ChatCommand> commandTable =
@@ -191,6 +192,40 @@ public:
 
         map->GetInstanceScript()->SaveToDB();
 
+        return true;
+    }
+
+    // .instance setlfr [0|1] - flags a 25 player normal raid instance as a Raid Finder run
+    static bool HandleInstanceSetLfrCommand(ChatHandler* handler, char const* args)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        InstanceMap* map = player->GetMap()->ToInstanceMap();
+        if (!map)
+        {
+            handler->PSendSysMessage(LANG_NOT_DUNGEON);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        InstanceScript* instanceScript = map->GetInstanceScript();
+        if (!instanceScript)
+        {
+            handler->PSendSysMessage(LANG_NO_INSTANCE_DATA);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        bool apply = !*args || atoi(args) != 0;
+        if (apply && map->GetDifficulty() != RAID_DIFFICULTY_25MAN_NORMAL)
+        {
+            handler->PSendSysMessage("Raid Finder mode requires a 25 player normal instance.");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        instanceScript->SetLFR(apply);
+        instanceScript->SaveToDB();
+        handler->PSendSysMessage("Instance %u is %s flagged as Raid Finder.", map->GetInstanceId(), apply ? "now" : "no longer");
         return true;
     }
 

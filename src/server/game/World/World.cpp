@@ -3330,6 +3330,10 @@ void World::ResetWeeklyQuestsAndRewards()
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_RESET_CHARACTER_REWARDSTATUS_LFG_WEEKLY);
     CharacterDatabase.Execute(stmt);
 
+    // Reset Raid Finder per-boss loot lockouts
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_RESET_CHARACTER_LFR_LOCKOUT_WEEKLY);
+    CharacterDatabase.Execute(stmt);
+
     // reset all quest status in memory
     for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
     {
@@ -3337,6 +3341,7 @@ void World::ResetWeeklyQuestsAndRewards()
         {
             player->ResetWeeklyQuestStatus();
             player->ResetWeeklyLFGRewardStatus();
+            player->ResetWeeklyLFRLootLockouts();
         }
     }
 

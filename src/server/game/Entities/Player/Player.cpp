@@ -3971,6 +3971,10 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             stmt->setUInt32(0, guid);
             trans->Append(stmt);
 
+            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_LFR_LOCKOUT);
+            stmt->setUInt32(0, guid);
+            trans->Append(stmt);
+
             Corpse::DeleteFromDB(playerguid, trans);
             break;
         }
@@ -17022,6 +17026,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     _LoadSeasonalQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_SEASONAL_QUEST_STATUS));
     _LoadMonthlyQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_MONTHLY_QUEST_STATUS));
     _LoadLFGRewardStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_LFG_REWARD_STATUS));
+    _LoadLFRLootLockouts(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_LFR_LOOT_LOCKOUTS));
     _LoadRandomBGStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_RANDOM_BG));
 
     // after spell and quest load
@@ -18240,6 +18245,32 @@ void Player::_LoadLFGRewardStatus(PreparedQueryResult result)
     }
 
     m_LFGRewardStatusChanged = false;
+}
+
+void Player::_LoadLFRLootLockouts(PreparedQueryResult result)
+{
+    m_lfrLootLockouts.clear();
+
+    if (result)
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            m_lfrLootLockouts.insert(fields[0].GetUInt32());
+        } while (result->NextRow());
+    }
+}
+
+void Player::AddLFRLootLockout(uint32 bossEntry)
+{
+    if (!m_lfrLootLockouts.insert(bossEntry).second)
+        return;
+
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_LFR_LOCKOUT);
+    stmt->setUInt32(0, GetGUID().GetCounter());
+    stmt->setUInt32(1, bossEntry);
+    stmt->setUInt32(2, uint32(GameTime::GetGameTime()));
+    CharacterDatabase.Execute(stmt);
 }
 
 void Player::_LoadSpells(PreparedQueryResult result)

@@ -26,6 +26,7 @@
 #include "GameObject.h"
 #include "GroupMgr.h"
 #include "Guild.h"
+#include "InstanceScript.h"
 #include "InstanceSaveMgr.h"
 #include "LFGMgr.h"
 #include "LootMgr.h"
@@ -1040,6 +1041,16 @@ bool CanRollOnItem(const LootItem& item, Player const* player)
     return true;
 }
 
+// Raid Finder per-boss weekly loot lockout - locked players are excluded from item rolls
+static bool IsEligibleForLootRoll(Player const* player, WorldObject* lootedObject)
+{
+    if (InstanceMap* instance = lootedObject->GetMap()->ToInstanceMap())
+        if (InstanceScript const* instanceScript = instance->GetInstanceScript())
+            return instanceScript->IsEligibleForLootRoll(player, lootedObject);
+
+    return true;
+}
+
 void Group::GroupLoot(Loot* loot, WorldObject* pLootedObject)
 {
     std::vector<LootItem>::iterator i;
@@ -1071,7 +1082,7 @@ void Group::GroupLoot(Loot* loot, WorldObject* pLootedObject)
                 Player* member = itr->GetSource();
                 if (!member || !member->GetSession())
                     continue;
-                if (member->IsAtGroupRewardDistance(pLootedObject))
+                if (member->IsAtGroupRewardDistance(pLootedObject) && IsEligibleForLootRoll(member, pLootedObject))
                 {
                     r->totalPlayersRolling++;
                     RollVote vote = member->GetPassOnGroupLoot() ? PASS : NOT_EMITED_YET;
@@ -1150,7 +1161,7 @@ void Group::GroupLoot(Loot* loot, WorldObject* pLootedObject)
             if (!member || !member->GetSession())
                 continue;
 
-            if (member->IsAtGroupRewardDistance(pLootedObject) && i->AllowedForPlayer(member))
+            if (member->IsAtGroupRewardDistance(pLootedObject) && i->AllowedForPlayer(member) && IsEligibleForLootRoll(member, pLootedObject))
             {
                 r->totalPlayersRolling++;
                 r->playerVote[member->GetGUID()] = NOT_EMITED_YET;
@@ -1206,7 +1217,7 @@ void Group::NeedBeforeGreed(Loot* loot, WorldObject* lootedObject)
                 if (!playerToRoll || !playerToRoll->GetSession())
                     continue;
 
-                if (playerToRoll->IsAtGroupRewardDistance(lootedObject) && i->AllowedForPlayer(playerToRoll))
+                if (playerToRoll->IsAtGroupRewardDistance(lootedObject) && i->AllowedForPlayer(playerToRoll) && IsEligibleForLootRoll(playerToRoll, lootedObject))
                 {
                     r->totalPlayersRolling++;
                     if (playerToRoll->GetPassOnGroupLoot())
@@ -1279,7 +1290,7 @@ void Group::NeedBeforeGreed(Loot* loot, WorldObject* lootedObject)
             if (!playerToRoll || !playerToRoll->GetSession())
                 continue;
 
-            if (playerToRoll->IsAtGroupRewardDistance(lootedObject) && i->AllowedForPlayer(playerToRoll))
+            if (playerToRoll->IsAtGroupRewardDistance(lootedObject) && i->AllowedForPlayer(playerToRoll) && IsEligibleForLootRoll(playerToRoll, lootedObject))
             {
                 r->totalPlayersRolling++;
                 r->playerVote[playerToRoll->GetGUID()] = NOT_EMITED_YET;
@@ -1353,7 +1364,7 @@ void Group::MasterLoot(Loot* loot, WorldObject* pLootedObject)
         if (!looter->IsInWorld())
             continue;
 
-        if (looter->IsAtGroupRewardDistance(pLootedObject))
+        if (looter->IsAtGroupRewardDistance(pLootedObject) && IsEligibleForLootRoll(looter, pLootedObject))
         {
             data << uint64(looter->GetGUID());
             ++real_count;
@@ -1365,7 +1376,7 @@ void Group::MasterLoot(Loot* loot, WorldObject* pLootedObject)
     for (GroupReference* itr = GetFirstMember(); itr != nullptr; itr = itr->next())
     {
         Player* looter = itr->GetSource();
-        if (looter->IsAtGroupRewardDistance(pLootedObject))
+        if (looter->IsAtGroupRewardDistance(pLootedObject) && IsEligibleForLootRoll(looter, pLootedObject))
             looter->SendDirectMessage(&data);
     }
 }

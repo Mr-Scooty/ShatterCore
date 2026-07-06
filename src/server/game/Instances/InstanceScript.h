@@ -239,6 +239,14 @@ class TC_GAME_API InstanceScript : public ZoneScript
         // Checks boss requirements (one boss required to kill other)
         virtual bool CheckRequiredBosses(uint32 /*bossId*/, Player const* /*player*/ = nullptr) const { return true; }
 
+        // Raid Finder: 4.3.4 has no LFR map difficulty - LFR runs are 25 player
+        // normal instances flagged by the instance script (persisted via SaveDataMore)
+        bool IsLFR() const { return _isLFR; }
+        void SetLFR(bool apply) { _isLFR = apply; }
+
+        // Raid Finder per-boss weekly loot lockout hook, consulted when group loot rolls are populated
+        virtual bool IsEligibleForLootRoll(Player const* /*player*/, WorldObject const* /*lootSource*/) const { return true; }
+
         // Checks encounter state at kill/spellcast
         void UpdateEncounterStateForKilledCreature(uint32 creatureId, Unit* source);
         void UpdateEncounterStateForSpellCast(uint32 spellId, Unit* source);
@@ -314,6 +322,7 @@ class TC_GAME_API InstanceScript : public ZoneScript
         uint8 _combatResurrectionCharges; // the counter for available combat resurrections
         std::unordered_set<uint32> _activatedAreaTriggers;
         std::vector<InstanceSpawnGroupInfo> const* const _instanceSpawnGroups;
+        bool _isLFR = false;
 
     #ifdef TRINITY_API_USE_DYNAMIC_LINKING
         // Strong reference to the associated script module
