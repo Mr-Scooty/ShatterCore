@@ -187,6 +187,13 @@ enum Data
     DATA_CURRENT_BALANCE            = 0,
     DATA_DAMAGE_PER_SECOND          = 0,
     DATA_RECENTLY_BROKEN_VOLCANO    = 0,
+    DATA_NEXT_ADD_WAVE              = 1
+};
+
+enum AddWaves : uint32
+{
+    WAVE_FRAGMENTS  = 0,
+    WAVE_SPARK      = 1
 };
 
 enum WorldStates
@@ -214,7 +221,8 @@ static std::array<float, 2> BalanceDamageThresholds =
 struct boss_lord_rhyolith : public BossAI
 {
     boss_lord_rhyolith(Creature* creature) : BossAI(creature, DATA_LORD_RHYOLITH),
-        _currentBalance(CENTER_BALANCE), _transformationCount(0), _hasBrokenFirstVolcano(false), _achievementFailed(false), _hasBurningFeet(false), _moltenArmorDecayScheduled(false) { }
+        _currentBalance(CENTER_BALANCE), _transformationCount(0), _hasBrokenFirstVolcano(false), _achievementFailed(false), _hasBurningFeet(false), _moltenArmorDecayScheduled(false),
+        _addWaveCounter(1) { } // the wave rotation starts one cycle in: Fragments, Spark, then repeating Fragments, Fragments, Spark
 
     void InitializeAI() override
     {
@@ -484,6 +492,8 @@ struct boss_lord_rhyolith : public BossAI
         {
             case DATA_CURRENT_BALANCE:
                 return _currentBalance;
+            case DATA_NEXT_ADD_WAVE:
+                return _addWaveCounter < 2 ? WAVE_FRAGMENTS : WAVE_SPARK;
             default:
                 return 0;
         }
@@ -523,7 +533,7 @@ struct boss_lord_rhyolith : public BossAI
                 case EVENT_CONCUSSIVE_STOMP:
                     Talk(SAY_CONCUSSIVE_STOMP);
                     DoCastAOE(SPELL_CONCUSSIVE_STOMP);
-                    events.Repeat(30s);
+                    events.Repeat(events.IsInPhase(PHASE_TWO) ? 13000ms : 30000ms);
                     break;
                 case EVENT_UPDATE_BALANCE:
                 {
@@ -565,7 +575,8 @@ struct boss_lord_rhyolith : public BossAI
                 case EVENT_HEATED_VOLCANO:
                     Talk(SAY_HEATED_VOLCANO);
                     DoCastAOE(SPELL_HEATED_VOLCANO, CastSpellExtraArgs().AddSpellMod(SPELLVALUE_MAX_TARGETS, 1));
-                    events.Repeat(40s);
+                    // Heroic activates volcanos aggressively enough for two to overlap
+                    events.Repeat(IsHeroic() ? 25500ms : 40000ms);
                     break;
                 case EVENT_BALANCE_FEET_HEALTH:
                 {
@@ -600,6 +611,10 @@ struct boss_lord_rhyolith : public BossAI
                 case EVENT_THERMAL_VENT:
                     Talk(SAY_THERMAL_IGNITION);
                     DoCastAOE(SPELL_SUMMON_ROCK_ELEMENTALS);
+                    if (_addWaveCounter < 2)
+                        ++_addWaveCounter;
+                    else
+                        _addWaveCounter = 0;
                     events.Repeat(23s);
                     break;
                 case EVENT_MOLTEN_ARMOR_DECAY:
@@ -751,6 +766,7 @@ private:
     bool _achievementFailed;
     bool _hasBurningFeet; // used instead of HasAura(SPELL_BURNING_FEET) to increase performance
     bool _moltenArmorDecayScheduled;
+    uint8 _addWaveCounter;
     std::queue<ObjectGuid> _recentlyBrokenVolcanos;
 };
 
@@ -1417,8 +1433,13 @@ class spell_rhyolith_summon_rock_elementals : public SpellScript
         if (targets.empty())
             return;
 
-        // Each wave summons one Fragment of Rhyolith and one Spark of Rhyolith, each at a random player
-        for (uint8 i = 0; i < 2; ++i)
+        // The waves rotate on a Fragments, Fragments, Spark cycle (the fight starts one cycle in)
+        if (Creature* caster = GetCaster()->ToCreature())
+            if (CreatureAI* ai = caster->AI())
+                _isSparkWave = ai->GetData(DATA_NEXT_ADD_WAVE) == WAVE_SPARK;
+
+        uint8 elementalTargetCount = _isSparkWave ? 1 : 5;
+        for (uint8 i = 0; i < elementalTargetCount; ++i)
             _elementalTargetGUIDs.emplace_back(Trinity::Containers::SelectRandomContainerElement(targets)->GetGUID());
     }
 
@@ -1428,10 +1449,10 @@ class spell_rhyolith_summon_rock_elementals : public SpellScript
         if (!caster)
             return;
 
-        std::array<uint32, 2> summonSpellIds = { uint32(GetSpellInfo()->Effects[EFFECT_0].BasePoints), uint32(GetSpellInfo()->Effects[EFFECT_1].BasePoints) };
-        for (std::size_t i = 0; i < _elementalTargetGUIDs.size(); ++i)
-            if (Unit* target = ObjectAccessor::GetUnit(*caster, _elementalTargetGUIDs[i]))
-                caster->CastSpell(target, summonSpellIds[i]);
+        uint32 summonSpellId = uint32(GetSpellInfo()->Effects[_isSparkWave ? EFFECT_1 : EFFECT_0].BasePoints);
+        for (ObjectGuid const& guid : _elementalTargetGUIDs)
+            if (Unit* target = ObjectAccessor::GetUnit(*caster, guid))
+                caster->CastSpell(target, summonSpellId);
     }
 
     void Register() override
@@ -1442,6 +1463,7 @@ class spell_rhyolith_summon_rock_elementals : public SpellScript
 
 private:
     std::vector<ObjectGuid> _elementalTargetGUIDs;
+    bool _isSparkWave = false;
 };
 }
 
