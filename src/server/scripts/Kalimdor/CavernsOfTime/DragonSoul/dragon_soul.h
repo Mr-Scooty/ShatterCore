@@ -65,6 +65,18 @@ enum DSDataTypes
     DATA_HAGARA_HOLDING_HANDS,     // boss AI -> instance: unbroken-chain lightning phase
     DATA_TRAVEL_TO_EYE_OF_ETERNITY,
 
+    // Ultraxion
+    DATA_ULTRAXION_GAUNTLET_DONE,      // persisted: Twilight Assaulter gauntlet cleared this lockout
+    DATA_ULTRAXION_ACHIEVEMENT_FAILED, // boss AI -> instance: someone was hit by Hour of Twilight twice
+    DATA_ULTRAXION_GAUNTLET_CONTROLLER,
+    DATA_TRAVEL_TO_WYRMREST_SUMMIT,
+    DATA_THRALL_ULTRAXION,
+    DATA_ALEXSTRASZA_ULTRAXION,
+    DATA_YSERA_ULTRAXION,
+    DATA_KALECGOS_ULTRAXION,
+    DATA_NOZDORMU_ULTRAXION,
+    DATA_DEATHWING_ULTRAXION,
+
     // Raid Finder
     DATA_IS_LFR
 };
@@ -97,6 +109,12 @@ constexpr uint32 NPC_HAGARA_LFR_STATS                = 58242; // ~72.1M
 constexpr uint32 NPC_HAGARA_CRYSTAL_LFR_STATS        = 58243; // ~814k
 constexpr uint32 NPC_HAGARA_ELEMENTAL_LFR_STATS      = 58244; // ~2.4M
 
+constexpr uint32 NPC_ULTRAXION_LFR_STATS             = 58245; // ~129.0M (70% of 25N, user-approved)
+
+// Ultraxion: the Twilight Realm phase id. Twilight Shift (106368) carries the
+// legacy 4.3.4 phasemask 16, remapped to phase id 16 in LoadSpellInfoCorrections.
+constexpr uint32 PHASE_TWILIGHT_REALM = 16;
+
 enum DSCreatures
 {
     // Bosses
@@ -104,6 +122,7 @@ enum DSCreatures
     BOSS_WARLORD_ZONOZZ                         = 55308,
     BOSS_YORSAHJ                                = 55312,
     BOSS_HAGARA                                 = 55689,
+    BOSS_ULTRAXION                              = 55294,
     BOSS_MADNESS_OF_DEATHWING                   = 56173,
 
     /*Morchok*/
@@ -142,6 +161,22 @@ enum DSCreatures
     NPC_HAGARA_TWILIGHT_PORTAL                  = 57809,
     NPC_TRAVEL_TO_EYE_OF_ETERNITY               = 57377,
     NPC_TRAVEL_TO_WYRMREST_BASE                 = 57882,
+    NPC_TRAVEL_TO_WYRMREST_SUMMIT               = 57379,
+
+    /*Ultraxion*/
+    NPC_ULTRAXION_COSMETIC                      = 56259, // normal-realm copy seen while under Heroic Will
+    NPC_ULTRAXION_GAUNTLET                      = 56305, // pre-event controller
+    NPC_THRALL_ULTRAXION                        = 56667,
+    NPC_ALEXSTRASZA_ULTRAXION                   = 56630,
+    NPC_YSERA_ULTRAXION                         = 56665,
+    NPC_KALECGOS_ULTRAXION                      = 56664,
+    NPC_NOZDORMU_ULTRAXION                      = 56666,
+    NPC_THE_DRAGON_SOUL                         = 56668,
+    NPC_DEATHWING_ULTRAXION                     = 55971, // perched RP speaker for the gauntlet
+    NPC_TWILIGHT_ASSAULTER_N                    = 56249, // gauntlet drakes (S/E/W/N flights)
+    NPC_TWILIGHT_ASSAULTER_S                    = 56250,
+    NPC_TWILIGHT_ASSAULTER_E                    = 56251,
+    NPC_TWILIGHT_ASSAULTER_W                    = 56252,
 
     /*Madness of Deathwing*/
     NPC_DEATHWING_MADNESS_OF_DEATHWING          = 57962,
@@ -173,6 +208,9 @@ enum DSGameObjectIds
     GO_MORCHOK_ROCK_SPIKE            = 209596,
     GO_THE_FOCUSING_IRIS             = 210132,
     GO_HAGARA_ICE_BLOCK              = 201722,
+    GO_GIFT_OF_LIFE                  = 209873,
+    GO_ESSENCE_OF_DREAMS             = 209874,
+    GO_SOURCE_OF_MAGIC               = 209875,
     GO_ELEMENTIUM_FRAGMENT_10_NORMAL = 210079,
     GO_ELEMENTIUM_FRAGMENT_25_NORMAL = 210218,
     GO_ELEMENTIUM_FRAGMENT_25_LFR    = 210220,
