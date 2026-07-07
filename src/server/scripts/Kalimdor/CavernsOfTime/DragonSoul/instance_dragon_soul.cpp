@@ -31,6 +31,7 @@ ObjectData const creatureData[] =
 {
     { BOSS_MORCHOK,                         DATA_MORCHOK                            },
     { NPC_KOHCROM,                          DATA_KOHCROM                            },
+    { BOSS_WARLORD_ZONOZZ,                  DATA_WARLORD_ZONOZZ                     },
     { BOSS_YORSAHJ,                         DATA_YORSAHJ_THE_UNSLEEPING             },
     { BOSS_MADNESS_OF_DEATHWING,            DATA_MADNESS_OF_DEATHWING               },
     { NPC_DEATHWING_MADNESS_OF_DEATHWING,   DATA_DEATHWING_MADNESS_OF_DEATHWING     },
@@ -56,12 +57,17 @@ DoorData const doorData[] =
 BossBoundaryData const boundaries =
 {
     { DATA_MORCHOK,                 new CircleBoundary(Position(-1981.03, -2409.30), 95.0) },
+    { DATA_WARLORD_ZONOZZ,          new CircleBoundary(Position(-1765.00, -1915.00), 65.0) },
     { DATA_YORSAHJ_THE_UNSLEEPING,  new CircleBoundary(Position(-1765.65, -3034.35), 115.0) }
 };
 
 enum DSAchievementCriteria
 {
     CRITERIA_DONT_STAND_SO_CLOSE_TO_ME = 18607,
+
+    // Ping Pong Champion: the Void of the Unmaking bounced 10+ times before
+    // detonating on the boss, on any single sphere during the kill attempt
+    CRITERIA_PING_PONG_CHAMPION        = 18494,
 
     // Taste the Rainbow!
     CRITERIA_RAINBOW_BLACK_YELLOW      = 18495,
@@ -77,6 +83,8 @@ uint32 GetBossEntryForData(uint32 bossId)
     {
         case DATA_MORCHOK:
             return BOSS_MORCHOK;
+        case DATA_WARLORD_ZONOZZ:
+            return BOSS_WARLORD_ZONOZZ;
         case DATA_YORSAHJ_THE_UNSLEEPING:
             return BOSS_YORSAHJ;
         default:
@@ -108,6 +116,9 @@ public:
             if (type == DATA_MORCHOK && state == IN_PROGRESS)
                 _morchokAchievementFailed = false;
 
+            if (type == DATA_WARLORD_ZONOZZ && state == IN_PROGRESS)
+                _zonozzPingPong = false;
+
             if (type == DATA_YORSAHJ_THE_UNSLEEPING && state == IN_PROGRESS)
                 _yorsahjRainbowMask = 0;
 
@@ -122,6 +133,8 @@ public:
         {
             if (type == DATA_MORCHOK_ACHIEVEMENT_FAILED)
                 _morchokAchievementFailed = true;
+            else if (type == DATA_ZONOZZ_PING_PONG)
+                _zonozzPingPong = true;
             else if (type == DATA_YORSAHJ_TASTE_THE_RAINBOW)
                 _yorsahjRainbowMask |= data;
         }
@@ -149,6 +162,8 @@ public:
             {
                 case CRITERIA_DONT_STAND_SO_CLOSE_TO_ME:
                     return !IsLFR() && !_morchokAchievementFailed;
+                case CRITERIA_PING_PONG_CHAMPION:
+                    return !IsLFR() && _zonozzPingPong;
                 // Glory criteria are not earnable through the Raid Finder
                 case CRITERIA_RAINBOW_BLACK_YELLOW:
                     return !IsLFR() && (_yorsahjRainbowMask & RAINBOW_BIT_BLACK_YELLOW) != 0;
@@ -228,7 +243,7 @@ public:
 
             // Raid Finder bosses use the LFR loot rows (LootMode 2). Must be
             // set at create time - loot is filled before JustDied fires.
-            if (IsLFR() && (creature->GetEntry() == BOSS_MORCHOK || creature->GetEntry() == BOSS_YORSAHJ))
+            if (IsLFR() && (creature->GetEntry() == BOSS_MORCHOK || creature->GetEntry() == BOSS_WARLORD_ZONOZZ || creature->GetEntry() == BOSS_YORSAHJ))
                 creature->SetLootMode(LOOT_MODE_HARD_MODE_1);
 
             switch (creature->GetEntry())
@@ -266,6 +281,7 @@ public:
 
     private:
         bool _morchokAchievementFailed = false;
+        bool _zonozzPingPong = false;
         uint32 _yorsahjRainbowMask = 0;
         std::unordered_map<uint32, GuidSet> _lfrLootEligible;
     };
