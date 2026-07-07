@@ -51,8 +51,6 @@ enum HotRodData
 {
     NPC_HOT_ROD_1 = 34840,
     NPC_HOT_ROD_2 = 37676,
-    NPC_HOT_ROD_3 = 49131,
-    NPC_HOT_ROD_4 = 49132,
 
     QUEST_ROLLING_WITH_MY_HOMIES = 14071,
     ITEM_KEYS_TO_HOT_ROD = 46856,
@@ -127,18 +125,20 @@ class spell_item_keys_to_the_hot_rod : public SpellScriptLoader
                         player->KilledMonsterCredit(NPC_KEYS_USED_CREDIT);
                     }
 
-                    Creature* hotRod = nullptr;
-                    for (uint32 hotRodEntry : {NPC_HOT_ROD_1, NPC_HOT_ROD_2, NPC_HOT_ROD_3, NPC_HOT_ROD_4})
-                    {
-                        hotRod = player->FindNearestCreature(hotRodEntry, 20.0f, true);
-                        if (hotRod)
-                            break;
-                    }
+                    if (Unit* vehicleBase = player->GetVehicleBase())
+                        if (vehicleBase->GetEntry() == NPC_HOT_ROD_1 || vehicleBase->GetEntry() == NPC_HOT_ROD_2)
+                            return;
 
+                    // The parked Hot Rods/Trikes around Kezan are decoration - the keys summon
+                    // the player's own Hot Rod, which despawns again when the driver gets out.
+                    Creature* hotRod = player->SummonCreature(NPC_HOT_ROD_1, player->GetPosition(), TEMPSUMMON_MANUAL_DESPAWN);
                     if (hotRod)
                     {
                         if (!hotRod->GetVehicleKit())
+                        {
+                            hotRod->DespawnOrUnsummon();
                             return;
+                        }
 
                         player->EnterVehicle(hotRod, 0);
 
@@ -211,6 +211,10 @@ public:
                         player->RemoveExtraUnitMovementFlag(MOVEMENTFLAG2_NO_JUMPING);
                     _driverHadNoJump = false;
                     me->AddExtraUnitMovementFlag(MOVEMENTFLAG2_NO_JUMPING);
+
+                    // Summoned Hot Rods despawn as soon as the driver gets out (sniffed)
+                    if (me->ToTempSummon())
+                        me->DespawnOrUnsummon(2000);
 
                     if (player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES) != QUEST_STATUS_INCOMPLETE &&
                         !ShouldKeepRollingWithHomiesCompanions(player))
@@ -337,7 +341,7 @@ public:
 
             Player* player = nullptr;
 
-            for (uint32 hotRodEntry : {NPC_HOT_ROD_1, NPC_HOT_ROD_2, NPC_HOT_ROD_3, NPC_HOT_ROD_4})
+            for (uint32 hotRodEntry : {NPC_HOT_ROD_1, NPC_HOT_ROD_2})
             {
                 if (Creature* hotRod = me->FindNearestCreature(hotRodEntry, 20.0f, true))
                 {
@@ -409,8 +413,7 @@ public:
 
         bool IsHotRod(uint32 entry)
         {
-            return (entry == NPC_HOT_ROD_1 || entry == NPC_HOT_ROD_2 ||
-                    entry == NPC_HOT_ROD_3 || entry == NPC_HOT_ROD_4);
+            return (entry == NPC_HOT_ROD_1 || entry == NPC_HOT_ROD_2);
         }
     };
 
@@ -981,8 +984,7 @@ private:
 
     bool IsHotRodEntry(uint32 entry)
     {
-        return (entry == NPC_HOT_ROD_1 || entry == NPC_HOT_ROD_2 ||
-                entry == NPC_HOT_ROD_3 || entry == NPC_HOT_ROD_4);
+        return (entry == NPC_HOT_ROD_1 || entry == NPC_HOT_ROD_2);
     }
 
     Unit* FindPlayerHotRod(Player* player)
@@ -1029,7 +1031,7 @@ private:
         if (!veh)
             return -1;
 
-        static constexpr std::array<uint32, 4> kHotRodEntries = { NPC_HOT_ROD_1, NPC_HOT_ROD_2, NPC_HOT_ROD_3, NPC_HOT_ROD_4 };
+        static constexpr std::array<uint32, 2> kHotRodEntries = { NPC_HOT_ROD_1, NPC_HOT_ROD_2 };
         bool const isHotRod = std::find(kHotRodEntries.begin(), kHotRodEntries.end(), veh->GetCreatureEntry()) != kHotRodEntries.end();
 
         if (veh->Seats.size() <= 1)
