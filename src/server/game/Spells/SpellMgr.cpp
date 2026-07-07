@@ -5592,6 +5592,20 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->AttributesEx2 |= SPELL_ATTR2_IGNORE_LINE_OF_SIGHT;
     });
 
+    // Ultraxion: Twilight Shift - the DBC stores the legacy 4.3.4 phasemask (16) in MiscValue,
+    // but HandlePhase on this core reads the phase id from MiscValueB
+    ApplySpellFix({ 106368 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Effects[EFFECT_2].MiscValueB = 16;
+        spellInfo->AttributesEx3 |= SPELL_ATTR3_ALLOW_AURA_WHILE_DEAD; // corpses stay in the realm so battle rez from inside works
+    });
+
+    // Ultraxion: Essence of Dreams - the buff has no proc flags; the heal-mirror AuraScript needs heal-done procs
+    ApplySpellFix({ 105900, 109342 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->ProcFlags |= PROC_FLAG_DEAL_HELPFUL_SPELL | PROC_FLAG_DEAL_HELPFUL_ABILITY | PROC_FLAG_DEAL_PERIODIC;
+    });
+
     for (uint32 i = 0; i < GetSpellInfoStoreSize(); ++i)
     {
         SpellInfo* spellInfo = mSpellInfoMap[i];
