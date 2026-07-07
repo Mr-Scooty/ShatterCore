@@ -1008,14 +1008,6 @@ private:
             return vehicle;
         }
 
-        for (uint32 hotRodEntry : {NPC_HOT_ROD_1, NPC_HOT_ROD_2, NPC_HOT_ROD_3, NPC_HOT_ROD_4})
-        {
-            if (Creature* nearbyHotRod = player->FindNearestCreature(hotRodEntry, 20.0f, true))
-            {
-                return nearbyHotRod;
-            }
-        }
-
         return nullptr;
     }
 
