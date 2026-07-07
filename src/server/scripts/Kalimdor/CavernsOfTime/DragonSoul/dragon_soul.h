@@ -60,6 +60,11 @@ enum DSDataTypes
     // Yor'sahj
     DATA_YORSAHJ_TASTE_THE_RAINBOW,
 
+    // Hagara the Stormbinder
+    DATA_HAGARA_INTRO_DONE,        // persisted: intro assault event completed this lockout
+    DATA_HAGARA_HOLDING_HANDS,     // boss AI -> instance: unbroken-chain lightning phase
+    DATA_TRAVEL_TO_EYE_OF_ETERNITY,
+
     // Raid Finder
     DATA_IS_LFR
 };
@@ -87,12 +92,18 @@ constexpr uint32 NPC_YORSAHJ_FORGOTTEN_ONE_LFR_STATS = 58230; // ~1.1M
 
 constexpr uint32 NPC_ZONOZZ_LFR_STATS                = 58231; // ~143.0M (70% of 25N)
 
+// Hagara LFR stats templates (70% of 25N, user-approved)
+constexpr uint32 NPC_HAGARA_LFR_STATS                = 58242; // ~72.1M
+constexpr uint32 NPC_HAGARA_CRYSTAL_LFR_STATS        = 58243; // ~814k
+constexpr uint32 NPC_HAGARA_ELEMENTAL_LFR_STATS      = 58244; // ~2.4M
+
 enum DSCreatures
 {
     // Bosses
     BOSS_MORCHOK                                = 55265,
     BOSS_WARLORD_ZONOZZ                         = 55308,
     BOSS_YORSAHJ                                = 55312,
+    BOSS_HAGARA                                 = 55689,
     BOSS_MADNESS_OF_DEATHWING                   = 56173,
 
     /*Morchok*/
@@ -115,6 +126,22 @@ enum DSCreatures
     NPC_FORGOTTEN_ONE                           = 56265,
     NPC_MANA_VOID                               = 56231,
     NPC_MAW_OF_SHUMA                            = 55544,
+
+    /*Hagara the Stormbinder*/
+    NPC_ICE_TOMB                                = 55695,
+    NPC_ICE_WAVE                                = 56104,
+    NPC_ICE_LANCE                               = 56108,
+    NPC_FROZEN_BINDING_CRYSTAL                  = 56136,
+    NPC_CRYSTAL_CONDUCTOR                       = 56165,
+    NPC_BOUND_LIGHTNING_ELEMENTAL               = 56700,
+    NPC_COLLAPSING_ICICLE                       = 57867,
+    NPC_TWILIGHT_FROST_EVOKER                   = 57807, // 25-man: 57808
+    NPC_STORMBORN_MYRMIDON                      = 57817, // 25-man: 57818
+    NPC_STORMBINDER_ADEPT                       = 57823, // 25-man: 57824
+    NPC_CORRUPTED_FRAGMENT                      = 57819, // 25-man: 57820
+    NPC_HAGARA_TWILIGHT_PORTAL                  = 57809,
+    NPC_TRAVEL_TO_EYE_OF_ETERNITY               = 57377,
+    NPC_TRAVEL_TO_WYRMREST_BASE                 = 57882,
 
     /*Madness of Deathwing*/
     NPC_DEATHWING_MADNESS_OF_DEATHWING          = 57962,
@@ -144,6 +171,8 @@ enum DSCreatures
 enum DSGameObjectIds
 {
     GO_MORCHOK_ROCK_SPIKE            = 209596,
+    GO_THE_FOCUSING_IRIS             = 210132,
+    GO_HAGARA_ICE_BLOCK              = 201722,
     GO_ELEMENTIUM_FRAGMENT_10_NORMAL = 210079,
     GO_ELEMENTIUM_FRAGMENT_25_NORMAL = 210218,
     GO_ELEMENTIUM_FRAGMENT_25_LFR    = 210220,
