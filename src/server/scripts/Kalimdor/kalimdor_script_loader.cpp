@@ -61,6 +61,7 @@ void AddSC_boss_yorsahj();
 void AddSC_boss_hagara();
 void AddSC_boss_ultraxion();
 void AddSC_boss_warmaster_blackhorn();
+void AddSC_boss_spine_of_deathwing();
 void AddSC_instance_dire_maul();             //Dire Maul
 void AddSC_instance_ragefire_chasm();        //Ragefire Chasm
 void AddSC_boss_celebras_the_cursed();       //Maraudon
@@ -209,6 +210,7 @@ void AddKalimdorScripts()
     AddSC_boss_hagara();
     AddSC_boss_ultraxion();
     AddSC_boss_warmaster_blackhorn();
+    AddSC_boss_spine_of_deathwing();
     AddSC_instance_dire_maul();             //Dire Maul
     AddSC_instance_ragefire_chasm();        //Ragefire Chasm
     AddSC_boss_celebras_the_cursed();       //Maraudon

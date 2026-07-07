@@ -90,6 +90,7 @@ enum Texts
     SAY_CAPTAIN_SHIP_LOW  = 6, // "The Skyfire can't take much more of this!"
     SAY_CAPTAIN_ABANDON   = 7, // "We're going down. Abandon the ship!"
     SAY_CAPTAIN_OUTRO     = 8, // "The engines are back online...."
+    SAY_CAPTAIN_SPINE     = 9, // "The plates! He's coming apart! Tear up the plates...."
 
     // The Skyfire (56598)
     EMOTE_DECK_FIRE       = 0, // "Structural damage to the Skyfire triggers a sudden Deck Fire!"
@@ -407,18 +408,27 @@ struct npc_ds_skyfire_captain : public ScriptedAI
 
     void IsSummonedBy(Unit* /*summoner*/) override
     {
-        // arena copy: pure speaker, never a gossip source
-        me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+        // arena copy: pure speaker during the fight; after the Blackhorn
+        // kill it keeps gossip as the Spine of Deathwing launch point
+        if (_instance->GetBossState(DATA_WARMASTER_BLACKHORN) != DONE)
+            me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
         if (Creature* controller = _instance->GetCreature(DATA_GUNSHIP_PURSUIT_CONTROLLER))
             controller->AI()->JustSummoned(me);
     }
 
-    bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 /*gossipListId*/) override
+    bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
     {
         CloseGossipMenuFor(player);
 
         if (!_instance)
             return true;
+
+        // second menu entry: leap onto Deathwing's back (Spine of Deathwing)
+        if (gossipListId == 1)
+        {
+            StartSpineLaunch(player);
+            return true;
+        }
 
         if (_instance->GetBossState(DATA_ULTRAXION) != DONE
             || _instance->GetBossState(DATA_WARMASTER_BLACKHORN) == IN_PROGRESS
@@ -467,8 +477,46 @@ struct npc_ds_skyfire_captain : public ScriptedAI
     }
 
 private:
+    void StartSpineLaunch(Player* player)
+    {
+        if (_instance->GetBossState(DATA_WARMASTER_BLACKHORN) != DONE || _spineLaunching)
+            return;
+
+        EncounterState spineState = _instance->GetBossState(DATA_SPINE_OF_DEATHWING);
+        if (spineState == IN_PROGRESS || spineState == DONE)
+            return;
+
+        // heroic progression gate (sends its own notification)
+        if (!_instance->CheckRequiredBosses(DATA_SPINE_OF_DEATHWING, player))
+            return;
+
+        _spineLaunching = true;
+        Talk(SAY_CAPTAIN_SPINE);
+
+        // pull the spine grid in so the Deathwing controller exists before
+        // the raid lands on his back
+        me->GetMap()->LoadGrid(SpineOfDeathwingLandingPos.GetPositionX(), SpineOfDeathwingLandingPos.GetPositionY());
+
+        _scheduler.Schedule(5s, [this](TaskContext /*context*/)
+        {
+            for (MapReference const& ref : me->GetMap()->GetPlayers())
+            {
+                Player* raider = ref.GetSource();
+                if (raider && raider->IsAlive() && raider->GetExactDist2d(me) < 120.0f)
+                    raider->NearTeleportTo(SpineOfDeathwingLandingPos);
+            }
+        });
+        _scheduler.Schedule(8s, [this](TaskContext /*context*/)
+        {
+            _spineLaunching = false;
+            if (Creature* deathwing = _instance->GetCreature(DATA_SPINE_OF_DEATHWING))
+                deathwing->AI()->DoAction(ACTION_START_SPINE_ENCOUNTER);
+        });
+    }
+
     InstanceScript* _instance;
     TaskScheduler _scheduler;
+    bool _spineLaunching = false;
 };
 
 // 56599 - Gunship Pursuit Controller: master state machine. Permanent spawn

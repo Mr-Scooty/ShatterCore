@@ -86,6 +86,13 @@ enum DSDataTypes
     DATA_TRAVEL_TO_SKYFIRE_DECK,
     DATA_BLACKHORN_ACHIEVEMENT_FAILED,   // spell script -> instance: unsoaked Barrage hit the ship
 
+    // Spine of Deathwing
+    DATA_SPINE_ROLL_OCCURRED,            // boss AI -> instance: a barrel roll was executed
+    DATA_SPINE_PLATE_1,                  // armor plate gameobjects
+    DATA_SPINE_PLATE_2,
+    DATA_SPINE_PLATE_3,
+    DATA_TRAVEL_TO_MAELSTROM,
+
     // Raid Finder
     DATA_IS_LFR
 };
@@ -128,9 +135,26 @@ constexpr uint32 NPC_ASSAULT_DRAKE_LFR_STATS         = 58248; // ~165.9k
 constexpr uint32 NPC_TWILIGHT_ELITE_LFR_STATS        = 58249; // ~506.8k
 constexpr uint32 NPC_SKYFIRE_LFR_STATS               = 58252; // ~10.5M
 
+// Spine of Deathwing LFR stats templates (70% of 25N, user-approved)
+constexpr uint32 NPC_SPINE_CORRUPTION_LFR_STATS      = 58253; // ~993k
+constexpr uint32 NPC_SPINE_AMALGAMATION_LFR_STATS    = 58254; // ~15.8M
+constexpr uint32 NPC_SPINE_BLOOD_LFR_STATS           = 58255; // ~360k
+constexpr uint32 NPC_SPINE_TENDONS_LFR_STATS         = 58256; // ~6.5M
+
 // Ultraxion: the Twilight Realm phase id. Twilight Shift (106368) carries the
 // legacy 4.3.4 phasemask 16, remapped to phase id 16 in LoadSpellInfoCorrections.
 constexpr uint32 PHASE_TWILIGHT_REALM = 16;
+
+// Spine of Deathwing: fired at the controller (53879) by the Skyfire
+// captains' gossip in boss_warmaster_blackhorn.cpp
+constexpr int32 ACTION_START_SPINE_ENCOUNTER = 1;
+
+// Landing point of Teleport Single - To Gunship (108263); doubles as the
+// Spine wipe funnel destination
+Position const SkyfireDeckLandingPos = { 13456.6f, -12133.8f, 151.17f, 3.1147f };
+
+// Where the captains' launch gossip drops the raid onto Deathwing's back
+Position const SpineOfDeathwingLandingPos = { -13855.0f, -13662.0f, 263.5f, 1.5708f };
 
 // Warmaster Blackhorn: shared between the boss script and the instance script.
 // The fight plays out on a second Skyfire far from Wyrmrest (the "flight
@@ -224,6 +248,18 @@ enum DSCreatures
     NPC_KAANU_REEVS                             = 55891,
     NPC_TRAVEL_TO_SKYFIRE_DECK                  = 57378,
 
+    /*Spine of Deathwing*/
+    BOSS_SPINE_OF_DEATHWING                     = 53879, // Deathwing himself: encounter controller
+    NPC_SPINE_CORRUPTION                        = 53891, // the four initial tentacles
+    NPC_SPINE_CORRUPTION_PLUG                   = 56161, // "always at least one" respawn
+    NPC_SPINE_CORRUPTION_PLATE                  = 56162, // exposed when plates 1/2 rip off
+    NPC_HIDEOUS_AMALGAMATION                    = 53890,
+    NPC_CORRUPTED_BLOOD                         = 53889,
+    NPC_BURNING_TENDONS_RIGHT                   = 56341, // casts Seal Armor Breach 105847
+    NPC_BURNING_TENDONS_LEFT                    = 56575, // casts Seal Armor Breach 105848
+    NPC_SPINE_SPAWNER                           = 53888, // breach hole anchor trigger
+    NPC_TRAVEL_TO_MAELSTROM                     = 57443,
+
     /*Madness of Deathwing*/
     NPC_DEATHWING_MADNESS_OF_DEATHWING          = 57962,
     NPC_ARM_TENTACLE_1                          = 56167,
@@ -261,7 +297,12 @@ enum DSGameObjectIds
     GO_ELEMENTIUM_FRAGMENT_25_NORMAL = 210218,
     GO_ELEMENTIUM_FRAGMENT_25_LFR    = 210220,
     GO_ELEMENTIUM_FRAGMENT_10_HEROIC = 210219,
-    GO_ELEMENTIUM_FRAGMENT_25_HEROIC = 210217
+    GO_ELEMENTIUM_FRAGMENT_25_HEROIC = 210217,
+    GO_DEATHWING_BACK_PLATE_1        = 209623,
+    GO_DEATHWING_BACK_PLATE_2        = 209631,
+    GO_DEATHWING_BACK_PLATE_3        = 209632,
+    GO_LESSER_CACHE_OF_THE_ASPECTS   = 210163, // 10-player Spine loot
+    GO_GREATER_CACHE_OF_THE_ASPECTS  = 209897  // 25-player Spine loot
 };
 
 enum DSSpells
