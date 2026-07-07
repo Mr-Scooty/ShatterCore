@@ -31,6 +31,7 @@ ObjectData const creatureData[] =
 {
     { BOSS_MORCHOK,                         DATA_MORCHOK                            },
     { NPC_KOHCROM,                          DATA_KOHCROM                            },
+    { BOSS_YORSAHJ,                         DATA_YORSAHJ_THE_UNSLEEPING             },
     { BOSS_MADNESS_OF_DEATHWING,            DATA_MADNESS_OF_DEATHWING               },
     { NPC_DEATHWING_MADNESS_OF_DEATHWING,   DATA_DEATHWING_MADNESS_OF_DEATHWING     },
     { NPC_THRALL_MADNESS_OF_DEATHWING,      DATA_THRALL_MADNESS_OF_DEATHWING        },
@@ -54,12 +55,19 @@ DoorData const doorData[] =
 
 BossBoundaryData const boundaries =
 {
-    { DATA_MORCHOK, new CircleBoundary(Position(-1981.03, -2409.30), 95.0) }
+    { DATA_MORCHOK,                 new CircleBoundary(Position(-1981.03, -2409.30), 95.0) },
+    { DATA_YORSAHJ_THE_UNSLEEPING,  new CircleBoundary(Position(-1765.65, -3034.35), 115.0) }
 };
 
 enum DSAchievementCriteria
 {
-    CRITERIA_DONT_STAND_SO_CLOSE_TO_ME = 18607
+    CRITERIA_DONT_STAND_SO_CLOSE_TO_ME = 18607,
+
+    // Taste the Rainbow!
+    CRITERIA_RAINBOW_BLACK_YELLOW      = 18495,
+    CRITERIA_RAINBOW_RED_GREEN         = 18496,
+    CRITERIA_RAINBOW_BLACK_BLUE        = 18497,
+    CRITERIA_RAINBOW_PURPLE_YELLOW     = 18498
 };
 
 // Boss creature entry per encounter data index, used for Raid Finder loot lockouts
@@ -69,6 +77,8 @@ uint32 GetBossEntryForData(uint32 bossId)
     {
         case DATA_MORCHOK:
             return BOSS_MORCHOK;
+        case DATA_YORSAHJ_THE_UNSLEEPING:
+            return BOSS_YORSAHJ;
         default:
             return 0;
     }
@@ -98,6 +108,9 @@ public:
             if (type == DATA_MORCHOK && state == IN_PROGRESS)
                 _morchokAchievementFailed = false;
 
+            if (type == DATA_YORSAHJ_THE_UNSLEEPING && state == IN_PROGRESS)
+                _yorsahjRainbowMask = 0;
+
             if (state == DONE && IsLFR())
                 if (uint32 bossEntry = GetBossEntryForData(type))
                     RegisterLFRLootLockouts(type, bossEntry);
@@ -105,10 +118,12 @@ public:
             return true;
         }
 
-        void SetData(uint32 type, uint32 /*data*/) override
+        void SetData(uint32 type, uint32 data) override
         {
             if (type == DATA_MORCHOK_ACHIEVEMENT_FAILED)
                 _morchokAchievementFailed = true;
+            else if (type == DATA_YORSAHJ_TASTE_THE_RAINBOW)
+                _yorsahjRainbowMask |= data;
         }
 
         uint32 GetData(uint32 type) const override
@@ -134,6 +149,15 @@ public:
             {
                 case CRITERIA_DONT_STAND_SO_CLOSE_TO_ME:
                     return !IsLFR() && !_morchokAchievementFailed;
+                // Glory criteria are not earnable through the Raid Finder
+                case CRITERIA_RAINBOW_BLACK_YELLOW:
+                    return !IsLFR() && (_yorsahjRainbowMask & RAINBOW_BIT_BLACK_YELLOW) != 0;
+                case CRITERIA_RAINBOW_RED_GREEN:
+                    return !IsLFR() && (_yorsahjRainbowMask & RAINBOW_BIT_RED_GREEN) != 0;
+                case CRITERIA_RAINBOW_BLACK_BLUE:
+                    return !IsLFR() && (_yorsahjRainbowMask & RAINBOW_BIT_BLACK_BLUE) != 0;
+                case CRITERIA_RAINBOW_PURPLE_YELLOW:
+                    return !IsLFR() && (_yorsahjRainbowMask & RAINBOW_BIT_PURPLE_YELLOW) != 0;
                 default:
                     break;
             }
@@ -204,7 +228,7 @@ public:
 
             // Raid Finder bosses use the LFR loot rows (LootMode 2). Must be
             // set at create time - loot is filled before JustDied fires.
-            if (IsLFR() && creature->GetEntry() == BOSS_MORCHOK)
+            if (IsLFR() && (creature->GetEntry() == BOSS_MORCHOK || creature->GetEntry() == BOSS_YORSAHJ))
                 creature->SetLootMode(LOOT_MODE_HARD_MODE_1);
 
             switch (creature->GetEntry())
@@ -242,6 +266,7 @@ public:
 
     private:
         bool _morchokAchievementFailed = false;
+        uint32 _yorsahjRainbowMask = 0;
         std::unordered_map<uint32, GuidSet> _lfrLootEligible;
     };
 
