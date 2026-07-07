@@ -33,6 +33,8 @@ ObjectData const creatureData[] =
     { NPC_KOHCROM,                          DATA_KOHCROM                            },
     { BOSS_WARLORD_ZONOZZ,                  DATA_WARLORD_ZONOZZ                     },
     { BOSS_YORSAHJ,                         DATA_YORSAHJ_THE_UNSLEEPING             },
+    { BOSS_HAGARA,                          DATA_HAGARA_THE_STORMBINDER             },
+    { NPC_TRAVEL_TO_EYE_OF_ETERNITY,        DATA_TRAVEL_TO_EYE_OF_ETERNITY          },
     { BOSS_MADNESS_OF_DEATHWING,            DATA_MADNESS_OF_DEATHWING               },
     { NPC_DEATHWING_MADNESS_OF_DEATHWING,   DATA_DEATHWING_MADNESS_OF_DEATHWING     },
     { NPC_THRALL_MADNESS_OF_DEATHWING,      DATA_THRALL_MADNESS_OF_DEATHWING        },
@@ -58,7 +60,8 @@ BossBoundaryData const boundaries =
 {
     { DATA_MORCHOK,                 new CircleBoundary(Position(-1981.03, -2409.30), 95.0) },
     { DATA_WARLORD_ZONOZZ,          new CircleBoundary(Position(-1765.00, -1915.00), 65.0) },
-    { DATA_YORSAHJ_THE_UNSLEEPING,  new CircleBoundary(Position(-1765.65, -3034.35), 115.0) }
+    { DATA_YORSAHJ_THE_UNSLEEPING,  new CircleBoundary(Position(-1765.65, -3034.35), 115.0) },
+    { DATA_HAGARA_THE_STORMBINDER,  new CircleBoundary(Position(13587.29, 13611.83), 60.0) }
 };
 
 enum DSAchievementCriteria
@@ -73,7 +76,10 @@ enum DSAchievementCriteria
     CRITERIA_RAINBOW_BLACK_YELLOW      = 18495,
     CRITERIA_RAINBOW_RED_GREEN         = 18496,
     CRITERIA_RAINBOW_BLACK_BLUE        = 18497,
-    CRITERIA_RAINBOW_PURPLE_YELLOW     = 18498
+    CRITERIA_RAINBOW_PURPLE_YELLOW     = 18498,
+
+    // Holding Hands: all conductors charged by one unbroken conduit chain
+    CRITERIA_HOLDING_HANDS             = 18608
 };
 
 // Boss creature entry per encounter data index, used for Raid Finder loot lockouts
@@ -87,6 +93,8 @@ uint32 GetBossEntryForData(uint32 bossId)
             return BOSS_WARLORD_ZONOZZ;
         case DATA_YORSAHJ_THE_UNSLEEPING:
             return BOSS_YORSAHJ;
+        case DATA_HAGARA_THE_STORMBINDER:
+            return BOSS_HAGARA;
         default:
             return 0;
     }
@@ -122,6 +130,15 @@ public:
             if (type == DATA_YORSAHJ_THE_UNSLEEPING && state == IN_PROGRESS)
                 _yorsahjRainbowMask = 0;
 
+            if (type == DATA_HAGARA_THE_STORMBINDER && state == IN_PROGRESS)
+                _hagaraHoldingHands = false;
+
+            // The Eye of Eternity teleporter activates once both preceding
+            // bosses are down
+            if ((type == DATA_WARLORD_ZONOZZ || type == DATA_YORSAHJ_THE_UNSLEEPING) && state == DONE)
+                if (Creature* teleporter = GetCreature(DATA_TRAVEL_TO_EYE_OF_ETERNITY))
+                    teleporter->SetVisible(IsEyeTeleporterActive());
+
             if (state == DONE && IsLFR())
                 if (uint32 bossEntry = GetBossEntryForData(type))
                     RegisterLFRLootLockouts(type, bossEntry);
@@ -137,13 +154,27 @@ public:
                 _zonozzPingPong = true;
             else if (type == DATA_YORSAHJ_TASTE_THE_RAINBOW)
                 _yorsahjRainbowMask |= data;
+            else if (type == DATA_HAGARA_HOLDING_HANDS)
+                _hagaraHoldingHands = true;
+            else if (type == DATA_HAGARA_INTRO_DONE)
+            {
+                _hagaraIntroDone = data != 0;
+                SaveToDB();
+            }
         }
 
         uint32 GetData(uint32 type) const override
         {
             if (type == DATA_IS_LFR)
                 return IsLFR() ? 1 : 0;
+            if (type == DATA_HAGARA_INTRO_DONE)
+                return _hagaraIntroDone ? 1 : 0;
             return 0;
+        }
+
+        bool IsEyeTeleporterActive() const
+        {
+            return GetBossState(DATA_WARLORD_ZONOZZ) == DONE && GetBossState(DATA_YORSAHJ_THE_UNSLEEPING) == DONE;
         }
 
         bool CheckRequiredBosses(uint32 bossId, Player const* /*player*/ = nullptr) const override
@@ -173,6 +204,8 @@ public:
                     return !IsLFR() && (_yorsahjRainbowMask & RAINBOW_BIT_BLACK_BLUE) != 0;
                 case CRITERIA_RAINBOW_PURPLE_YELLOW:
                     return !IsLFR() && (_yorsahjRainbowMask & RAINBOW_BIT_PURPLE_YELLOW) != 0;
+                case CRITERIA_HOLDING_HANDS:
+                    return !IsLFR() && _hagaraHoldingHands;
                 default:
                     break;
             }
@@ -227,7 +260,7 @@ public:
 
         void WriteSaveDataMore(std::ostringstream& data) override
         {
-            data << uint32(IsLFR() ? 1 : 0);
+            data << uint32(IsLFR() ? 1 : 0) << ' ' << uint32(_hagaraIntroDone ? 1 : 0);
         }
 
         void ReadSaveDataMore(std::istringstream& data) override
@@ -235,6 +268,11 @@ public:
             uint32 isLfr = 0;
             data >> isLfr;
             SetLFR(isLfr != 0);
+
+            // absent in old save strings - stream failure leaves the default
+            uint32 hagaraIntroDone = 0;
+            data >> hagaraIntroDone;
+            _hagaraIntroDone = hagaraIntroDone != 0;
         }
 
         void OnCreatureCreate(Creature* creature) override
@@ -243,11 +281,14 @@ public:
 
             // Raid Finder bosses use the LFR loot rows (LootMode 2). Must be
             // set at create time - loot is filled before JustDied fires.
-            if (IsLFR() && (creature->GetEntry() == BOSS_MORCHOK || creature->GetEntry() == BOSS_WARLORD_ZONOZZ || creature->GetEntry() == BOSS_YORSAHJ))
+            if (IsLFR() && (creature->GetEntry() == BOSS_MORCHOK || creature->GetEntry() == BOSS_WARLORD_ZONOZZ || creature->GetEntry() == BOSS_YORSAHJ || creature->GetEntry() == BOSS_HAGARA))
                 creature->SetLootMode(LOOT_MODE_HARD_MODE_1);
 
             switch (creature->GetEntry())
             {
+                case NPC_TRAVEL_TO_EYE_OF_ETERNITY:
+                    creature->SetVisible(IsEyeTeleporterActive());
+                    break;
                 case NPC_YSERA_MADNESS_OF_DEATHWING:
                 case NPC_ALEXSTRASZA_MADNESS_OF_DEATHWING:
                 case NPC_NOZDORMU_MADNESS_OF_DEATHWING:
@@ -283,6 +324,8 @@ public:
         bool _morchokAchievementFailed = false;
         bool _zonozzPingPong = false;
         uint32 _yorsahjRainbowMask = 0;
+        bool _hagaraHoldingHands = false;
+        bool _hagaraIntroDone = false;
         std::unordered_map<uint32, GuidSet> _lfrLootEligible;
     };
 
