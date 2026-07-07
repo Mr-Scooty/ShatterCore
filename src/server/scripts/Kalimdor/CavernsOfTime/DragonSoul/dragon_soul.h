@@ -54,8 +54,21 @@ enum DSDataTypes
     DATA_KOHCROM,
     DATA_MORCHOK_ACHIEVEMENT_FAILED,
 
+    // Yor'sahj
+    DATA_YORSAHJ_TASTE_THE_RAINBOW,
+
     // Raid Finder
     DATA_IS_LFR
+};
+
+// Taste the Rainbow! (achievement 6129) - color pairs the boss was empowered
+// by on a kill, reported by the boss AI to the instance script
+enum YorsahjRainbowBits
+{
+    RAINBOW_BIT_BLACK_YELLOW  = 0x1, // criteria 18495
+    RAINBOW_BIT_RED_GREEN     = 0x2, // criteria 18496
+    RAINBOW_BIT_BLACK_BLUE    = 0x4, // criteria 18497
+    RAINBOW_BIT_PURPLE_YELLOW = 0x8  // criteria 18498
 };
 
 // Raid Finder tuning: LFR runs are 25 player normal instances with reduced
@@ -63,15 +76,33 @@ enum DSDataTypes
 constexpr uint32 LFR_DAMAGE_PCT = 70;                   // playtest knob - no retail data
 constexpr uint32 NPC_MORCHOK_LFR_STATS = 58226;         // HealthModifier 350 = ~30.06M
 
+// Yor'sahj LFR stats templates (community retail values)
+constexpr uint32 NPC_YORSAHJ_LFR_STATS               = 58227; // ~106.0M
+constexpr uint32 NPC_YORSAHJ_GLOBULE_LFR_STATS       = 58228; // ~4.1M
+constexpr uint32 NPC_YORSAHJ_MANA_VOID_LFR_STATS     = 58229; // ~3.8M
+constexpr uint32 NPC_YORSAHJ_FORGOTTEN_ONE_LFR_STATS = 58230; // ~1.1M
+
 enum DSCreatures
 {
     // Bosses
     BOSS_MORCHOK                                = 55265,
+    BOSS_YORSAHJ                                = 55312,
     BOSS_MADNESS_OF_DEATHWING                   = 56173,
 
     /*Morchok*/
     NPC_KOHCROM                                 = 57773,
     NPC_RESONATING_CRYSTAL                      = 55346,
+
+    /*Yor'sahj the Unsleeping*/
+    NPC_ACIDIC_GLOBULE                          = 55862, // green
+    NPC_SHADOWED_GLOBULE                        = 55863, // purple
+    NPC_GLOWING_GLOBULE                         = 55864, // yellow
+    NPC_CRIMSON_GLOBULE                         = 55865, // red
+    NPC_COBALT_GLOBULE                          = 55866, // blue
+    NPC_DARK_GLOBULE                            = 55867, // black
+    NPC_FORGOTTEN_ONE                           = 56265,
+    NPC_MANA_VOID                               = 56231,
+    NPC_MAW_OF_SHUMA                            = 55544,
 
     /*Madness of Deathwing*/
     NPC_DEATHWING_MADNESS_OF_DEATHWING          = 57962,
