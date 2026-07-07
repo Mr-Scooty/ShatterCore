@@ -64,6 +64,7 @@ enum HotRodData
     NPC_IZZY_CREDIT = 34959,
     NPC_ACE_CREDIT = 34957,
     NPC_GOBBER_CREDIT = 34958,
+    QUEST_LIFE_SAVINGS = 14126,
 
     NPC_IZZY = 34890,
     NPC_ACE = 34892,
@@ -77,6 +78,18 @@ enum HotRodData
     SPELL_RESUMMON_ACE = 66644,
     SPELL_RESUMMON_GOBBER = 66645
 };
+
+static bool ShouldKeepRollingWithHomiesCompanions(Player const* player)
+{
+    if (!player)
+        return false;
+
+    QuestStatus rollingStatus = player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES);
+    if (rollingStatus != QUEST_STATUS_COMPLETE && rollingStatus != QUEST_STATUS_REWARDED)
+        return false;
+
+    return player->GetQuestStatus(QUEST_LIFE_SAVINGS) != QUEST_STATUS_REWARDED;
+}
 
 enum HotRodEvents
 {
@@ -202,7 +215,8 @@ public:
                     _driverHadNoJump = false;
                     me->AddExtraUnitMovementFlag(MOVEMENTFLAG2_NO_JUMPING);
 
-                    if (player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES) != QUEST_STATUS_INCOMPLETE)
+                    if (player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES) != QUEST_STATUS_INCOMPLETE &&
+                        !ShouldKeepRollingWithHomiesCompanions(player))
                         return;
 
                     for (uint32 npcEntry : pickedUpNPCs)
@@ -417,10 +431,25 @@ public:
     void OnPlayerLogin(Player* player) override
     {
         QuestStatus status = player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES);
-        if (status == QUEST_STATUS_INCOMPLETE || status == QUEST_STATUS_COMPLETE)
+        if (status == QUEST_STATUS_INCOMPLETE || status == QUEST_STATUS_COMPLETE || ShouldKeepRollingWithHomiesCompanions(player))
         {
             if (!player->HasAura(SPELL_KEYS_TO_HOT_ROD))
                 player->CastSpell(player, SPELL_KEYS_TO_HOT_ROD, true);
+        }
+
+        if (status == QUEST_STATUS_COMPLETE || ShouldKeepRollingWithHomiesCompanions(player))
+        {
+            ObjectGuid playerGUID = player->GetGUID();
+            player->m_Events.AddEventAtOffset([playerGUID]()
+            {
+                Player* player = ObjectAccessor::FindPlayer(playerGUID);
+                if (!ShouldKeepRollingWithHomiesCompanions(player))
+                    return;
+
+                player->CastSpell(player, SPELL_RESUMMON_IZZY, true);
+                player->CastSpell(player, SPELL_RESUMMON_ACE, true);
+                player->CastSpell(player, SPELL_RESUMMON_GOBBER, true);
+            }, 2s);
         }
     }
 
@@ -438,7 +467,16 @@ public:
         if (questId == QUEST_ROLLING_WITH_MY_HOMIES)
         {
             QuestStatus status = player->GetQuestStatus(questId);
-            if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+            if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED)
+            {
+                player->RemoveAurasDueToSpell(SPELL_KEYS_TO_HOT_ROD);
+                CleanupQuestFollowers(player);
+            }
+        }
+        else if (questId == QUEST_LIFE_SAVINGS)
+        {
+            QuestStatus status = player->GetQuestStatus(questId);
+            if (status == QUEST_STATUS_REWARDED)
             {
                 player->RemoveAurasDueToSpell(SPELL_KEYS_TO_HOT_ROD);
                 CleanupQuestFollowers(player);
@@ -524,7 +562,8 @@ struct npc_rolling_with_homies_gossipAI : public ScriptedAI
             return;
         }
 
-        if (player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES) != QUEST_STATUS_INCOMPLETE)
+        if (player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES) != QUEST_STATUS_INCOMPLETE &&
+            !ShouldKeepRollingWithHomiesCompanions(player))
         {
             me->DespawnOrUnsummon(1000);
             return;
