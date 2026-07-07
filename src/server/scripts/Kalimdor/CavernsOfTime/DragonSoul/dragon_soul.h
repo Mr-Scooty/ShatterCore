@@ -54,6 +54,9 @@ enum DSDataTypes
     DATA_KOHCROM,
     DATA_MORCHOK_ACHIEVEMENT_FAILED,
 
+    // Warlord Zon'ozz
+    DATA_ZONOZZ_PING_PONG,
+
     // Yor'sahj
     DATA_YORSAHJ_TASTE_THE_RAINBOW,
 
@@ -82,16 +85,25 @@ constexpr uint32 NPC_YORSAHJ_GLOBULE_LFR_STATS       = 58228; // ~4.1M
 constexpr uint32 NPC_YORSAHJ_MANA_VOID_LFR_STATS     = 58229; // ~3.8M
 constexpr uint32 NPC_YORSAHJ_FORGOTTEN_ONE_LFR_STATS = 58230; // ~1.1M
 
+constexpr uint32 NPC_ZONOZZ_LFR_STATS                = 58231; // ~143.0M (70% of 25N)
+
 enum DSCreatures
 {
     // Bosses
     BOSS_MORCHOK                                = 55265,
+    BOSS_WARLORD_ZONOZZ                         = 55308,
     BOSS_YORSAHJ                                = 55312,
     BOSS_MADNESS_OF_DEATHWING                   = 56173,
 
     /*Morchok*/
     NPC_KOHCROM                                 = 57773,
     NPC_RESONATING_CRYSTAL                      = 55346,
+
+    /*Warlord Zon'ozz*/
+    NPC_VOID_OF_THE_UNMAKING                    = 55334,
+    NPC_EYE_OF_GORATH                           = 55416,
+    NPC_FLAIL_OF_GORATH                         = 55417,
+    NPC_CLAW_OF_GORATH                          = 55418,
 
     /*Yor'sahj the Unsleeping*/
     NPC_ACIDIC_GLOBULE                          = 55862, // green
