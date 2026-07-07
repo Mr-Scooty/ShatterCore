@@ -5603,6 +5603,88 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->ProcFlags |= PROC_FLAG_DEAL_HELPFUL_SPELL | PROC_FLAG_DEAL_HELPFUL_ABILITY | PROC_FLAG_DEAL_PERIODIC;
     });
 
+    // Spine of Deathwing: most encounter area spells carry no radius in the
+    // DBC (the retail server supplied it) - restore sensible ranges
+
+    // Searing Plasma (selector): anyone on the spine is a candidate
+    ApplySpellFix({ 109379 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Effects[EFFECT_0].TargetARadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_200_YARDS);
+        spellInfo->Effects[EFFECT_0].TargetBRadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_200_YARDS);
+    });
+
+    // Fiery Grip: grips random raiders anywhere on the spine (count capped in script)
+    ApplySpellFix({ 105490, 109457, 109458, 109459 }, [](SpellInfo* spellInfo)
+    {
+        for (uint8 effIndex : { EFFECT_0, EFFECT_1 })
+        {
+            spellInfo->Effects[effIndex].TargetARadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_200_YARDS);
+            spellInfo->Effects[effIndex].TargetBRadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_200_YARDS);
+        }
+    });
+
+    // Grasping Tendrils: anchors players standing in the breach hole
+    ApplySpellFix({ 105563, 109454, 109455, 109456 }, [](SpellInfo* spellInfo)
+    {
+        for (uint8 effIndex : { EFFECT_0, EFFECT_1 })
+        {
+            spellInfo->Effects[effIndex].TargetARadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_5_YARDS);
+            spellInfo->Effects[effIndex].TargetBRadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_5_YARDS);
+        }
+    });
+
+    // Burst: Corrupted Blood on-death nova
+    ApplySpellFix({ 105219, 109371, 109372, 109373 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Effects[EFFECT_0].TargetARadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_10_YARDS);
+        spellInfo->Effects[EFFECT_0].TargetBRadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_10_YARDS);
+    });
+
+    // Nuclear Blast: the explosion itself
+    ApplySpellFix({ 105845 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Effects[EFFECT_0].TargetARadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_10_YARDS);
+        spellInfo->Effects[EFFECT_0].TargetBRadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_10_YARDS);
+    });
+
+    // Nuclear Blast (seam check): how close the blast must be to the plate seam
+    ApplySpellFix({ 105846 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Effects[EFFECT_0].TargetARadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_15_YARDS);
+        spellInfo->Effects[EFFECT_0].TargetBRadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_15_YARDS);
+    });
+
+    // Absorb Blood: the Amalgamation's residue vacuum reach
+    ApplySpellFix({ 105241 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Effects[EFFECT_0].TargetARadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_4_YARDS);
+        spellInfo->Effects[EFFECT_0].TargetBRadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_4_YARDS);
+    });
+
+    // Degradation / Blood of Deathwing: hit the whole raid on the spine
+    ApplySpellFix({ 106005, 106201 }, [](SpellInfo* spellInfo)
+    {
+        for (uint8 effIndex : { EFFECT_0, EFFECT_1 })
+        {
+            spellInfo->Effects[effIndex].TargetARadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_200_YARDS);
+            spellInfo->Effects[effIndex].TargetBRadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_200_YARDS);
+        }
+    });
+
+    // Seal Armor Breach: the 23s DPS-check cast must not be player-interruptible
+    ApplySpellFix({ 105847, 105848 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->InterruptFlags = SpellInterruptFlags::None;
+    });
+
+    // Play Movie - Deathwing 3: DBC targeting selects creatures around the
+    // source; the controller casts it on each raider explicitly
+    ApplySpellFix({ 104574 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Effects[EFFECT_0].TargetA = SpellImplicitTargetInfo(TARGET_UNIT_TARGET_ANY);
+        spellInfo->Effects[EFFECT_0].TargetB = SpellImplicitTargetInfo();
+    });
+
     for (uint32 i = 0; i < GetSpellInfoStoreSize(); ++i)
     {
         SpellInfo* spellInfo = mSpellInfoMap[i];

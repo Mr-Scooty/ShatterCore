@@ -17,6 +17,7 @@
 
 #include "AreaBoundary.h"
 #include "Creature.h"
+#include "GameObject.h"
 #include "Group.h"
 #include "InstanceScript.h"
 #include "LFGMgr.h"
@@ -51,6 +52,8 @@ ObjectData const creatureData[] =
     { NPC_SKY_CAPTAIN_SWAYZE,               DATA_SKY_CAPTAIN_SWAYZE                 },
     { NPC_KAANU_REEVS,                      DATA_KAANU_REEVS                        },
     { NPC_TRAVEL_TO_SKYFIRE_DECK,           DATA_TRAVEL_TO_SKYFIRE_DECK             },
+    { BOSS_SPINE_OF_DEATHWING,              DATA_SPINE_OF_DEATHWING                 },
+    { NPC_TRAVEL_TO_MAELSTROM,              DATA_TRAVEL_TO_MAELSTROM                },
     { BOSS_MADNESS_OF_DEATHWING,            DATA_MADNESS_OF_DEATHWING               },
     { NPC_DEATHWING_MADNESS_OF_DEATHWING,   DATA_DEATHWING_MADNESS_OF_DEATHWING     },
     { NPC_THRALL_MADNESS_OF_DEATHWING,      DATA_THRALL_MADNESS_OF_DEATHWING        },
@@ -64,7 +67,10 @@ ObjectData const creatureData[] =
 
 ObjectData const gameobjectData[] =
 {
-    { 0, 0 } // END
+    { GO_DEATHWING_BACK_PLATE_1, DATA_SPINE_PLATE_1 },
+    { GO_DEATHWING_BACK_PLATE_2, DATA_SPINE_PLATE_2 },
+    { GO_DEATHWING_BACK_PLATE_3, DATA_SPINE_PLATE_3 },
+    { 0,                         0                  } // END
 };
 
 DoorData const doorData[] =
@@ -103,7 +109,10 @@ enum DSAchievementCriteria
     CRITERIA_MINUTES_TO_MIDNIGHT       = 18391,
 
     // Deck Defender: no Twilight Barrage damaged the Skyfire
-    CRITERIA_DECK_DEFENDER             = 18444
+    CRITERIA_DECK_DEFENDER             = 18444,
+
+    // Maybe He'll Get Dizzy...: force Deathwing to roll 4 times, then win
+    CRITERIA_MAYBE_HELL_GET_DIZZY      = 18502
 };
 
 // Heroic mode progression: an encounter may only begin on heroic difficulty
@@ -141,6 +150,8 @@ uint32 GetBossEntryForData(uint32 bossId)
             return BOSS_ULTRAXION;
         case DATA_WARMASTER_BLACKHORN:
             return BOSS_WARMASTER_BLACKHORN;
+        case DATA_SPINE_OF_DEATHWING:
+            return BOSS_SPINE_OF_DEATHWING;
         default:
             return 0;
     }
@@ -161,6 +172,19 @@ uint32 const UltraxionPersistentAuras[] =
     105903, // Source of Magic
     109346, // Source of Magic (heroic)
     106498  // Looming Darkness
+};
+
+// Spine of Deathwing auras that must not leak out of an attempt
+uint32 const SpinePersistentAuras[] =
+{
+    105479, // Searing Plasma (+ difficulty forks)
+    109362,
+    109363,
+    109364,
+    106005, // Degradation
+    106199, // Blood Corruption: Death
+    106200, // Blood Corruption: Earth
+    106213  // Blood of Neltharion
 };
 
 class instance_dragon_soul : public InstanceMapScript
@@ -201,6 +225,14 @@ public:
 
             if (type == DATA_WARMASTER_BLACKHORN && state == IN_PROGRESS)
                 _blackhornShipHit = false;
+
+            if (type == DATA_SPINE_OF_DEATHWING && state == IN_PROGRESS)
+                _spineRollCount = 0;
+
+            // The Maelstrom teleporter activates once Spine is down
+            if (type == DATA_SPINE_OF_DEATHWING && state == DONE)
+                if (Creature* teleporter = GetCreature(DATA_TRAVEL_TO_MAELSTROM))
+                    teleporter->SetVisible(true);
 
             // The deck teleporter activates once Blackhorn is down (Spine
             // access and corpse recovery on the flight deck)
@@ -257,6 +289,8 @@ public:
             }
             else if (type == DATA_BLACKHORN_ACHIEVEMENT_FAILED)
                 _blackhornShipHit = true;
+            else if (type == DATA_SPINE_ROLL_OCCURRED)
+                ++_spineRollCount;
         }
 
         uint32 GetData(uint32 type) const override
@@ -279,10 +313,11 @@ public:
 
         bool CheckRequiredBosses(uint32 bossId, Player const* player = nullptr) const override
         {
-            // Raid Finder wing 1 ("The Siege of Wyrmrest Temple") covers
-            // Morchok through Hagara; wing 2 content is not queueable yet
+            // Raid Finder: wing 1 ("The Siege of Wyrmrest Temple") covers
+            // Morchok through Hagara, wing 2 ("Fall of Deathwing") continues
+            // through Spine. Madness stays blocked until its own audit pass.
             if (IsLFR())
-                return bossId <= DATA_HAGARA_THE_STORMBINDER;
+                return bossId <= DATA_SPINE_OF_DEATHWING;
 
             if (!CheckHeroicGate(bossId, player))
                 return false;
@@ -331,6 +366,8 @@ public:
                     return !IsLFR() && !_ultraxionAchievementFailed;
                 case CRITERIA_DECK_DEFENDER:
                     return !IsLFR() && !_blackhornShipHit;
+                case CRITERIA_MAYBE_HELL_GET_DIZZY:
+                    return !IsLFR() && _spineRollCount >= 4;
                 default:
                     break;
             }
@@ -364,21 +401,27 @@ public:
             if (!IsLFR())
                 return true;
 
-            Creature const* creature = lootSource->ToCreature();
-            if (!creature)
-                return true;
+            uint32 bossId = EncounterCount;
 
-            uint32 bossId = 0;
-            for (; bossId < EncounterCount; ++bossId)
-                if (GetBossEntryForData(bossId) == creature->GetEntry())
-                    break;
+            // Spine of Deathwing awards loot from a cache gameobject
+            if (GameObject const* go = lootSource->ToGameObject())
+            {
+                if (go->GetEntry() == GO_LESSER_CACHE_OF_THE_ASPECTS || go->GetEntry() == GO_GREATER_CACHE_OF_THE_ASPECTS)
+                    bossId = DATA_SPINE_OF_DEATHWING;
+            }
+            else if (Creature const* creature = lootSource->ToCreature())
+            {
+                for (bossId = 0; bossId < EncounterCount; ++bossId)
+                    if (GetBossEntryForData(bossId) == creature->GetEntry())
+                        break;
+            }
 
             if (bossId >= EncounterCount)
                 return true;
 
             auto itr = _lfrLootEligible.find(bossId);
             if (itr == _lfrLootEligible.end())
-                return !player->HasLFRLootLockout(creature->GetEntry());
+                return !player->HasLFRLootLockout(GetBossEntryForData(bossId));
 
             return itr->second.find(player->GetGUID()) != itr->second.end();
         }
@@ -428,6 +471,9 @@ public:
                 case NPC_TRAVEL_TO_SKYFIRE_DECK:
                     creature->SetVisible(GetBossState(DATA_WARMASTER_BLACKHORN) == DONE);
                     break;
+                case NPC_TRAVEL_TO_MAELSTROM:
+                    creature->SetVisible(GetBossState(DATA_SPINE_OF_DEATHWING) == DONE);
+                    break;
                 case NPC_YSERA_MADNESS_OF_DEATHWING:
                 case NPC_ALEXSTRASZA_MADNESS_OF_DEATHWING:
                 case NPC_NOZDORMU_MADNESS_OF_DEATHWING:
@@ -470,6 +516,17 @@ public:
                 && player->GetExactDist2d(SkyfireDeckCenterPos.GetPositionX(), SkyfireDeckCenterPos.GetPositionY()) < 200.0f)
                 player->NearTeleportTo(SkyfireStagingPos);
 
+            // Spine: strip encounter auras outside an active attempt; players
+            // logging into a stale spine get sent back to the flight deck
+            if (GetBossState(DATA_SPINE_OF_DEATHWING) != IN_PROGRESS)
+            {
+                for (uint32 spellId : SpinePersistentAuras)
+                    player->RemoveAurasDueToSpell(spellId);
+
+                if (player->GetExactDist2d(SpineOfDeathwingLandingPos.GetPositionX(), SpineOfDeathwingLandingPos.GetPositionY()) < 200.0f)
+                    player->NearTeleportTo(SkyfireDeckLandingPos);
+            }
+
             // Raid Finder: groups formed by the Raid Finder queue flag the
             // instance automatically on first entry (25 normal mode only)
             if (!IsLFR() && instance->GetDifficulty() == RAID_DIFFICULTY_25MAN_NORMAL)
@@ -494,6 +551,7 @@ public:
         bool _ultraxionAchievementFailed = false;
         bool _ultraxionGauntletDone = false;
         bool _blackhornShipHit = false;
+        uint32 _spineRollCount = 0;
         uint32 _heroicKillMask = 0;
         std::unordered_map<uint32, GuidSet> _lfrLootEligible;
     };
