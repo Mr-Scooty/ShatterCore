@@ -77,6 +77,15 @@ enum DSDataTypes
     DATA_NOZDORMU_ULTRAXION,
     DATA_DEATHWING_ULTRAXION,
 
+    // Warmaster Blackhorn
+    DATA_GORIONA,
+    DATA_THE_SKYFIRE,                    // ship health proxy (encounter frame)
+    DATA_GUNSHIP_PURSUIT_CONTROLLER,     // encounter state machine (56599)
+    DATA_SKY_CAPTAIN_SWAYZE,
+    DATA_KAANU_REEVS,
+    DATA_TRAVEL_TO_SKYFIRE_DECK,
+    DATA_BLACKHORN_ACHIEVEMENT_FAILED,   // spell script -> instance: unsoaked Barrage hit the ship
+
     // Raid Finder
     DATA_IS_LFR
 };
@@ -111,9 +120,23 @@ constexpr uint32 NPC_HAGARA_ELEMENTAL_LFR_STATS      = 58244; // ~2.4M
 
 constexpr uint32 NPC_ULTRAXION_LFR_STATS             = 58245; // ~129.0M (70% of 25N, user-approved)
 
+// Warmaster Blackhorn LFR stats templates (70% of 25N, user-approved).
+// 58250/58251 are live Bound Lightning Elemental rows - skipped.
+constexpr uint32 NPC_BLACKHORN_LFR_STATS             = 58246; // ~36.07M
+constexpr uint32 NPC_GORIONA_LFR_STATS               = 58247; // ~1.28M
+constexpr uint32 NPC_ASSAULT_DRAKE_LFR_STATS         = 58248; // ~165.9k
+constexpr uint32 NPC_TWILIGHT_ELITE_LFR_STATS        = 58249; // ~506.8k
+constexpr uint32 NPC_SKYFIRE_LFR_STATS               = 58252; // ~10.5M
+
 // Ultraxion: the Twilight Realm phase id. Twilight Shift (106368) carries the
 // legacy 4.3.4 phasemask 16, remapped to phase id 16 in LoadSpellInfoCorrections.
 constexpr uint32 PHASE_TWILIGHT_REALM = 16;
+
+// Warmaster Blackhorn: shared between the boss script and the instance script.
+// The fight plays out on a second Skyfire far from Wyrmrest (the "flight
+// arena"); the parked staging ship sits beside the Wyrmrest summit.
+Position const SkyfireDeckCenterPos = { 13444.9f, -12133.3f, 151.21f,  3.1147f };
+Position const SkyfireStagingPos    = { -1699.94f, -2364.35f, 339.85f, 1.5533f };
 
 enum DSCreatures
 {
@@ -177,6 +200,29 @@ enum DSCreatures
     NPC_TWILIGHT_ASSAULTER_S                    = 56250,
     NPC_TWILIGHT_ASSAULTER_E                    = 56251,
     NPC_TWILIGHT_ASSAULTER_W                    = 56252,
+
+    /*Warmaster Blackhorn*/
+    BOSS_WARMASTER_BLACKHORN                    = 56427,
+    NPC_GORIONA                                 = 56781,
+    NPC_TWILIGHT_ASSAULT_DRAKE_S                = 56587, // starboard side, VehicleId 1907, carries Slayer
+    NPC_TWILIGHT_ASSAULT_DRAKE_P                = 56855, // port side, VehicleId 1908, carries Dreadblade
+    NPC_TWILIGHT_ELITE_DREADBLADE               = 56854,
+    NPC_TWILIGHT_ELITE_SLAYER                   = 56848,
+    NPC_TWILIGHT_INFILTRATOR                    = 56922,
+    NPC_TWILIGHT_SAPPER                         = 56923,
+    NPC_DYNAMITE_BUNDLE                         = 57470, // sapper backpack visual (vehicle accessory)
+    NPC_THE_SKYFIRE                             = 56598, // ship structural-integrity proxy
+    NPC_GUNSHIP_PURSUIT_CONTROLLER              = 56599,
+    NPC_SKYFIRE_HARPOON_GUN                     = 56681,
+    NPC_SKYFIRE_CANNON                          = 57260,
+    NPC_SKYFIRE_COMMANDO                        = 57264, // gun/cannon crew (vehicle accessory)
+    NPC_SKYFIRE_DECKHAND                        = 57265,
+    NPC_ONSLAUGHT_TARGET                        = 57238, // Twilight Onslaught ground marker
+    NPC_TWILIGHT_FLAMES_PATCH                   = 57268, // summoned natively by 108051 EFFECT_1
+    NPC_DECK_FIRE                               = 57920, // heroic deck fires
+    NPC_SKY_CAPTAIN_SWAYZE                      = 55870,
+    NPC_KAANU_REEVS                             = 55891,
+    NPC_TRAVEL_TO_SKYFIRE_DECK                  = 57378,
 
     /*Madness of Deathwing*/
     NPC_DEATHWING_MADNESS_OF_DEATHWING          = 57962,
