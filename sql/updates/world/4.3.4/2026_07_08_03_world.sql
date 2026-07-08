@@ -33,11 +33,9 @@ DELETE FROM `creature_template_movement` WHERE `CreatureId` IN (37179,37213);
 INSERT INTO `creature_template_movement` (`CreatureId`,`Rooted`) VALUES (37179,1),(37213,1);
 
 -- =========================================================================
--- ISSUE 3: Fourth and Goal re-entry. Retail summons the kick boat by self-casting
--- 70075 when F&G is accepted, via the quest's SourceSpell (both variants carry
--- PLAYER_CAST_ACCEPT). Our SourceSpellID was 0, so nothing summoned the kick boat
--- (the old OnQuestStatusChange auto-summon was skipped because the player is still
--- seated on the throw boat when NR auto-completes). Set the SourceSpell on the
--- auto-accept variant NR grants (28414) and the dormant manual variant (24503).
+-- ISSUE 3: Fourth and Goal re-entry. The parked prop must stay visible and become
+-- clickable for Fourth and Goal, but accepting the quest must not summon a second
+-- kick boat. Boarding is driven by the parked prop's 70075 spellclick conditions
+-- in the follow-up update.
 -- =========================================================================
-UPDATE `quest_template_addon` SET `SourceSpellID`=70075 WHERE `ID` IN (24503,28414);
+UPDATE `quest_template_addon` SET `SourceSpellID`=0 WHERE `ID` IN (24503,28414);

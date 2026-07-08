@@ -24,6 +24,7 @@
  */
 
 #include "ScriptMgr.h"
+#include "Chat.h"
 #include "CombatAI.h"
 #include "GameObject.h"
 #include "GameObjectAI.h"
@@ -61,11 +62,14 @@ enum KezanQuests
 
 enum KezanCreatures
 {
+    NPC_BILGEWATER_BUCCANEER_PROP   = 48526,
     NPC_BILGEWATER_BUCCANEER_THROW  = 37179,
     NPC_BILGEWATER_BUCCANEER_KICK   = 37213,
     NPC_STEAMWHEEDLE_SHARK          = 37114,
     NPC_FOURTH_AND_GOAL_TARGET      = 37203,
     NPC_DEATHWING                   = 48572,
+    NPC_KEZAN_CITIZEN_1             = 35063,
+    NPC_KEZAN_CITIZEN_2             = 35075,
     NPC_PARTYGOER_1                 = 35175,
     NPC_PARTYGOER_2                 = 35185,
     NPC_PARTYGOER_3                 = 35186,
@@ -145,7 +149,8 @@ enum KezanActions
     ACTION_PARTYGOER_SERVED         = 2,
     ACTION_GASBOT_DETONATE          = 3,
 
-    DATA_PARTYGOER_WANT             = 1
+    DATA_PARTYGOER_WANT             = 1,
+    DATA_DEATHWING_VIEWER           = 2
 };
 
 enum KezanMisc
@@ -153,6 +158,9 @@ enum KezanMisc
     MOVIE_ESCAPE_FROM_KEZAN         = 22,
     ZONE_KEZAN                      = 4737
 };
+
+float constexpr FOOTBOMB_BUCCANEER_ORIENTATION = 3.12414f;
+float constexpr DEATHWING_FLYOVER_SPEED = 49.0f;
 
 Position const KezanLostIslesShore = { 534.835f, 3272.92f, 0.171872f, 5.14795f };
 
@@ -207,6 +215,7 @@ public:
                 return;
 
             _ownerGUID = summoner->GetGUID();
+            AlignToParkedProp();
 
             // The throw-boat (37179) boards its summoner natively through the
             // summon spell's ride-back (70016, which also grants credit 48271).
@@ -266,7 +275,11 @@ public:
                     case EVENT_BOARD_OWNER:
                         if (Player* owner = ObjectAccessor::GetPlayer(*me, _ownerGUID))
                             if (!owner->GetVehicle() && me->GetVehicleKit())
+                            {
+                                AlignToParkedProp();
+                                owner->SetFacingTo(me->GetOrientation());
                                 owner->EnterVehicle(me, 0);
+                            }
                         break;
                     case EVENT_SUMMON_SHARKS:
                         // Spawn the 8 sharks and set each walking toward the goal line
@@ -285,6 +298,15 @@ public:
         }
 
     private:
+        void AlignToParkedProp()
+        {
+            float orientation = FOOTBOMB_BUCCANEER_ORIENTATION;
+            if (Creature* prop = me->FindNearestCreature(NPC_BILGEWATER_BUCCANEER_PROP, 15.0f, true))
+                orientation = prop->GetOrientation();
+
+            me->SetFacingTo(orientation);
+        }
+
         static bool HasActiveFootbombQuest(Player* player)
         {
             if (!player)
@@ -403,7 +425,10 @@ public:
 
             driver->KilledMonsterCredit(NPC_FOURTH_AND_GOAL_TARGET);
             if (CreatureAI* ai = target->AI())
+            {
+                ai->SetGUID(driver->GetGUID(), DATA_DEATHWING_VIEWER);
                 ai->DoAction(ACTION_DEATHWING_FLYOVER);
+            }
         }
 
         void Register() override
@@ -428,6 +453,12 @@ public:
     {
         npc_fourth_and_goal_targetAI(Creature* creature) : ScriptedAI(creature), _flyoverCooldown(0) { }
 
+        void SetGUID(ObjectGuid const& guid, int32 id) override
+        {
+            if (id == DATA_DEATHWING_VIEWER)
+                _viewerGUID = guid;
+        }
+
         void DoAction(int32 action) override
         {
             if (action != ACTION_DEATHWING_FLYOVER)
@@ -437,7 +468,9 @@ public:
                 return;
 
             _flyoverCooldown = 60 * IN_MILLISECONDS;
-            me->SummonCreature(NPC_DEATHWING, { -8178.59f, 1482.14f, 84.0f, 3.106686f }, TEMPSUMMON_TIMED_DESPAWN, 45s);
+            if (Creature* deathwing = me->SummonCreature(NPC_DEATHWING, { -8178.59f, 1482.14f, 84.0f, 3.106686f }, TEMPSUMMON_TIMED_DESPAWN, 45s))
+                if (CreatureAI* ai = deathwing->AI())
+                    ai->SetGUID(_viewerGUID, DATA_DEATHWING_VIEWER);
         }
 
         void UpdateAI(uint32 diff) override
@@ -448,6 +481,7 @@ public:
 
     private:
         uint32 _flyoverCooldown;
+        ObjectGuid _viewerGUID;
     };
 
     CreatureAI* GetAI(Creature* creature) const override
@@ -464,7 +498,13 @@ enum DeathwingEvents
     EVENT_DEATHWING_LEG_2           = 3,
     EVENT_DEATHWING_CIRCUIT         = 4,
     EVENT_DEATHWING_COSMETIC        = 5,
-    EVENT_DEATHWING_EXIT            = 6
+    EVENT_DEATHWING_STADIUM_PANIC   = 6,
+    EVENT_DEATHWING_EXIT            = 7
+};
+
+Position const DeathwingLeg1[1] =
+{
+    { -8307.88f, 1483.6702f, 137.1013f }
 };
 
 Position const DeathwingLeg2[2] =
@@ -500,18 +540,31 @@ public:
     {
         npc_kezan_deathwingAI(Creature* creature) : ScriptedAI(creature) { }
 
+        void SetGUID(ObjectGuid const& guid, int32 id) override
+        {
+            if (id == DATA_DEATHWING_VIEWER)
+                _viewerGUID = guid;
+        }
+
         void IsSummonedBy(Unit* /*summoner*/) override
         {
+            me->setDeathState(ALIVE);
+            me->SetFullHealth();
+            me->SetStandState(UNIT_STAND_STATE_STAND);
+            me->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
+            me->RemoveFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_FEIGN_DEATH);
+            me->SetAnimationTier(AnimationTier::Fly);
             me->SetCanFly(true);
             me->SetDisableGravity(true);
-            me->SetSpeedRate(MOVE_FLIGHT, 3.5f);
+            me->SetSpeedRate(MOVE_FLIGHT, 7.0f);
             me->SetReactState(REACT_PASSIVE);
 
             _events.ScheduleEvent(EVENT_DEATHWING_LEG_1, 1500ms);
             _events.ScheduleEvent(EVENT_DEATHWING_YELL, 4800ms);
-            _events.ScheduleEvent(EVENT_DEATHWING_LEG_2, 6s);
+            _events.ScheduleEvent(EVENT_DEATHWING_LEG_2, 4700ms);
             _events.ScheduleEvent(EVENT_DEATHWING_CIRCUIT, 10400ms);
             _events.ScheduleEvent(EVENT_DEATHWING_COSMETIC, 26500ms);
+            _events.ScheduleEvent(EVENT_DEATHWING_STADIUM_PANIC, 26800ms);
             _events.ScheduleEvent(EVENT_DEATHWING_EXIT, 29s);
         }
 
@@ -524,25 +577,29 @@ public:
                 switch (eventId)
                 {
                     case EVENT_DEATHWING_LEG_1:
-                        me->GetMotionMaster()->MovePoint(0, -8307.88f, 1483.6702f, 137.1013f, false);
+                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingLeg1, std::size(DeathwingLeg1), false, true, DEATHWING_FLYOVER_SPEED);
                         break;
                     case EVENT_DEATHWING_YELL:
                         Talk(SAY_DEATHWING_FLYOVER);
                         break;
                     case EVENT_DEATHWING_LEG_2:
-                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingLeg2, std::size(DeathwingLeg2), false, true);
+                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingLeg2, std::size(DeathwingLeg2), false, true, DEATHWING_FLYOVER_SPEED);
                         break;
                     case EVENT_DEATHWING_CIRCUIT:
                         if (sSpellMgr->GetSpellInfo(SPELL_DEATHWING_FIRE_BREATH))
                             me->CastSpell(me, SPELL_DEATHWING_FIRE_BREATH, true);
-                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingCircuit, std::size(DeathwingCircuit), false, true);
+                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingCircuit, std::size(DeathwingCircuit), false, true, DEATHWING_FLYOVER_SPEED);
                         break;
                     case EVENT_DEATHWING_COSMETIC:
                         if (sSpellMgr->GetSpellInfo(SPELL_DEATHWING_FLYOVER_COSMETIC))
                             me->CastSpell(me, SPELL_DEATHWING_FLYOVER_COSMETIC, true);
                         break;
+                    case EVENT_DEATHWING_STADIUM_PANIC:
+                        SendMountKajaroWhisper();
+                        TriggerStadiumPanic();
+                        break;
                     case EVENT_DEATHWING_EXIT:
-                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingExit, std::size(DeathwingExit), false, true);
+                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingExit, std::size(DeathwingExit), false, true, DEATHWING_FLYOVER_SPEED);
                         break;
                     default:
                         break;
@@ -551,7 +608,48 @@ public:
         }
 
     private:
+        void SendMountKajaroWhisper()
+        {
+            Player* player = ObjectAccessor::GetPlayer(*me, _viewerGUID);
+            if (!player)
+                return;
+
+            WorldPacket data;
+            ChatHandler::BuildChatPacket(data, CHAT_MSG_RAID_BOSS_WHISPER, LANG_UNIVERSAL, player, player, "What did that dragon do to Mount Kajaro?!!!");
+            player->SendDirectMessage(&data);
+        }
+
+        void TriggerStadiumPanic()
+        {
+            for (uint32 entry : { NPC_KEZAN_CITIZEN_1, NPC_KEZAN_CITIZEN_2 })
+            {
+                std::list<Creature*> citizens;
+                me->GetCreatureListWithEntryInGrid(citizens, entry, 120.0f);
+
+                for (Creature* citizen : citizens)
+                {
+                    if (!citizen->IsAlive())
+                        continue;
+
+                    static std::array<uint32, 6> constexpr PanicEmotes =
+                    {
+                        EMOTE_ONESHOT_EXCLAMATION,
+                        EMOTE_ONESHOT_ROAR,
+                        EMOTE_ONESHOT_RUDE,
+                        EMOTE_ONESHOT_YES,
+                        EMOTE_ONESHOT_NO,
+                        EMOTE_ONESHOT_COWER
+                    };
+
+                    citizen->HandleEmoteCommand(PanicEmotes[urand(0, PanicEmotes.size() - 1)]);
+                    citizen->SetWalk(false);
+                    citizen->GetMotionMaster()->MoveRandom(18.0f);
+                }
+            }
+        }
+
         EventMap _events;
+        ObjectGuid _viewerGUID;
     };
 
     CreatureAI* GetAI(Creature* creature) const override
@@ -1327,10 +1425,8 @@ public:
         {
             case QUEST_FOURTH_AND_GOAL:
             case QUEST_FOURTH_AND_GOAL_ALT:
-                // Boarding the kick-boat is now driven by the quest SourceSpell (70075
-                // self-cast on accept, quest_template_addon), matching retail; the
-                // summon's IsSummonedBy schedules EVENT_BOARD_OWNER which enters the
-                // player (auto-exiting the throw-boat). Nothing to do on accept here.
+                // Boarding is driven by the visible parked prop's 70075 spellclick.
+                // Accepting Fourth and Goal must not create a second kick boat.
                 if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
                     CleanupOwnedCreatures(player, { NPC_BILGEWATER_BUCCANEER_KICK });
                 break;

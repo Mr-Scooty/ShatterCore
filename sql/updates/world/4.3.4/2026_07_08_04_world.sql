@@ -26,3 +26,7 @@ INSERT INTO `conditions`
   (18, 48526, 70075, 0, 1, 47, 0, 24503, 10, 0, 0, 0, 0, '', 'Bilgewater Buccaneer prop: 70075 requires Fourth and Goal (24503) incomplete or complete'),
   (18, 48526, 70075, 0, 2, 31, 0, 4,     0, 0, 0, 0, 0, '', 'Bilgewater Buccaneer prop: clicker must be a player'),
   (18, 48526, 70075, 0, 2, 47, 0, 28414, 10, 0, 0, 0, 0, '', 'Bilgewater Buccaneer prop: 70075 requires Fourth and Goal (28414) incomplete or complete');
+
+UPDATE `creature_text` SET `Sound`=23228 WHERE `CreatureID`=48572 AND `GroupID`=0 AND `ID`=0;
+UPDATE `creature_template_addon` SET `AnimTier`=3 WHERE `entry`=48572;
+UPDATE `creature_template` SET `modelid1`=33791, `modelid2`=0, `modelid3`=0, `modelid4`=0 WHERE `entry`=48572;
