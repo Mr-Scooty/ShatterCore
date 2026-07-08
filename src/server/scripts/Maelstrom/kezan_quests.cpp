@@ -82,6 +82,7 @@ enum KezanSpells
     SPELL_SUMMON_KICK_BUCCANEER     = 70075, // summons 37213 at the caster
     SPELL_FOOTBOMB_IMPACT           = 69993,
     SPELL_KICK_FOOTBOMB_IMPACT      = 70052,
+    SPELL_SEE_SPAWNED_BUCCANEER     = 90161, // hidden type-12 see-invis for the parked prop (48526)
     SPELL_PERMANENT_FEIGN_DEATH     = 29266,
     SPELL_DEATHWING_FIRE_BREATH     = 66858,
     SPELL_DEATHWING_FLYOVER_COSMETIC = 69988,
@@ -171,6 +172,20 @@ Position const SharkPositions[8] =
     { -8294.61f, 1493.67f, 44.71f, 0.0f }
 };
 
+// The sharks walk from their spawn cluster toward the goal line (near the player's
+// shredder). Destinations lifted from the P2 sniff (one lane per spawn point above).
+Position const SharkGoalPositions[8] =
+{
+    { -8260.88f, 1483.13f, 42.11f, 0.0f },
+    { -8260.94f, 1484.35f, 42.13f, 0.0f },
+    { -8260.90f, 1485.19f, 42.11f, 0.0f },
+    { -8260.70f, 1482.08f, 42.10f, 0.0f },
+    { -8260.75f, 1486.25f, 42.13f, 0.0f },
+    { -8260.94f, 1484.41f, 42.11f, 0.0f },
+    { -8260.71f, 1482.11f, 42.10f, 0.0f },
+    { -8260.72f, 1486.35f, 42.12f, 0.0f }
+};
+
 enum BuccaneerEvents
 {
     EVENT_BOARD_OWNER               = 1,
@@ -207,12 +222,22 @@ public:
 
             if (apply)
             {
+                // The ride boat overlaps the parked prop (48526) exactly and, as the
+                // driver's charmer, is always visible to them. Drop the see-invisibility
+                // so the prop stops rendering for the driver -> only one boat shows.
+                passenger->RemoveAurasDueToSpell(SPELL_SEE_SPAWNED_BUCCANEER);
                 Talk(SAY_BUCCANEER_INSTRUCTIONS, passenger);
                 if (me->GetEntry() == NPC_BILGEWATER_BUCCANEER_THROW)
                     _events.ScheduleEvent(EVENT_SUMMON_SHARKS, 5s);
             }
             else
             {
+                // While either footbomb quest is still in the log (in progress OR
+                // complete-but-not-turned-in), restore the see-invisibility so the
+                // parked prop reappears and the player can board again.
+                if (HasActiveFootbombQuest(passenger->ToPlayer()))
+                    passenger->CastSpell(passenger, SPELL_SEE_SPAWNED_BUCCANEER, true);
+
                 _events.Reset();
                 DespawnSharks();
                 if (me->IsSummon())
@@ -226,7 +251,6 @@ public:
             {
                 _sharkGUIDs.push_back(summon->GetGUID());
                 summon->SetReactState(REACT_PASSIVE);
-                summon->SetFacingTo(0.0f);
             }
         }
 
@@ -245,8 +269,14 @@ public:
                                 owner->EnterVehicle(me, 0);
                         break;
                     case EVENT_SUMMON_SHARKS:
-                        for (Position const& pos : SharkPositions)
-                            me->SummonCreature(NPC_STEAMWHEEDLE_SHARK, pos, TEMPSUMMON_TIMED_DESPAWN, 5min);
+                        // Spawn the 8 sharks and set each walking toward the goal line
+                        // (toward the player's shredder) so they can be footbombed en route.
+                        for (uint8 i = 0; i < 8; ++i)
+                            if (Creature* shark = me->SummonCreature(NPC_STEAMWHEEDLE_SHARK, SharkPositions[i], TEMPSUMMON_TIMED_DESPAWN, 5min))
+                            {
+                                shark->SetWalk(true);
+                                shark->GetMotionMaster()->MovePoint(0, SharkGoalPositions[i]);
+                            }
                         break;
                     default:
                         break;
@@ -255,6 +285,20 @@ public:
         }
 
     private:
+        static bool HasActiveFootbombQuest(Player* player)
+        {
+            if (!player)
+                return false;
+
+            for (uint32 questId : { QUEST_NECESSARY_ROUGHNESS, QUEST_FOURTH_AND_GOAL, QUEST_FOURTH_AND_GOAL_ALT })
+            {
+                QuestStatus status = player->GetQuestStatus(questId);
+                if (status == QUEST_STATUS_INCOMPLETE || status == QUEST_STATUS_COMPLETE)
+                    return true;
+            }
+            return false;
+        }
+
         void DespawnSharks()
         {
             for (ObjectGuid const& guid : _sharkGUIDs)
@@ -1283,27 +1327,17 @@ public:
         {
             case QUEST_FOURTH_AND_GOAL:
             case QUEST_FOURTH_AND_GOAL_ALT:
-                if (status == QUEST_STATUS_INCOMPLETE)
-                {
-                    // The quest auto-accepts while the player may still sit in
-                    // the throw-boat; summon the kick-boat (native 70075) once
-                    // they are back on the ground.
-                    uint32 activeQuestId = questId;
-                    ObjectGuid playerGUID = player->GetGUID();
-                    player->m_Events.AddEventAtOffset([playerGUID, activeQuestId]()
-                    {
-                        Player* rookie = ObjectAccessor::FindPlayer(playerGUID);
-                        if (!rookie || rookie->GetQuestStatus(activeQuestId) != QUEST_STATUS_INCOMPLETE)
-                            return;
-
-                        if (!rookie->GetVehicle())
-                            rookie->CastSpell(rookie, SPELL_SUMMON_KICK_BUCCANEER, true);
-                    }, 2s);
-                }
-                else if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+                // Boarding the kick-boat is now driven by the quest SourceSpell (70075
+                // self-cast on accept, quest_template_addon), matching retail; the
+                // summon's IsSummonedBy schedules EVENT_BOARD_OWNER which enters the
+                // player (auto-exiting the throw-boat). Nothing to do on accept here.
+                if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
                     CleanupOwnedCreatures(player, { NPC_BILGEWATER_BUCCANEER_KICK });
                 break;
             case QUEST_NECESSARY_ROUGHNESS:
+                // Do not drop the see-invisibility here: Fourth and Goal auto-accepts on
+                // reward and still needs the prop visible. spell_area removes 90161 when
+                // the player leaves the field with no footbomb quest left.
                 if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
                     CleanupOwnedCreatures(player, { NPC_BILGEWATER_BUCCANEER_THROW });
                 break;
