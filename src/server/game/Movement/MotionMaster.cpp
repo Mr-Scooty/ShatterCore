@@ -568,11 +568,22 @@ void MotionMaster::MoveSmoothPath(uint32 pointId, Position const* pathPoints, si
 {
     Movement::MoveSplineInit init(_owner);
     Movement::PointsArray path;
-    path.reserve(pathSize);
+    path.reserve(pathSize + 1);
+    // MoveSplineInit::Launch overwrites the first vertex with the unit's position, so it
+    // must be a placeholder - otherwise the first waypoint is silently lost and single-point
+    // paths fail MoveSplineInitArgs::Validate (path.size() > 1)
+    path.push_back(G3D::Vector3(_owner->GetPositionX(), _owner->GetPositionY(), _owner->GetPositionZ()));
     std::transform(pathPoints, pathPoints + pathSize, std::back_inserter(path), [](Position const& point)
     {
         return G3D::Vector3(point.GetPositionX(), point.GetPositionY(), point.GetPositionZ());
     });
+
+    // MoveSplineInitArgs::_checkPathLengths rejects the whole spline over any segment
+    // shorter than 0.1 yd - drop such points (callers may pass their current position)
+    path.erase(std::unique(path.begin(), path.end(), [](G3D::Vector3 const& a, G3D::Vector3 const& b)
+    {
+        return (b - a).length() < 0.1f;
+    }), path.end());
 
     if (fly)
     {
@@ -582,10 +593,10 @@ void MotionMaster::MoveSmoothPath(uint32 pointId, Position const* pathPoints, si
     }
     else
     {
-        if (pathSize > 1)
+        if (path.size() > 2)
         {
-            G3D::Vector3 middle = (path[0] + path[pathSize - 1]) / 2.f;
-            for (uint32 i = 1; i < pathSize; ++i)
+            G3D::Vector3 middle = (path.front() + path.back()) / 2.f;
+            for (size_t i = 1; i < path.size() - 1; ++i)
             {
                 G3D::Vector3 delta = middle - path[i];
                 if (delta.x > 400 || delta.y > 400 || delta.z > 400)
