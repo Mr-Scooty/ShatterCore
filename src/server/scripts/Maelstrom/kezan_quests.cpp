@@ -28,6 +28,7 @@
 #include "CombatAI.h"
 #include "GameObject.h"
 #include "GameObjectAI.h"
+#include "GameTime.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -67,6 +68,7 @@ enum KezanCreatures
     NPC_BILGEWATER_BUCCANEER_KICK   = 37213,
     NPC_STEAMWHEEDLE_SHARK          = 37114,
     NPC_FOURTH_AND_GOAL_TARGET      = 37203,
+    NPC_KAJARO_BREATH_TARGET        = 42196, // ELM trigger on Mount Kajaro's summit
     NPC_DEATHWING                   = 48572,
     NPC_KEZAN_CITIZEN_1             = 35063,
     NPC_KEZAN_CITIZEN_2             = 35075,
@@ -90,6 +92,8 @@ enum KezanSpells
     SPELL_PERMANENT_FEIGN_DEATH     = 29266,
     SPELL_DEATHWING_FIRE_BREATH     = 66858,
     SPELL_DEATHWING_FLYOVER_COSMETIC = 69988,
+    SPELL_PANICKED_CITIZEN_INVIS    = 90636, // type-14 invis carried by the panic-double citizen spawns
+    SPELL_SEE_PANICKED_CITIZENS     = 83042, // Quest Invisibility Detection 6 (type 14; permanent, script-removed)
 
     // Life of the Party
     SPELL_HAPPY_PARTYGOER           = 66916,
@@ -148,16 +152,57 @@ enum KezanActions
     ACTION_DEATHWING_FLYOVER        = 1,
     ACTION_PARTYGOER_SERVED         = 2,
     ACTION_GASBOT_DETONATE          = 3,
+    ACTION_DEATHWING_LEG_1          = 4,
+    ACTION_DEATHWING_SYNC_LEG_1     = 5,
+    ACTION_DEATHWING_YELL           = 6,
+    ACTION_DEATHWING_LEG_2          = 7,
+    ACTION_DEATHWING_SYNC_LEG_2     = 8,
+    ACTION_DEATHWING_CIRCUIT        = 9,
+    ACTION_DEATHWING_COSMETIC       = 10,
+    ACTION_DEATHWING_WHISPER        = 11,
+    ACTION_DEATHWING_SYNC_EXIT      = 12,
+    ACTION_DEATHWING_EXIT           = 13,
+    ACTION_DEATHWING_PANIC_START    = 14,
+    ACTION_DEATHWING_SCREAM         = 15,
+    ACTION_DEATHWING_CAMERA_SHAKE   = 16,
+    ACTION_DEATHWING_PANIC_END      = 17,
+    ACTION_DEATHWING_EJECT_VIEWER   = 18,
 
     DATA_PARTYGOER_WANT             = 1,
-    DATA_DEATHWING_VIEWER           = 2
+    DATA_DEATHWING_VIEWER           = 2,
+    DATA_ACTIVE_DEATHWING           = 3
 };
 
 enum KezanMisc
 {
     MOVIE_ESCAPE_FROM_KEZAN         = 22,
-    ZONE_KEZAN                      = 4737
+    ZONE_KEZAN                      = 4737,
+
+    // Deathwing flyover roars: object sounds sourced at the viewer, one per
+    // movement beat (P2 sniff: 23227 leg 1, 23228 leg 2 ~100ms before the
+    // yell, 23229 circuit, 23230 with 69988 at circuit end).
+    SOUND_DEATHWING_FLYBY_1         = 23227,
+    SOUND_DEATHWING_FLYBY_2         = 23228,
+    SOUND_DEATHWING_FLYBY_3         = 23229,
+    SOUND_DEATHWING_FLYBY_4         = 23230,
+
+    // Crowd bed (P2 sniff): cheer at the kick, cheer at the summon, then
+    // Event_EbonHold_CrowdScream1-4 every ~3s while Deathwing is overhead.
+    SOUND_CROWD_CHEER_KICK          = 17467,
+    SOUND_CROWD_CHEER_SUMMON        = 8574,
+
+    // 90615 'Fourth and Goal: Character Earthquake' uses SpellVisual 20130,
+    // whose impact kit (19579) contains sound 1485 and
+    // SpellEffectCameraShakes row 6. Row 6 expands to CameraShakes 4/5/6: a
+    // four-second positional/rotational quake. The 4.3.4 client does not play
+    // an impact kit sent as a standalone visual kit, so send its two payloads
+    // through their native packets instead.
+    SOUND_CHARACTER_EARTHQUAKE      = 1485,
+    CAMERA_SHAKE_CHARACTER_EARTHQUAKE = 6
 };
+
+// Retail scream order for the nine crowd-scream beats (P2 sniff, t+3s..t+27s)
+uint32 const DeathwingPanicScreams[] = { 14558, 14557, 14556, 14558, 14556, 14558, 14559, 14559, 14557 };
 
 float constexpr FOOTBOMB_BUCCANEER_ORIENTATION = 3.12414f;
 float constexpr DEATHWING_FLYOVER_SPEED = 49.0f;
@@ -424,6 +469,7 @@ public:
                 return;
 
             driver->KilledMonsterCredit(NPC_FOURTH_AND_GOAL_TARGET);
+            driver->PlayDistanceSound(SOUND_CROWD_CHEER_KICK, driver);
             if (CreatureAI* ai = target->AI())
             {
                 ai->SetGUID(driver->GetGUID(), DATA_DEATHWING_VIEWER);
@@ -451,12 +497,14 @@ public:
 
     struct npc_fourth_and_goal_targetAI : public ScriptedAI
     {
-        npc_fourth_and_goal_targetAI(Creature* creature) : ScriptedAI(creature), _flyoverCooldown(0) { }
+        npc_fourth_and_goal_targetAI(Creature* creature) : ScriptedAI(creature), _nextFlyoverTime(0) { }
 
         void SetGUID(ObjectGuid const& guid, int32 id) override
         {
             if (id == DATA_DEATHWING_VIEWER)
                 _viewerGUID = guid;
+            else if (id == DATA_ACTIVE_DEATHWING)
+                _deathwingGUID = guid;
         }
 
         void DoAction(int32 action) override
@@ -464,24 +512,84 @@ public:
             if (action != ACTION_DEATHWING_FLYOVER)
                 return;
 
-            if (_flyoverCooldown > 0)
+            time_t now = GameTime::GetGameTime();
+            if (_nextFlyoverTime > now)
                 return;
 
-            _flyoverCooldown = 60 * IN_MILLISECONDS;
+            // A flyover that stopped updating would also stop its timed despawn.
+            // Remove that orphan before allowing a later retrigger.
+            if (Creature* deathwing = ObjectAccessor::GetCreature(*me, _deathwingGUID))
+                deathwing->DespawnOrUnsummon();
+            _deathwingGUID.Clear();
+
+            _nextFlyoverTime = now + 60;
             if (Creature* deathwing = me->SummonCreature(NPC_DEATHWING, { -8178.59f, 1482.14f, 84.0f, 3.106686f }, TEMPSUMMON_TIMED_DESPAWN, 45s))
+            {
+                _deathwingGUID = deathwing->GetGUID();
                 if (CreatureAI* ai = deathwing->AI())
                     ai->SetGUID(_viewerGUID, DATA_DEATHWING_VIEWER);
-        }
 
-        void UpdateAI(uint32 diff) override
-        {
-            if (_flyoverCooldown > 0)
-                _flyoverCooldown = _flyoverCooldown > diff ? _flyoverCooldown - diff : 0;
+                if (Player* viewer = ObjectAccessor::GetPlayer(*me, _viewerGUID))
+                {
+                    viewer->PlayDistanceSound(SOUND_CROWD_CHEER_SUMMON, viewer);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_PANIC_START, 300ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_LEG_1, 1500ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_SYNC_LEG_1, 4600ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_LEG_2, 4700ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_YELL, 4800ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_SYNC_LEG_2, 10350ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_CIRCUIT, 10400ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_EJECT_VIEWER, 16800ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_COSMETIC, 26500ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_WHISPER, 26800ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_CAMERA_SHAKE, 28500ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_SYNC_EXIT, 28900ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_PANIC_END, 28900ms);
+                    ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_EXIT, 29s);
+                    for (uint32 scream = 0; scream < std::size(DeathwingPanicScreams); ++scream)
+                        ScheduleDeathwingAction(viewer, _deathwingGUID, ACTION_DEATHWING_SCREAM, Milliseconds(3000 + scream * 3000));
+                    ScheduleDeathwingCleanup(viewer, me->GetGUID(), _deathwingGUID, 42s);
+                }
+            }
         }
 
     private:
-        uint32 _flyoverCooldown;
+        static void ScheduleDeathwingAction(Player* viewer, ObjectGuid deathwingGUID, int32 action, Milliseconds delay)
+        {
+            ObjectGuid viewerGUID = viewer->GetGUID();
+            viewer->m_Events.AddEventAtOffset([viewerGUID, deathwingGUID, action]()
+            {
+                if (Player* player = ObjectAccessor::FindPlayer(viewerGUID))
+                    if (Creature* deathwing = ObjectAccessor::GetCreature(*player, deathwingGUID))
+                        if (CreatureAI* ai = deathwing->AI())
+                            ai->DoAction(action);
+            }, delay);
+        }
+
+        static void ScheduleDeathwingCleanup(Player* viewer, ObjectGuid targetGUID, ObjectGuid deathwingGUID, Milliseconds delay)
+        {
+            ObjectGuid viewerGUID = viewer->GetGUID();
+            viewer->m_Events.AddEventAtOffset([viewerGUID, targetGUID, deathwingGUID]()
+            {
+                Player* player = ObjectAccessor::FindPlayer(viewerGUID);
+                if (!player)
+                    return;
+
+                // Failsafe for the PANIC_END beat (relog edge cases).
+                player->RemoveAurasDueToSpell(SPELL_SEE_PANICKED_CITIZENS);
+
+                if (Creature* deathwing = ObjectAccessor::GetCreature(*player, deathwingGUID))
+                    deathwing->DespawnOrUnsummon();
+
+                if (Creature* target = ObjectAccessor::GetCreature(*player, targetGUID))
+                    if (CreatureAI* ai = target->AI())
+                        ai->SetGUID(ObjectGuid::Empty, DATA_ACTIVE_DEATHWING);
+            }, delay);
+        }
+
+        time_t _nextFlyoverTime;
         ObjectGuid _viewerGUID;
+        ObjectGuid _deathwingGUID;
     };
 
     CreatureAI* GetAI(Creature* creature) const override
@@ -491,17 +599,6 @@ public:
 };
 
 // 48572 - Deathwing: cinematic flyover across the stadium (path from sniff).
-enum DeathwingEvents
-{
-    EVENT_DEATHWING_LEG_1           = 1,
-    EVENT_DEATHWING_YELL            = 2,
-    EVENT_DEATHWING_LEG_2           = 3,
-    EVENT_DEATHWING_CIRCUIT         = 4,
-    EVENT_DEATHWING_COSMETIC        = 5,
-    EVENT_DEATHWING_STADIUM_PANIC   = 6,
-    EVENT_DEATHWING_EXIT            = 7
-};
-
 Position const DeathwingLeg1[1] =
 {
     { -8307.88f, 1483.6702f, 137.1013f }
@@ -548,6 +645,13 @@ public:
 
         void IsSummonedBy(Unit* /*summoner*/) override
         {
+            // The volcano circuit leaves the viewer's grid update bubble (Map::Update
+            // only visits cells within Visibility.Distance.Continents of a player),
+            // which froze the spline, the leg schedule and even the 45s despawn timer
+            // mid-flight until someone flew out to him. Active objects get their
+            // cells visited every tick. Client visibility across the ~470yd circuit
+            // comes from creature_template_addon.visibilityDistanceType = Infinite.
+            me->setActive(true);
             me->setDeathState(ALIVE);
             me->SetFullHealth();
             me->SetStandState(UNIT_STAND_STATE_STAND);
@@ -558,56 +662,120 @@ public:
             me->SetDisableGravity(true);
             me->SetSpeedRate(MOVE_FLIGHT, 7.0f);
             me->SetReactState(REACT_PASSIVE);
-
-            _events.ScheduleEvent(EVENT_DEATHWING_LEG_1, 1500ms);
-            _events.ScheduleEvent(EVENT_DEATHWING_YELL, 4800ms);
-            _events.ScheduleEvent(EVENT_DEATHWING_LEG_2, 4700ms);
-            _events.ScheduleEvent(EVENT_DEATHWING_CIRCUIT, 10400ms);
-            _events.ScheduleEvent(EVENT_DEATHWING_COSMETIC, 26500ms);
-            _events.ScheduleEvent(EVENT_DEATHWING_STADIUM_PANIC, 26800ms);
-            _events.ScheduleEvent(EVENT_DEATHWING_EXIT, 29s);
         }
 
-        void UpdateAI(uint32 diff) override
+        void DoAction(int32 action) override
         {
-            _events.Update(diff);
-
-            while (uint32 eventId = _events.ExecuteEvent())
+            switch (action)
             {
-                switch (eventId)
-                {
-                    case EVENT_DEATHWING_LEG_1:
-                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingLeg1, std::size(DeathwingLeg1), false, true, DEATHWING_FLYOVER_SPEED);
-                        break;
-                    case EVENT_DEATHWING_YELL:
-                        Talk(SAY_DEATHWING_FLYOVER);
-                        break;
-                    case EVENT_DEATHWING_LEG_2:
-                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingLeg2, std::size(DeathwingLeg2), false, true, DEATHWING_FLYOVER_SPEED);
-                        break;
-                    case EVENT_DEATHWING_CIRCUIT:
-                        if (sSpellMgr->GetSpellInfo(SPELL_DEATHWING_FIRE_BREATH))
-                            me->CastSpell(me, SPELL_DEATHWING_FIRE_BREATH, true);
-                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingCircuit, std::size(DeathwingCircuit), false, true, DEATHWING_FLYOVER_SPEED);
-                        break;
-                    case EVENT_DEATHWING_COSMETIC:
-                        if (sSpellMgr->GetSpellInfo(SPELL_DEATHWING_FLYOVER_COSMETIC))
-                            me->CastSpell(me, SPELL_DEATHWING_FLYOVER_COSMETIC, true);
-                        break;
-                    case EVENT_DEATHWING_STADIUM_PANIC:
-                        SendMountKajaroWhisper();
-                        TriggerStadiumPanic();
-                        break;
-                    case EVENT_DEATHWING_EXIT:
-                        me->GetMotionMaster()->MoveSmoothPath(0, DeathwingExit, std::size(DeathwingExit), false, true, DEATHWING_FLYOVER_SPEED);
-                        break;
-                    default:
-                        break;
-                }
+                case ACTION_DEATHWING_LEG_1:
+                    PlayFlybySound(SOUND_DEATHWING_FLYBY_1);
+                    MovePath(DeathwingLeg1, std::size(DeathwingLeg1));
+                    break;
+                case ACTION_DEATHWING_SYNC_LEG_1:
+                    SynchronizePosition(DeathwingLeg1[std::size(DeathwingLeg1) - 1], 3.1268f);
+                    break;
+                case ACTION_DEATHWING_YELL:
+                    Talk(SAY_DEATHWING_FLYOVER);
+                    break;
+                case ACTION_DEATHWING_LEG_2:
+                    PlayFlybySound(SOUND_DEATHWING_FLYBY_2);
+                    MovePath(DeathwingLeg2, std::size(DeathwingLeg2));
+                    break;
+                case ACTION_DEATHWING_SYNC_LEG_2:
+                    SynchronizePosition(DeathwingLeg2[std::size(DeathwingLeg2) - 1], 2.9832f);
+                    break;
+                case ACTION_DEATHWING_CIRCUIT:
+                    PlayFlybySound(SOUND_DEATHWING_FLYBY_3);
+                    if (sSpellMgr->GetSpellInfo(SPELL_DEATHWING_FIRE_BREATH))
+                        me->CastSpell(GetFireBreathTarget(), SPELL_DEATHWING_FIRE_BREATH, true);
+                    MovePath(DeathwingCircuit, std::size(DeathwingCircuit));
+                    break;
+                case ACTION_DEATHWING_COSMETIC:
+                    PlayFlybySound(SOUND_DEATHWING_FLYBY_4);
+                    if (sSpellMgr->GetSpellInfo(SPELL_DEATHWING_FLYOVER_COSMETIC))
+                        me->CastSpell(me, SPELL_DEATHWING_FLYOVER_COSMETIC, true);
+                    break;
+                case ACTION_DEATHWING_PANIC_START:
+                    StartStadiumPanic();
+                    break;
+                case ACTION_DEATHWING_SCREAM:
+                    if (_screamIndex < std::size(DeathwingPanicScreams))
+                        PlayFlybySound(DeathwingPanicScreams[_screamIndex++]);
+                    break;
+                case ACTION_DEATHWING_WHISPER:
+                    SendMountKajaroWhisper();
+                    break;
+                case ACTION_DEATHWING_EJECT_VIEWER:
+                    // Retail dismounts the kicker mid-flyover (P2 sniff, t+16.8s);
+                    // they watch the finale - including the camera shake - on foot.
+                    if (Player* viewer = ObjectAccessor::GetPlayer(*me, _viewerGUID))
+                        if (viewer->GetVehicle())
+                            viewer->ExitVehicle();
+                    break;
+                case ACTION_DEATHWING_CAMERA_SHAKE:
+                    if (Player* viewer = ObjectAccessor::GetPlayer(*me, _viewerGUID))
+                    {
+                        // SMSG_CAMERA_SHAKE takes a SpellEffectCameraShakes.dbc
+                        // row followed by an unused uint32 on the 4.3.4 client.
+                        WorldPacket cameraShake(SMSG_CAMERA_SHAKE, 2 * sizeof(uint32));
+                        cameraShake << uint32(CAMERA_SHAKE_CHARACTER_EARTHQUAKE);
+                        cameraShake << uint32(0);
+                        viewer->SendDirectMessage(&cameraShake);
+                        viewer->PlayDirectSound(SOUND_CHARACTER_EARTHQUAKE, viewer);
+                    }
+                    break;
+                case ACTION_DEATHWING_PANIC_END:
+                    if (Player* viewer = ObjectAccessor::GetPlayer(*me, _viewerGUID))
+                        viewer->RemoveAurasDueToSpell(SPELL_SEE_PANICKED_CITIZENS);
+                    break;
+                case ACTION_DEATHWING_SYNC_EXIT:
+                    SynchronizePosition(DeathwingCircuit[std::size(DeathwingCircuit) - 1], 5.6810f);
+                    break;
+                case ACTION_DEATHWING_EXIT:
+                    MovePath(DeathwingExit, std::size(DeathwingExit));
+                    break;
+                default:
+                    break;
             }
         }
 
     private:
+        void MovePath(Position const* path, size_t pathSize)
+        {
+            // Spline packets broadcast within the mover's own visibility range
+            // (SendMessageToSet -> GetVisibilityRange), which the Infinite
+            // visibilityDistanceType extends to the whole circuit - no manual
+            // packet forwarding needed.
+            me->GetMotionMaster()->MoveSmoothPath(0, path, pathSize, false, true, DEATHWING_FLYOVER_SPEED);
+        }
+
+        void PlayFlybySound(uint32 soundId)
+        {
+            // Retail plays the flyby roars as object sounds sourced and
+            // targeted at the viewer (P2 sniff PLAY_OBJECT_SOUND per beat).
+            if (Player* viewer = ObjectAccessor::GetPlayer(*me, _viewerGUID))
+                viewer->PlayDistanceSound(soundId, viewer);
+        }
+
+        Unit* GetFireBreathTarget()
+        {
+            // Retail aims the speed-70 missile at the Mount Kajaro summit
+            // trigger so the flame streaks from Deathwing to the volcano.
+            if (Creature* target = me->FindNearestCreature(NPC_KAJARO_BREATH_TARGET, 400.0f))
+                return target;
+            return me;
+        }
+
+        uint8 _screamIndex = 0;
+
+        void SynchronizePosition(Position const& position, float orientation)
+        {
+            Position synchronizedPosition = position;
+            synchronizedPosition.SetOrientation(orientation);
+            me->NearTeleportTo(synchronizedPosition);
+        }
+
         void SendMountKajaroWhisper()
         {
             Player* player = ObjectAccessor::GetPlayer(*me, _viewerGUID);
@@ -619,36 +787,55 @@ public:
             player->SendDirectMessage(&data);
         }
 
-        void TriggerStadiumPanic()
+        void StartStadiumPanic()
         {
+            // Retail runs a population swap (P2 sniff): 32 dedicated runner
+            // citizens spawn right after the summon, visible only to the
+            // kicking player, and scatter-run for ~28.6s while the bleacher
+            // crowd keeps cheering. Our DB carries them as permanent spawns
+            // under type-14 invis (90636); grant the viewer the matching
+            // detection and set every double running. Movement and restore
+            // are self-scheduled per citizen so they need nothing from this
+            // AI afterwards.
+            // The detection must be aura-applied: CastSpell on a player who is
+            // driving the kick boat gets rejected by the cast system before the
+            // aura lands (verified in the 2026-07-10 walkthrough).
+            if (Player* viewer = ObjectAccessor::GetPlayer(*me, _viewerGUID))
+                viewer->AddAura(SPELL_SEE_PANICKED_CITIZENS, viewer);
+
             for (uint32 entry : { NPC_KEZAN_CITIZEN_1, NPC_KEZAN_CITIZEN_2 })
             {
                 std::list<Creature*> citizens;
-                me->GetCreatureListWithEntryInGrid(citizens, entry, 120.0f);
+                me->GetCreatureListWithEntryInGrid(citizens, entry, 250.0f);
 
                 for (Creature* citizen : citizens)
-                {
-                    if (!citizen->IsAlive())
-                        continue;
-
-                    static std::array<uint32, 6> constexpr PanicEmotes =
-                    {
-                        EMOTE_ONESHOT_EXCLAMATION,
-                        EMOTE_ONESHOT_ROAR,
-                        EMOTE_ONESHOT_RUDE,
-                        EMOTE_ONESHOT_YES,
-                        EMOTE_ONESHOT_NO,
-                        EMOTE_ONESHOT_COWER
-                    };
-
-                    citizen->HandleEmoteCommand(PanicEmotes[urand(0, PanicEmotes.size() - 1)]);
-                    citizen->SetWalk(false);
-                    citizen->GetMotionMaster()->MoveRandom(18.0f);
-                }
+                    if (citizen->IsAlive() && citizen->HasAura(SPELL_PANICKED_CITIZEN_INVIS))
+                        SchedulePanicScatter(citizen);
             }
         }
 
-        EventMap _events;
+        static void SchedulePanicScatter(Creature* citizen)
+        {
+            // Retail cadence: a fresh 2-22yd single-point run spline at
+            // 8.0 yd/s every ~1.6s, milling around the spawn point rather
+            // than fleeing (median net displacement ~12yd over ~195yd run).
+            for (uint32 hop = 0; hop < 18; ++hop)
+                citizen->m_Events.AddEventAtOffset([citizen]()
+                {
+                    if (!citizen->IsAlive())
+                        return;
+
+                    Position dest = citizen->GetRandomPoint(citizen->GetHomePosition(), 12.0f);
+                    citizen->GetMotionMaster()->MovePoint(0, dest, false, 8.0f);
+                }, Milliseconds(hop * 1600));
+
+            citizen->m_Events.AddEventAtOffset([citizen]()
+            {
+                if (citizen->IsAlive())
+                    citizen->GetMotionMaster()->MoveTargetedHome();
+            }, Milliseconds(18 * 1600));
+        }
+
         ObjectGuid _viewerGUID;
     };
 
@@ -1428,7 +1615,12 @@ public:
                 // Boarding is driven by the visible parked prop's 70075 spellclick.
                 // Accepting Fourth and Goal must not create a second kick boat.
                 if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+                {
+                    // Last-resort cleanup of the panic detection if the viewer
+                    // relogged past both the PANIC_END beat and the 42s cleanup.
+                    player->RemoveAurasDueToSpell(SPELL_SEE_PANICKED_CITIZENS);
                     CleanupOwnedCreatures(player, { NPC_BILGEWATER_BUCCANEER_KICK });
+                }
                 break;
             case QUEST_NECESSARY_ROUGHNESS:
                 // Do not drop the see-invisibility here: Fourth and Goal auto-accepts on
