@@ -66,7 +66,13 @@ void RandomMovementGenerator<Creature>::DoInitialize(Creature* owner)
     _reference = owner->GetPosition();
     owner->StopMoving();
 
-    _wanderDistance = std::max<float>(owner->GetWanderDistance(), 0.1f);
+    // A wander distance passed to MoveRandom takes priority; only fall back to
+    // the spawn's DB wander_distance when the caller did not provide one -
+    // scripted MoveRandom(x) on wander_distance=0 spawns used to be clamped to
+    // an invisible 0.1 yd shuffle.
+    if (_wanderDistance <= 0.0f)
+        _wanderDistance = owner->GetWanderDistance();
+    _wanderDistance = std::max<float>(_wanderDistance, 0.1f);
 
     // Retail seems to let a creature walk 2 up to 10 splines before triggering a pause
     _wanderSteps = urand(2, 10);

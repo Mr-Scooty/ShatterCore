@@ -89,6 +89,23 @@ namespace Movement
 
         // correct first vertex
         args.path[0] = real_position;
+
+        // Drop near-duplicate consecutive points (DB waypoint duplicates,
+        // PathGenerator corner clusters, callers already standing at the first
+        // waypoint) - _checkPathLengths otherwise rejects the whole spline over
+        // any segment shorter than 0.1 yd and the unit never moves. Gate on the
+        // exact condition _checkPathLengths applies: two-point splines with a
+        // facing are deliberately zero-length (vehicle seat enter/exit, facing
+        // stops) and must pass through untouched.
+        if (args.path.size() > 2 || args.facing.type == MONSTER_MOVE_NORMAL)
+        {
+            args.path.erase(std::unique(args.path.begin(), args.path.end(),
+                [](G3D::Vector3 const& a, G3D::Vector3 const& b) { return (b - a).length() < 0.1f; }),
+                args.path.end());
+            if (args.path.size() < 2)
+                return 0;
+        }
+
         args.initialOrientation = real_position.orientation;
         args.flags.enter_cycle = args.flags.cyclic;
         move_spline.onTransport = transport;
