@@ -331,8 +331,8 @@ extern int main(int argc, char** argv)
         sBattlegroundMgr->DeleteAllBattlegrounds();
 
         sInstanceSaveMgr->Unload();
-        sOutdoorPvPMgr->Die();                     // unload it before MapManager
         sMapMgr->UnloadAll();                      // unload all grids (including locked in memory)
+        sOutdoorPvPMgr->Die();                     // OutdoorPvP objects are per-map and die with their map; only the creation data is left to clear
         sTerrainMgr.UnloadAll();
 
         sScriptMgr->OnAfterUnloadAllMaps();
