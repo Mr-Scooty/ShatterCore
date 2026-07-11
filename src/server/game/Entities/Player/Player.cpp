@@ -24404,6 +24404,13 @@ void Player::SetClientControl(Unit* target, bool allowMove)
 
     if (allowMove)
         SendDirectMessage(WorldPackets::Movement::MoveSetActiveMover(target->GetGUID()).Write());
+
+    // Bot sessions have no client to answer SMSG_MOVE_SET_ACTIVE_MOVER with
+    // CMSG_SET_ACTIVE_MOVER, so mirror that ack here; otherwise the GameClient
+    // never has an actively moved unit and all ack-gated handlers (near-teleport
+    // ack, packet spell casts) silently reject the bot's packets.
+    if (GetSession()->IsBot())
+        GetGameClient()->SetActivelyMovedUnit(allowMove ? target : nullptr);
 }
 
 void Player::UpdateZoneDependentAuras(uint32 newZone)
