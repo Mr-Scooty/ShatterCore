@@ -141,6 +141,18 @@ constexpr uint32 NPC_SPINE_AMALGAMATION_LFR_STATS    = 58254; // ~15.8M
 constexpr uint32 NPC_SPINE_BLOOD_LFR_STATS           = 58255; // ~360k
 constexpr uint32 NPC_SPINE_TENDONS_LFR_STATS         = 58256; // ~6.5M
 
+// Madness of Deathwing LFR stats templates (70% of 25N, user-approved).
+// Deathwing body and head share one donor - they mirror damage through the
+// Share Health aura pair and must always have identical max health.
+constexpr uint32 NPC_MADNESS_DEATHWING_LFR_STATS     = 58257; // ~267.0M
+constexpr uint32 NPC_MADNESS_LIMB_LFR_STATS          = 58258; // ~58.6M
+constexpr uint32 NPC_MUTATED_CORRUPTION_LFR_STATS    = 58259; // ~23.4M
+constexpr uint32 NPC_REGENERATIVE_BLOOD_LFR_STATS    = 58260; // ~1.4M
+constexpr uint32 NPC_BLISTERING_TENTACLE_LFR_STATS   = 58261; // ~349k
+constexpr uint32 NPC_ELEMENTIUM_BOLT_LFR_STATS       = 58262; // ~1.7M
+constexpr uint32 NPC_ELEMENTIUM_FRAGMENT_LFR_STATS   = 58263; // ~813k
+constexpr uint32 NPC_ELEMENTIUM_TERROR_LFR_STATS     = 58264; // ~6.1M
+
 // Ultraxion: the Twilight Realm phase id. Twilight Shift (106368) carries the
 // legacy 4.3.4 phasemask 16, remapped to phase id 16 in LoadSpellInfoCorrections.
 constexpr uint32 PHASE_TWILIGHT_REALM = 16;
@@ -148,6 +160,12 @@ constexpr uint32 PHASE_TWILIGHT_REALM = 16;
 // Spine of Deathwing: fired at the controller (53879) by the Skyfire
 // captains' gossip in boss_warmaster_blackhorn.cpp
 constexpr int32 ACTION_START_SPINE_ENCOUNTER = 1;
+
+// Madness of Deathwing: GetGUID types served by the boss AI to the instance
+// script (encounter-frame recovery for players who log in mid-fight). The
+// values continue the boss script's private Data enum - keep them in sync.
+constexpr int32 DATA_MADNESS_CURRENT_LIMB_GUID    = 2;
+constexpr int32 DATA_MADNESS_LIVE_CORRUPTION_GUID = 6;
 
 // Landing point of Teleport Single - To Gunship (108263); doubles as the
 // Spine wipe funnel destination
@@ -267,6 +285,7 @@ enum DSCreatures
     NPC_WING_TENTACLE                           = 56168,
     NPC_TAIL_TENTACLE                           = 56844,
     NPC_MUTATED_CORRUPTION                      = 56471,
+    NPC_REGENERATIVE_BLOOD                      = 56263,
     NPC_CRUSH_TARGET                            = 56581,
     NPC_PLATFORM                                = 56307,
     NPC_HEMORRHAGE_TARGET                       = 56359,
@@ -278,6 +297,10 @@ enum DSCreatures
     NPC_ELEMENTIUM_FRAGMENT                     = 56724,
     NPC_ELEMENTIUM_TERROR                       = 56710,
     NPC_JUMP_PAD                                = 56699,
+    NPC_CORRUPTING_PARASITE                     = 57479, // heroic
+    NPC_CORRUPTING_PARASITE_TENTACLE            = 57480, // heroic, cosmetic riders
+    NPC_CONGEALING_BLOOD                        = 57798, // heroic
+    NPC_CONGEALING_BLOOD_TARGET                 = 57788, // static spawn ring around the P2 platform
     NPC_THRALL_MADNESS_OF_DEATHWING             = 56103,
     NPC_YSERA_MADNESS_OF_DEATHWING              = 56100,
     NPC_ALEXSTRASZA_MADNESS_OF_DEATHWING        = 56099,

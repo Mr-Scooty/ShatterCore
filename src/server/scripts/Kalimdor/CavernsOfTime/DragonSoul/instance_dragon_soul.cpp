@@ -22,6 +22,7 @@
 #include "InstanceScript.h"
 #include "LFGMgr.h"
 #include "Map.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "dragon_soul.h"
@@ -152,6 +153,8 @@ uint32 GetBossEntryForData(uint32 bossId)
             return BOSS_WARMASTER_BLACKHORN;
         case DATA_SPINE_OF_DEATHWING:
             return BOSS_SPINE_OF_DEATHWING;
+        case DATA_MADNESS_OF_DEATHWING:
+            return BOSS_MADNESS_OF_DEATHWING;
         default:
             return 0;
     }
@@ -185,6 +188,18 @@ uint32 const SpinePersistentAuras[] =
     106199, // Blood Corruption: Death
     106200, // Blood Corruption: Earth
     106213  // Blood of Neltharion
+};
+
+// Madness of Deathwing auras that must not leak out of an attempt (kept in
+// sync with EncounterPlayerAuras in boss_madness_of_deathwing.cpp)
+uint32 const MadnessPersistentAuras[] =
+{
+    106730, 109603, 109604, 109605, // Tetanus
+    105841, 109625, 109626, 109627, // Degenerative Bite
+    106794, 110139, 110140, 110141, // Shrapnel (target marker)
+    106444, 109631, 109632, 109633, // Impale
+    106663, 106668, 106670, 106672, 106674, 106676, // Carrying Winds (landing dummies)
+    108649, 108601                  // Corrupting Parasite + its bleed (heroic)
 };
 
 class instance_dragon_soul : public InstanceMapScript
@@ -314,10 +329,10 @@ public:
         bool CheckRequiredBosses(uint32 bossId, Player const* player = nullptr) const override
         {
             // Raid Finder: wing 1 ("The Siege of Wyrmrest Temple") covers
-            // Morchok through Hagara, wing 2 ("Fall of Deathwing") continues
-            // through Spine. Madness stays blocked until its own audit pass.
+            // Morchok through Hagara, wing 2 ("Fall of Deathwing") covers
+            // Ultraxion through Madness. Every encounter is available.
             if (IsLFR())
-                return bossId <= DATA_SPINE_OF_DEATHWING;
+                return true;
 
             if (!CheckHeroicGate(bossId, player))
                 return false;
@@ -403,11 +418,25 @@ public:
 
             uint32 bossId = EncounterCount;
 
-            // Spine of Deathwing awards loot from a cache gameobject
+            // Spine and Madness award loot from cache gameobjects
             if (GameObject const* go = lootSource->ToGameObject())
             {
-                if (go->GetEntry() == GO_LESSER_CACHE_OF_THE_ASPECTS || go->GetEntry() == GO_GREATER_CACHE_OF_THE_ASPECTS)
-                    bossId = DATA_SPINE_OF_DEATHWING;
+                switch (go->GetEntry())
+                {
+                    case GO_LESSER_CACHE_OF_THE_ASPECTS:
+                    case GO_GREATER_CACHE_OF_THE_ASPECTS:
+                        bossId = DATA_SPINE_OF_DEATHWING;
+                        break;
+                    case GO_ELEMENTIUM_FRAGMENT_10_NORMAL:
+                    case GO_ELEMENTIUM_FRAGMENT_25_NORMAL:
+                    case GO_ELEMENTIUM_FRAGMENT_25_LFR:
+                    case GO_ELEMENTIUM_FRAGMENT_10_HEROIC:
+                    case GO_ELEMENTIUM_FRAGMENT_25_HEROIC:
+                        bossId = DATA_MADNESS_OF_DEATHWING;
+                        break;
+                    default:
+                        break;
+                }
             }
             else if (Creature const* creature = lootSource->ToCreature())
             {
@@ -525,6 +554,38 @@ public:
 
                 if (player->GetExactDist2d(SpineOfDeathwingLandingPos.GetPositionX(), SpineOfDeathwingLandingPos.GetPositionY()) < 200.0f)
                     player->NearTeleportTo(SkyfireDeckLandingPos);
+            }
+
+            // Madness: strip encounter auras outside an active attempt;
+            // players relogging mid-fight get their encounter frames back
+            if (GetBossState(DATA_MADNESS_OF_DEATHWING) != IN_PROGRESS)
+            {
+                for (uint32 spellId : MadnessPersistentAuras)
+                    player->RemoveAurasDueToSpell(spellId);
+            }
+            else
+            {
+                if (Creature* deathwing = GetCreature(DATA_MADNESS_OF_DEATHWING))
+                {
+                    // Phase one: the body owns the frame; phase two flags it
+                    // unselectable and hands the frame to the head
+                    if (deathwing->IsAlive() && !deathwing->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))
+                        SendEncounterUnit(ENCOUNTER_FRAME_ENGAGE, deathwing, 1);
+
+                    if (deathwing->IsAIEnabled())
+                    {
+                        if (Creature* limb = ObjectAccessor::GetCreature(*deathwing, deathwing->AI()->GetGUID(DATA_MADNESS_CURRENT_LIMB_GUID)))
+                            if (limb->IsAlive())
+                                SendEncounterUnit(ENCOUNTER_FRAME_ENGAGE, limb, 2);
+
+                        if (Creature* corruption = ObjectAccessor::GetCreature(*deathwing, deathwing->AI()->GetGUID(DATA_MADNESS_LIVE_CORRUPTION_GUID)))
+                            SendEncounterUnit(ENCOUNTER_FRAME_ENGAGE, corruption, 1);
+                    }
+                }
+
+                if (Creature* head = GetCreature(DATA_DEATHWING_MADNESS_OF_DEATHWING))
+                    if (head->IsAlive() && !head->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))
+                        SendEncounterUnit(ENCOUNTER_FRAME_ENGAGE, head, 1);
             }
 
             // Raid Finder: groups formed by the Raid Finder queue flag the
