@@ -112,6 +112,11 @@ void MotionMaster::UpdateMotion(uint32 diff)
 
     if (!_expireList.empty())
         ClearExpireList();
+    else if (empty())
+        // a delayed clean of a static generator queues nothing to the expire
+        // list, so ClearExpireList's empty-stack heal never runs - restore the
+        // default generator here instead of asserting on the next tick
+        Initialize();
 }
 
 void MotionMaster::Clear(bool reset /*= true*/)
@@ -882,8 +887,15 @@ void MotionMaster::DirectClean(bool reset)
             DirectDelete(curr);
     }
 
+    // pop() walks _top down through cleared slots: if the idle slot was
+    // emptied earlier (Unit::RemoveFromWorld clears MOTION_SLOT_IDLE), the
+    // stack can end up fully empty here - restore the default generator or
+    // the next UpdateMotion asserts !empty()
     if (empty())
+    {
+        Initialize();
         return;
+    }
 
     if (NeedInitTop())
         InitTop();
