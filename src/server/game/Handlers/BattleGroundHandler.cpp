@@ -135,12 +135,22 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
     if (!bg)
         bg = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeId);
     if (!bg)
+    {
+        TC_LOG_ERROR("bg.battleground", "Battleground: no template found for type %u, player %s can't be queued.", bgTypeId_, _player->GetName().c_str());
         return;
+    }
 
     // expected bracket entry
     PvPDifficultyEntry const* bracketEntry = sDBCManager.GetBattlegroundBracketByLevel(bg->GetMapId(), _player->getLevel());
     if (!bracketEntry)
+    {
+        // no queue bracket for this battleground at the player's level (below minimum queue level)
+        TC_LOG_DEBUG("bg.battleground", "Battleground: no bracket for map %u at level %u, player %s can't be queued.", bg->GetMapId(), _player->getLevel(), _player->GetName().c_str());
+        WorldPacket data;
+        sBattlegroundMgr->BuildStatusFailedPacket(&data, bg, _player, 0, ERR_BATTLEGROUND_JOIN_FAILED);
+        _player->SendDirectMessage(&data);
         return;
+    }
 
     GroupJoinBattlegroundResult err = ERR_BATTLEGROUND_NONE;
 
