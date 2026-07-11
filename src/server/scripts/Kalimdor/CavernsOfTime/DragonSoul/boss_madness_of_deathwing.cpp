@@ -26,6 +26,7 @@
 #include "MoveSpline.h"
 #include "MoveSplineInit.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "PassiveAI.h"
 #include "PhasingHandler.h"
 #include "Player.h"
@@ -37,6 +38,7 @@
 #include "Spell.h"
 #include "TemporarySummon.h"
 #include "Vehicle.h"
+#include "WorldStateMgr.h"
 
 #include <array>
 
@@ -60,6 +62,9 @@ enum Texts
 
     // Limb Tentacles
     SAY_ANNOUNCE_BLISTERING_TENTACLES   = 0,
+
+    // Mutated Corruption
+    SAY_ANNOUNCE_IMPALE_ASPECT          = 0,
 
     // Dragon Aspects
     SAY_INTRODUCE_ABILITY               = 0,
@@ -114,6 +119,7 @@ enum Spells
     SPELL_CRUSH_TARGETING                               = 106382,
     SPELL_CRUSH                                         = 106385,
     SPELL_IMPALE                                        = 106400,
+    SPELL_IMPALE_ASPECT                                 = 107029, // 4s cast at the platform's Aspect when untanked
 
     // Hemorrhage Target
     SPELL_HEMORRHAGE_PERIODIC                           = 105861,
@@ -144,6 +150,7 @@ enum Spells
 
     // Dragon Aspects
     SPELL_TIME_ZONE                                     = 106919,
+    SPELL_TIME_ZONE_SLOW                                = 105830, // pulsed on adds standing inside a Time Zone
     SPELL_TIME_ZONE_MISSILE                             = 105799,
     SPELL_TIME_ZONE_MISSILE_PHASE_TWO                   = 107055,
     SPELL_CAUTERIZE                                     = 105565,
@@ -161,6 +168,28 @@ enum Spells
     SPELL_SPELLWEAVER                                   = 106039,
     SPELL_NOZDORMUS_PRESENCE                            = 105823,
     SPELL_ALEXSTRASZAS_PRESENCE                         = 105825,
+
+    // Berserk (Madness-specific, +500% damage + haste)
+    SPELL_BERSERK                                       = 110055,
+
+    // Corrupting Parasite (heroic phase one)
+    SPELL_CORRUPTING_PARASITE_DUMMY                     = 108597,
+    SPELL_CORRUPTING_PARASITE_AURA                      = 108649, // 10s host debuff, aura 296 vehicle 1941
+    SPELL_CORRUPTING_PARASITE_PERIODIC                  = 108601, // host damage while infested
+    SPELL_UNSTABLE_CORRUPTION                           = 108813, // parasite 10s cast
+    SPELL_PARASITIC_BACKLASH                            = 108787, // raid damage on cast completion
+    SPELL_CHARGING_UP_20                                = 108490, // energy bar stage visuals
+    SPELL_CHARGING_UP_40                                = 108491,
+    SPELL_CHARGING_UP_60                                = 108492,
+    SPELL_CHARGING_UP_80                                = 108493,
+    SPELL_CHARGING_UP_100                               = 108494,
+
+    // Congealing Blood (heroic phase two)
+    SPELL_CONGEALING_BLOOD_PING                         = 109089, // head cast, summons one blood at a 57788 point
+    SPELL_CONGEALING_BLOOD_HEAL                         = 109102, // 1% heal on reaching Deathwing
+
+    // Alexstrasza (phase two)
+    SPELL_CAUTERIZE_PHASE_TWO                           = 106860, // periodic drain of the head's Corrupted Blood power
 
     // Cosmetic Limbs
     SPELL_SUMMON_COSMETIC_TENTACLE                      = 108970,
@@ -200,11 +229,22 @@ enum Events
     EVENT_SUMMON_ELEMENTIUM_FRAGMENTS,
     EVENT_PREPARE_TIME_ZONE,
     EVENT_DISENGAGE,
+    EVENT_BERSERK,
+    EVENT_CORRUPTING_PARASITE,
+    EVENT_PHASE_TWO_HEALTH_CHECK,
+    EVENT_CONGEALING_BLOOD_PING,
 
     // Mutated Corruption
     EVENT_CRUSH_TARGETING,
     EVENT_CRUSH,
     EVENT_IMPALE,
+
+    // Corrupting Parasite
+    EVENT_UNSTABLE_CORRUPTION,
+    EVENT_PARASITE_ENERGY,
+
+    // Congealing Blood
+    EVENT_CHECK_ARRIVAL,
 
     // Elemetium Bolt
     EVENT_LAUNCH_ELEMENTIUM_BOLT,
@@ -240,9 +280,13 @@ enum Actions
     ACTION_TALK_PHASE_TWO           = 5,
     ACTION_TALK_CHARGE_DRAGON_SOUL  = 6,
     ACTION_CAST_TIME_ZONE           = 7,
+    ACTION_CAUTERIZE_PHASE_TWO      = 8,
 
     // Elemetium Bolt
     ACTION_LAUNCH_ELEMENTIUM_BOLT   = 0,
+
+    // Corrupting Parasite
+    ACTION_PARASITE_BACKLASH        = 0,
 
     // Thrall
     ACTION_TALK_ASPECT_AID          = 0,
@@ -321,10 +365,11 @@ enum Data : uint8
     // Deathwing
     DATA_PLAYERS_ON_PLATFORM    = 0,
     DATA_ASSAULTED_ASPECT       = 1,
-    DATA_CURRENT_LIMB           = 2,
+    DATA_CURRENT_LIMB           = 2, // shared: DragonSoul::DATA_MADNESS_CURRENT_LIMB_GUID
     DATA_CURRENT_PLATFORM       = 3,
     DATA_NOZDORMU_AVAILABLE     = 4,
     DATA_ASPECT_FOR_LIMB        = 5,
+    DATA_LIVE_CORRUPTION        = 6, // shared: DragonSoul::DATA_MADNESS_LIVE_CORRUPTION_GUID
 
     // Dragon Aspects
     DATA_FOCUSED_LIMB           = 0
@@ -374,6 +419,18 @@ struct LimbTentacleInfo
 
 typedef std::array<LimbTentacleInfo, MAX_DRAGON_ASPECTS> LimbTentacleData;
 
+// Encounter auras that must not survive a wipe (all difficulty forks).
+// instance_dragon_soul.cpp carries the same list for OnPlayerEnter cleanup.
+uint32 const EncounterPlayerAuras[] =
+{
+    106730, 109603, 109604, 109605, // Tetanus
+    105841, 109625, 109626, 109627, // Degenerative Bite
+    106794, 110139, 110140, 110141, // Shrapnel (target marker)
+    106444, 109631, 109632, 109633, // Impale
+    106663, 106668, 106670, 106672, 106674, 106676, // Carrying Winds (landing dummies)
+    108649, 108601                  // Corrupting Parasite + its bleed (heroic)
+};
+
 Position const DeathwingSummonPositon = { -11903.93f, 11989.14f, -113.204f, 2.164208f };
 Position const TailTentacleSummonPosition = { -11857.02f, 11795.57f, -73.95494f, 2.234021f };
 Position const ElementiumFragmentSummonPosition = { -12100.54f, 12173.62f, -2.734246f, 5.096362f };
@@ -402,6 +459,96 @@ std::array<uint32, MAX_DRAGON_ASPECTS> LimbTentacleEntryForDragonAspect =
     NPC_ARM_TENTACLE_2,
     NPC_WING_TENTACLE
 };
+
+// Achievement 6180 "Chromatic Champion": Achievement_Criteria.dbc gates each
+// criterion on a map worldstate - "<Aspect> Assaulted First" (criteria
+// 18658-18661, RequiredWorldStateID/Value). Seeded in world_state for map 967.
+std::array<int32, MAX_DRAGON_ASPECTS> constexpr AssaultedFirstWorldStates =
+{
+    6260, // Ysera
+    6261, // Kalecgos
+    6259, // Nozdormu
+    6258  // Alexstrasza
+};
+
+uint32 GetAspectInstanceDataId(uint8 aspectId)
+{
+    switch (aspectId)
+    {
+        case DRAGON_ASPECT_YSERA:
+            return DATA_YSERA_MADNESS_OF_DEATHWING;
+        case DRAGON_ASPECT_KALECGOS:
+            return DATA_KALECGOS_MADNESS_OF_DEATHWING;
+        case DRAGON_ASPECT_NOZDORMU:
+            return DATA_NOZDORMU_MADNESS_OF_DEATHWING;
+        case DRAGON_ASPECT_ALEXSTRASZA:
+            return DATA_ALEXSTRASZA_MADNESS_OF_DEATHWING;
+        default:
+            return uint32(-1);
+    }
+}
+
+// Raid Finder tuning: reduced health (stats donor templates, 70% of 25N) and
+// reduced outgoing damage, both applied on top of the 25 player normal profile
+uint32 GetLFRStatsEntryFor(uint32 entry)
+{
+    switch (entry)
+    {
+        case BOSS_MADNESS_OF_DEATHWING:
+        case NPC_DEATHWING_MADNESS_OF_DEATHWING:
+            return NPC_MADNESS_DEATHWING_LFR_STATS;
+        case NPC_ARM_TENTACLE_1:
+        case NPC_ARM_TENTACLE_2:
+        case NPC_WING_TENTACLE:
+            return NPC_MADNESS_LIMB_LFR_STATS;
+        case NPC_MUTATED_CORRUPTION:
+            return NPC_MUTATED_CORRUPTION_LFR_STATS;
+        case NPC_REGENERATIVE_BLOOD:
+            return NPC_REGENERATIVE_BLOOD_LFR_STATS;
+        case NPC_BLISTERING_TENTACLE:
+            return NPC_BLISTERING_TENTACLE_LFR_STATS;
+        case NPC_ELEMENTIUM_BOLT:
+            return NPC_ELEMENTIUM_BOLT_LFR_STATS;
+        case NPC_ELEMENTIUM_FRAGMENT:
+            return NPC_ELEMENTIUM_FRAGMENT_LFR_STATS;
+        case NPC_ELEMENTIUM_TERROR:
+            return NPC_ELEMENTIUM_TERROR_LFR_STATS;
+        default:
+            return 0;
+    }
+}
+
+void ApplyLFRHealth(Creature* creature, InstanceScript const* instance)
+{
+    if (!instance || !instance->IsLFR())
+        return;
+
+    uint32 statsEntry = GetLFRStatsEntryFor(creature->GetEntry());
+    if (!statsEntry)
+        return;
+
+    CreatureTemplate const* lfrStats = sObjectMgr->GetCreatureTemplate(statsEntry);
+    if (!lfrStats)
+        return;
+
+    if (CreatureBaseStats const* baseStats = sObjectMgr->GetCreatureBaseStats(creature->getLevel(), lfrStats->unit_class))
+    {
+        creature->SetMaxHealth(baseStats->GenerateHealth(lfrStats));
+        creature->SetFullHealth();
+    }
+}
+
+// Only player-directed damage is reduced: Agonizing Pain's 20% max-health hit
+// on Deathwing (and its share-health mirror between body and head) must stay
+// exact or the phase-two handoff arithmetic breaks
+void ApplyLFRDamageReduction(InstanceScript const* instance, Unit const* victim, uint32& damage)
+{
+    if (!victim || !victim->IsCharmedOwnedByPlayerOrPlayer())
+        return;
+
+    if (instance && instance->IsLFR())
+        damage = damage * LFR_DAMAGE_PCT / 100;
+}
 
 static constexpr uint8 const MaxElemetiumBoltPathPoints = 2;
 std::array<Position, MaxElemetiumBoltPathPoints> ElementiumBoltPathYsera =
@@ -457,14 +604,16 @@ Movement::PointsArray AlexstraszaPath =
 
 struct boss_madness_of_deathwing : public BossAI
 {
-    boss_madness_of_deathwing(Creature* creature) : BossAI(creature, DATA_MADNESS_OF_DEATHWING), _firstAssault(true), _assaultedDragonAspect(0), _aspectForKilledTentacle(0)
+    boss_madness_of_deathwing(Creature* creature) : BossAI(creature, DATA_MADNESS_OF_DEATHWING), _firstAssault(true), _firstAssaultRecorded(false), _assaultedDragonAspect(0), _aspectForKilledTentacle(0)
     {
         me->SetReactState(REACT_PASSIVE);
         _playersAtAspects = { };
+        _phaseTwoThresholdArmed = { true, true, true };
     }
 
     void JustAppeared() override
     {
+        ApplyLFRHealth(me, instance);
         DoCastSelf(SPELL_ROOT);
         DoZoneInCombat();
     }
@@ -479,8 +628,14 @@ struct boss_madness_of_deathwing : public BossAI
         DoCastSelf(SPELL_SHARE_HEALTH_1);
         me->PlayOneShotAnimKitId(ANIM_KIT_EMERGE_DEATHWING);
 
+        // The head is installed as a vehicle accessory - its create order is
+        // not guaranteed relative to ours, so top its health up here as well
+        if (Creature* deathwing = GetPhaseTwoDeathwing())
+            ApplyLFRHealth(deathwing, instance);
+
         events.SetPhase(PHASE_ONE);
         events.ScheduleEvent(EVENT_ASSAULT_ASPECTS, 5s, 0, PHASE_ONE);
+        events.ScheduleEvent(EVENT_BERSERK, 15min);
     }
 
     void EnterEvadeMode(EvadeReason /*why*/) override
@@ -509,12 +664,20 @@ struct boss_madness_of_deathwing : public BossAI
             if (Creature* aspect = GetDragonAspect(i))
                 aspect->DespawnOrUnsummon(0ms, 30s);
 
+        for (uint32 spellId : EncounterPlayerAuras)
+            instance->DoRemoveAurasDueToSpellOnPlayers(spellId);
+
         summons.DespawnAll();
         _DespawnAtEvade();
     }
 
     void JustSummoned(Creature* summon) override
     {
+        // Central Raid Finder health dispatch: every madness unit routes
+        // through here (limbs directly, native summons via their AI hooks,
+        // the head via its vehicle-accessory install)
+        ApplyLFRHealth(summon, instance);
+
         switch (summon->GetEntry())
         {
             case NPC_ARM_TENTACLE_1:
@@ -591,11 +754,22 @@ struct boss_madness_of_deathwing : public BossAI
                 return _limbData[_assaultedDragonAspect].TentacleGUID;
             case DATA_CURRENT_PLATFORM:
                 return _limbData[_assaultedDragonAspect].PlatformGUID;
+            case DATA_LIVE_CORRUPTION:
+                for (ObjectGuid guid : _mutatedCorruptionGUIDs)
+                    if (Creature const* corruption = ObjectAccessor::GetCreature(*me, guid))
+                        if (corruption->IsAlive())
+                            return guid;
+                return ObjectGuid::Empty;
             default:
                 return ObjectGuid::Empty;
         }
 
         return ObjectGuid::Empty;
+    }
+
+    void DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/) override
+    {
+        ApplyLFRDamageReduction(instance, victim, damage);
     }
 
     void DamageTaken(Unit* /*attacker*/, uint32& damage) override
@@ -617,18 +791,17 @@ struct boss_madness_of_deathwing : public BossAI
         {
             case ACTION_ASSAULT_PLATFORM:
             {
+                // Most populated platform wins; ties keep the first alive
+                // index (Ysera > Kalecgos > Nozdormu > Alexstrasza)
                 int8 preferedAspect = -1;
-                int8 lastCheckedPlatform = -1;
                 for (uint8 i = 0; i < MAX_DRAGON_ASPECTS; ++i)
                 {
                     // Limb has been killed already. Skip Platform.
                     if (_limbData[i].TentacleKilled)
                         continue;
 
-                    if (preferedAspect == -1 || _playersAtAspects[i] > _playersAtAspects[lastCheckedPlatform])
+                    if (preferedAspect == -1 || _playersAtAspects[i] > _playersAtAspects[preferedAspect])
                         preferedAspect = i;
-
-                    lastCheckedPlatform = i;
                 }
 
                 // This should never happen but just in case
@@ -667,23 +840,35 @@ struct boss_madness_of_deathwing : public BossAI
             switch (eventId)
             {
                 case EVENT_ASSAULT_ASPECTS:
+                    // Ability timers below track the DBM 4.3.4 module, keyed
+                    // to the Assault Aspects cast start
                     if (_firstAssault)
                     {
                         DoCastSelf(SPELL_SHARE_HEALTH_1);
                         DoCastAOE(SPELL_TRIGGER_ASPECT_BUFFS);
                         events.ScheduleEvent(EVENT_FACE_PLATFORM, 18s, 0, PHASE_ONE);
                         events.ScheduleEvent(EVENT_SEND_ENCOUNTER_FRAME, 11s, 0, PHASE_ONE);
-                        events.ScheduleEvent(EVENT_CATACLYSM, 1min + 55s, 0, PHASE_ONE);
-                        events.ScheduleEvent(EVENT_HEMORRHAGE, 1min + 26s, 0, PHASE_ONE);
-                        events.ScheduleEvent(EVENT_ELEMENTIUM_BOLT, 41s, 0, PHASE_ONE);
+                        events.ScheduleEvent(EVENT_CATACLYSM, 115s + 500ms, 0, PHASE_ONE);
+                        events.ScheduleEvent(EVENT_HEMORRHAGE, IsHeroic() ? 55s + 500ms : 85s + 500ms, 0, PHASE_ONE);
+                        events.ScheduleEvent(EVENT_ELEMENTIUM_BOLT, 40s + 500ms, 0, PHASE_ONE);
+                        if (IsHeroic())
+                        {
+                            events.ScheduleEvent(EVENT_CORRUPTING_PARASITE, 11s, 0, PHASE_ONE);
+                            events.ScheduleEvent(EVENT_CORRUPTING_PARASITE, 71s, 0, PHASE_ONE);
+                        }
                         _firstAssault = false;
                     }
                     else
                     {
                         events.ScheduleEvent(EVENT_FACE_PLATFORM, 14s, 0, PHASE_ONE);
-                        events.ScheduleEvent(EVENT_CATACLYSM, 2min + 13s, 0, PHASE_ONE);
-                        events.ScheduleEvent(EVENT_HEMORRHAGE, 1min + 43s, 0, PHASE_ONE);
-                        events.ScheduleEvent(EVENT_ELEMENTIUM_BOLT, 58s, 0, PHASE_ONE);
+                        events.ScheduleEvent(EVENT_CATACLYSM, 130s + 500ms, 0, PHASE_ONE);
+                        events.ScheduleEvent(EVENT_HEMORRHAGE, IsHeroic() ? 70s + 500ms : 100s + 500ms, 0, PHASE_ONE);
+                        events.ScheduleEvent(EVENT_ELEMENTIUM_BOLT, 55s + 500ms, 0, PHASE_ONE);
+                        if (IsHeroic())
+                        {
+                            events.ScheduleEvent(EVENT_CORRUPTING_PARASITE, 22s, 0, PHASE_ONE);
+                            events.ScheduleEvent(EVENT_CORRUPTING_PARASITE, 82s, 0, PHASE_ONE);
+                        }
                     }
 
                     DoCastAOE(SPELL_ASSAULT_ASPECTS);
@@ -731,33 +916,74 @@ struct boss_madness_of_deathwing : public BossAI
                     if (Creature* aspect = GetDragonAspect(_assaultedDragonAspect))
                         if (aspect->IsAIEnabled())
                             aspect->AI()->DoAction(ACTION_CATACLYSM_IN_PROGRESS);
+                    events.Repeat(130s + 500ms);
                     break;
                 case EVENT_HEMORRHAGE:
+                    // never contend with an in-flight Cataclysm for the
+                    // generic cast slot (a new cast would evict it and the
+                    // limb-death interrupt would miss it) - retry shortly
+                    if (IsCastingCataclysm())
+                    {
+                        events.Repeat(2s);
+                        break;
+                    }
                     Talk(SAY_ANNOUNCE_HEMORRHAGE);
                     DoCastAOE(SPELL_HEMORRHAGE_SUMMON_TARGET);
-                    events.ScheduleEvent(EVENT_REGENERATIVE_BLOOD, 2s + 500ms, 0, PHASE_ONE);
-                    break;
-                case EVENT_REGENERATIVE_BLOOD:
-                    DoCastSelf(SPELL_REGENERATIVE_BLOOD_PERIODIC);
+                    events.Repeat(100s + 500ms);
                     break;
                 case EVENT_ELEMENTIUM_BOLT:
+                    if (IsCastingCataclysm())
+                    {
+                        events.Repeat(2s);
+                        break;
+                    }
                     Talk(SAY_ANNOUNCE_ELEMENTIUM_BOLT);
                     Talk(SAY_ELEMENTIUM_BOLT);
                     DoCastSelf(SPELL_ELEMENTIUM_BOLT);
+                    events.Repeat(55s + 500ms);
+                    break;
+                case EVENT_CORRUPTING_PARASITE:
+                    DoCastAOE(SPELL_CORRUPTING_PARASITE_DUMMY);
+                    break;
+                case EVENT_BERSERK:
+                    DoCastSelf(SPELL_BERSERK, true);
+                    if (Creature* deathwing = GetPhaseTwoDeathwing())
+                        if (deathwing->IsAlive())
+                            deathwing->CastSpell(deathwing, SPELL_BERSERK, true);
                     break;
                 case EVENT_SUMMON_ELEMENTIUM_TERROR:
                     if (Creature* deathwing = GetPhaseTwoDeathwing())
                         deathwing->CastSpell(deathwing, SPELL_SUMMON_ELEMENTIUM_TERROR);
+                    events.Repeat(90s);
                     break;
                 case EVENT_SUMMON_ELEMENTIUM_FRAGMENTS:
                     if (Creature* deathwing = GetPhaseTwoDeathwing())
                         deathwing->CastSpell(deathwing, SPELL_SUMMON_IMPALING_TENTACLE);
+                    events.Repeat(90s);
                     break;
                 case EVENT_PREPARE_TIME_ZONE:
                     DoCastSelf(SPELL_TIME_ZONE_PHASE_TWO);
                     if (Creature* nozdormu = GetDragonAspect(DRAGON_ASPECT_NOZDORMU))
                         if (nozdormu->IsAIEnabled())
                             nozdormu->AI()->DoAction(ACTION_CAST_TIME_ZONE);
+                    events.Repeat(90s);
+                    break;
+                case EVENT_PHASE_TWO_HEALTH_CHECK:
+                    UpdatePhaseTwoThresholds();
+                    events.Repeat(1s);
+                    break;
+                case EVENT_CONGEALING_BLOOD_PING:
+                    // 109089's summon missile lands at the explicit target -
+                    // fire it at a random Congealing Blood Target stalker
+                    if (Creature* deathwing = GetPhaseTwoDeathwing())
+                    {
+                        std::list<Creature*> stalkers;
+                        deathwing->GetCreatureListWithEntryInGrid(stalkers, NPC_CONGEALING_BLOOD_TARGET, 200.f);
+                        if (!stalkers.empty())
+                            deathwing->CastSpell(Trinity::Containers::SelectRandomContainerElement(stalkers), SPELL_CONGEALING_BLOOD_PING, true);
+                    }
+                    if (_congealingPingsLeft && --_congealingPingsLeft > 0)
+                        events.Repeat(500ms);
                     break;
                 case EVENT_DISENGAGE:
                     summons.DespawnAll();
@@ -772,11 +998,63 @@ struct boss_madness_of_deathwing : public BossAI
 
 private:
     bool _firstAssault;
+    bool _firstAssaultRecorded;
     uint8 _assaultedDragonAspect;
     uint8 _aspectForKilledTentacle;
+    uint8 _congealingPingsLeft = 0;
     LimbTentacleData _limbData;
     std::array<uint8, MAX_DRAGON_ASPECTS> _playersAtAspects;
+    std::array<bool, 3> _phaseTwoThresholdArmed;
     GuidVector _mutatedCorruptionGUIDs;
+
+    // Phase two: at 15/10/5% the head hemorrhages (the Corrupted Blood
+    // stacker doubles its alternate power). Alexstrasza responds with
+    // Cauterize on every difficulty; on heroic, Congealing Bloods well up
+    // and crawl back to heal Deathwing. Thresholds re-arm if he is healed
+    // back over them (heroic bloods can do exactly that).
+    bool IsCastingCataclysm() const
+    {
+        if (Spell const* spell = me->GetCurrentSpell(CURRENT_GENERIC_SPELL))
+            return spell->GetSpellInfo()->Id == sSpellMgr->GetSpellIdForDifficulty(SPELL_CATACLYSM, me);
+        return false;
+    }
+
+    void UpdatePhaseTwoThresholds()
+    {
+        Creature* deathwing = GetPhaseTwoDeathwing();
+        if (!deathwing || !deathwing->IsAlive())
+            return;
+
+        static constexpr std::array<uint8, 3> thresholds = { { 15, 10, 5 } };
+        float healthPct = deathwing->GetHealthPct();
+        for (uint8 i = 0; i < thresholds.size(); ++i)
+        {
+            if (_phaseTwoThresholdArmed[i] && healthPct < thresholds[i])
+            {
+                _phaseTwoThresholdArmed[i] = false;
+                OnPhaseTwoThresholdCrossed();
+            }
+            else if (!_phaseTwoThresholdArmed[i] && healthPct >= thresholds[i] + 2.f)
+                _phaseTwoThresholdArmed[i] = true;
+        }
+    }
+
+    void OnPhaseTwoThresholdCrossed()
+    {
+        if (Creature* alexstrasza = GetDragonAspect(DRAGON_ASPECT_ALEXSTRASZA))
+            if (alexstrasza->IsAIEnabled())
+                alexstrasza->AI()->DoAction(ACTION_CAUTERIZE_PHASE_TWO);
+
+        if (IsHeroic())
+        {
+            // near-simultaneous threshold crossings stack their bursts;
+            // only kick the ping loop if one is not already running
+            bool const burstActive = _congealingPingsLeft > 0;
+            _congealingPingsLeft += Is25ManRaid() ? 12 : 6;
+            if (!burstActive)
+                events.ScheduleEvent(EVENT_CONGEALING_BLOOD_PING, 1ms, 0, PHASE_TWO);
+        }
+    }
 
     void SetupLimbs()
     {
@@ -808,26 +1086,7 @@ private:
 
     Creature* GetDragonAspect(uint8 aspectId)
     {
-        uint32 type = 0;
-        switch (aspectId)
-        {
-            case DRAGON_ASPECT_YSERA:
-                type = DATA_YSERA_MADNESS_OF_DEATHWING;
-                break;
-            case DRAGON_ASPECT_KALECGOS:
-                type = DATA_KALECGOS_MADNESS_OF_DEATHWING;
-                break;
-            case DRAGON_ASPECT_NOZDORMU:
-                type = DATA_NOZDORMU_MADNESS_OF_DEATHWING;
-                break;
-            case DRAGON_ASPECT_ALEXSTRASZA:
-                type = DATA_ALEXSTRASZA_MADNESS_OF_DEATHWING;
-                break;
-            default:
-                break;
-        }
-
-        return instance->GetCreature(type);
+        return instance->GetCreature(GetAspectInstanceDataId(aspectId));
     }
 
     Creature* GetPhaseTwoDeathwing()
@@ -859,6 +1118,16 @@ private:
         _assaultedDragonAspect = aspectId;
         Talk(announcementTextID);
 
+        // Chromatic Champion (6180): the criteria are gated on per-map
+        // "<Aspect> Assaulted First" worldstates - record the first assault
+        // of this attempt and clear the other three
+        if (!_firstAssaultRecorded)
+        {
+            for (uint8 i = 0; i < MAX_DRAGON_ASPECTS; ++i)
+                sWorldStateMgr->SetValue(AssaultedFirstWorldStates[i], i == aspectId ? 1 : 0, false, me->GetMap());
+            _firstAssaultRecorded = true;
+        }
+
         if (Creature* aspect = GetDragonAspect(aspectId))
             if (aspect->IsAIEnabled())
                 aspect->AI()->DoAction(ACTION_ASSAULTED);
@@ -869,7 +1138,7 @@ private:
             _limbData[aspectId].TentacleEngaged = true;
         }
 
-        events.ScheduleEvent(EVENT_SUMMON_TAIL, 500ms);
+        events.ScheduleEvent(EVENT_SUMMON_TAIL, 500ms, 0, PHASE_ONE);
     }
 
     void LimbTentacleDied(Creature* limb)
@@ -897,6 +1166,28 @@ private:
                 limb->DespawnOrUnsummon();
             }, 3s + 600ms);
 
+            // Killing the limb interrupts an in-progress Cataclysm. Targeted
+            // interrupt only - a blanket one would also cancel a mid-flight
+            // Assault Aspects cast whose AfterCast drives the next assault.
+            if (IsCastingCataclysm())
+                me->InterruptNonMeleeSpells(false);
+
+            // The Mutated Corruption dies with its limb
+            for (ObjectGuid guid : _mutatedCorruptionGUIDs)
+                if (Creature* corruption = ObjectAccessor::GetCreature(*me, guid))
+                    if (corruption->IsAlive())
+                        corruption->KillSelf();
+            _mutatedCorruptionGUIDs.clear();
+
+            // Heroic: parasites burrow away when the assault ends
+            if (IsHeroic())
+            {
+                summons.DespawnEntry(NPC_CORRUPTING_PARASITE);
+                summons.DespawnEntry(NPC_CORRUPTING_PARASITE_TENTACLE);
+                instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_CORRUPTING_PARASITE_AURA);
+                instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_CORRUPTING_PARASITE_PERIODIC);
+            }
+
             // Despawn time zones
             summons.DespawnEntry(NPC_TIME_ZONE);
 
@@ -909,6 +1200,8 @@ private:
             events.CancelEvent(EVENT_HEMORRHAGE);
             events.CancelEvent(EVENT_ELEMENTIUM_BOLT);
             events.CancelEvent(EVENT_FACE_PLATFORM);
+            events.CancelEvent(EVENT_CORRUPTING_PARASITE);
+            events.CancelEvent(EVENT_SUMMON_TAIL);
 
             // Prepare our next assault
             events.ScheduleEvent(EVENT_ASSAULT_ASPECTS, 6s + 500ms, 0, PHASE_ONE);
@@ -949,10 +1242,17 @@ private:
                 if (thrall->IsAIEnabled())
                     thrall->AI()->DoAction(ACTION_TALK_ASPECT_AID);
 
+            // Berserk fired during phase one only reached the body - carry it
+            // over to the now-attackable head
+            if (me->HasAura(SPELL_BERSERK))
+                if (Creature* deathwing = GetPhaseTwoDeathwing())
+                    deathwing->CastSpell(deathwing, SPELL_BERSERK, true);
+
             events.SetPhase(PHASE_TWO);
-            events.ScheduleEvent(EVENT_SUMMON_ELEMENTIUM_FRAGMENTS, 11s, 0, PHASE_TWO);
+            events.ScheduleEvent(EVENT_SUMMON_ELEMENTIUM_FRAGMENTS, 10s + 500ms, 0, PHASE_TWO);
             events.ScheduleEvent(EVENT_PREPARE_TIME_ZONE, 26s, 0, PHASE_TWO);
-            events.ScheduleEvent(EVENT_SUMMON_ELEMENTIUM_TERROR, 36s, 0, PHASE_TWO);
+            events.ScheduleEvent(EVENT_SUMMON_ELEMENTIUM_TERROR, 35s + 500ms, 0, PHASE_TWO);
+            events.ScheduleEvent(EVENT_PHASE_TWO_HEALTH_CHECK, 1s, 0, PHASE_TWO);
         }
     }
 
@@ -965,10 +1265,19 @@ private:
         summons.DespawnEntry(NPC_ELEMENTIUM_TERROR);
         summons.DespawnEntry(NPC_TIME_ZONE);
         summons.DespawnEntry(NPC_TAIL_TENTACLE);
+        summons.DespawnEntry(NPC_CONGEALING_BLOOD);
 
         me->RemoveAurasDueToSpell(SPELL_SHRAPNEL_PERIODIC);
         me->PlayDirectSound(SOUND_ID_DRAGON_ROAR);
         DoCastSelf(SPELL_SLUMP_OUTRO);
+
+        // Achievements 6116/6177/6180 (criteria type 28) and DungeonEncounter
+        // 1299 (creditType CAST_SPELL, drives the LFR wing 447 reward) all
+        // ride the serverside kill-credit spell
+        for (MapReference const& ref : me->GetMap()->GetPlayers())
+            if (Player* player = ref.GetSource())
+                me->CastSpell(player, SPELL_DEATHWING_KILL_CREDIT, true);
+        instance->UpdateEncounterStateForSpellCast(SPELL_DEATHWING_KILL_CREDIT, me);
 
         instance->DoUpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_BE_SPELL_TARGET, SPELL_DEATHWING_KILL_CREDIT, 0, me);
         instance->instance->PermBindAllPlayers();
@@ -998,9 +1307,8 @@ private:
                     gameobjectId = GO_ELEMENTIUM_FRAGMENT_10_NORMAL;
                     break;
                 case RAID_DIFFICULTY_25MAN_NORMAL:
-                    gameobjectId = GO_ELEMENTIUM_FRAGMENT_25_NORMAL;
-                    if (recipient->GetGroup() && recipient->GetGroup()->isLFRGroup())
-                        gameobjectId = GO_ELEMENTIUM_FRAGMENT_25_LFR;
+                    // Raid Finder is a flagged 25 normal instance
+                    gameobjectId = instance->IsLFR() ? GO_ELEMENTIUM_FRAGMENT_25_LFR : GO_ELEMENTIUM_FRAGMENT_25_NORMAL;
                     break;
                 case RAID_DIFFICULTY_10MAN_HEROIC:
                     gameobjectId = GO_ELEMENTIUM_FRAGMENT_10_HEROIC;
@@ -1035,6 +1343,11 @@ struct npc_madness_of_deathwing_limb_tentacle : public NullCreatureAI
     {
         DoCastSelf(SPELL_AGONIZING_PAIN);
         _summons.DespawnAll();
+    }
+
+    void DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/) override
+    {
+        ApplyLFRDamageReduction(_instance, victim, damage);
     }
 
     void JustSummoned(Creature* summon) override
@@ -1131,6 +1444,11 @@ struct npc_madness_of_deathwing_mutated_corruption : public ScriptedAI
         me->DespawnOrUnsummon(2s);
     }
 
+    void DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/) override
+    {
+        ApplyLFRDamageReduction(_instance, victim, damage);
+    }
+
     void UpdateAI(uint32 diff) override
     {
         if (!UpdateVictim())
@@ -1148,7 +1466,7 @@ struct npc_madness_of_deathwing_mutated_corruption : public ScriptedAI
                 case EVENT_CRUSH_TARGETING:
                     DoCastAOE(SPELL_CRUSH_TARGETING);
                     _events.ScheduleEvent(EVENT_CRUSH, 500ms);
-                    _events.Repeat(14s);
+                    _events.Repeat(10s);
                     break;
                 case EVENT_CRUSH:
                     if (Creature* crush = me->FindNearestCreature(NPC_CRUSH_TARGET, 50.f))
@@ -1159,8 +1477,18 @@ struct npc_madness_of_deathwing_mutated_corruption : public ScriptedAI
                     }
                     break;
                 case EVENT_IMPALE:
-                    DoCastVictim(SPELL_IMPALE);
-                    _events.Repeat(36s);
+                    // A player-controlled tank eats the Impale; an untanked
+                    // corruption impales the platform's Dragon Aspect instead
+                    if (Unit* victim = me->GetVictim(); victim && victim->IsControlledByPlayer())
+                        DoCastVictim(SPELL_IMPALE);
+                    else if (Creature* deathwing = _instance->GetCreature(DATA_MADNESS_OF_DEATHWING))
+                        if (deathwing->IsAIEnabled())
+                            if (Creature* aspect = _instance->GetCreature(GetAspectInstanceDataId(deathwing->AI()->GetData(DATA_ASSAULTED_ASPECT))))
+                            {
+                                Talk(SAY_ANNOUNCE_IMPALE_ASPECT, me);
+                                DoCast(aspect, SPELL_IMPALE_ASPECT);
+                            }
+                    _events.Repeat(35s);
                     break;
                 default:
                     break;
@@ -1177,7 +1505,7 @@ private:
 
 struct npc_madness_of_deathwing_regenerative_blood : public ScriptedAI
 {
-    npc_madness_of_deathwing_regenerative_blood(Creature* creature) : ScriptedAI(creature), _instance(me->GetInstanceScript()) { }
+    npc_madness_of_deathwing_regenerative_blood(Creature* creature) : ScriptedAI(creature), _instance(me->GetInstanceScript()), _energyTenths(0), _energyTimer(0) { }
 
     void InitializeAI() override
     {
@@ -1192,12 +1520,43 @@ struct npc_madness_of_deathwing_regenerative_blood : public ScriptedAI
 
     void JustAppeared() override
     {
+        me->SetPower(POWER_ENERGY, 0);
         if (Player* player = me->SelectNearestPlayer(50.f))
             AttackStart(player);
     }
 
+    void DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/) override
+    {
+        ApplyLFRDamageReduction(_instance, victim, damage);
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        if (!UpdateVictim())
+            return;
+
+        // Energy fills at 5/s (halved inside a Time Zone); a full bar is
+        // spent on the self-heal
+        _energyTimer += diff;
+        while (_energyTimer >= 1000)
+        {
+            _energyTimer -= 1000;
+            _energyTenths += me->HasAura(SPELL_TIME_ZONE_SLOW) ? 25 : 50;
+            if (_energyTenths >= 1000)
+            {
+                _energyTenths = 0;
+                DoCastSelf(SPELL_REGENERATIVE_BLOOD_HEAL);
+            }
+            me->SetPower(POWER_ENERGY, _energyTenths / 10);
+        }
+
+        DoMeleeAttackIfReady();
+    }
+
 private:
     InstanceScript* _instance;
+    uint32 _energyTenths;
+    uint32 _energyTimer;
 };
 
 struct npc_madness_of_deathwing_elementium_bolt : public NullCreatureAI
@@ -1211,6 +1570,11 @@ struct npc_madness_of_deathwing_elementium_bolt : public NullCreatureAI
     {
         DoCastSelf(SPELL_ELEMENTIUM_METEOR_TRANSFORM_DEATH);
         me->DespawnOrUnsummon(2s);
+    }
+
+    void DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/) override
+    {
+        ApplyLFRDamageReduction(_instance, victim, damage);
     }
 
     void DoAction(int32 action) override
@@ -1329,12 +1693,15 @@ struct npc_madness_of_deathwing_thrall : public ScriptedAI
 
     void Reset() override
     {
-        _instance->SetBossState(DATA_MADNESS_OF_DEATHWING, NOT_STARTED);
+        // Thrall respawns after wipes and server restarts alike - never let a
+        // respawn clobber a completed encounter back to NOT_STARTED
+        if (_instance->GetBossState(DATA_MADNESS_OF_DEATHWING) != DONE)
+            _instance->SetBossState(DATA_MADNESS_OF_DEATHWING, NOT_STARTED);
     }
 
     bool GossipSelect(Player* /*player*/, uint32 menuId, uint32 /*optionIndex*/) override
     {
-        if (_instance->GetBossState(DATA_MADNESS_OF_DEATHWING) == IN_PROGRESS)
+        if (_instance->GetBossState(DATA_MADNESS_OF_DEATHWING) == IN_PROGRESS || _instance->GetBossState(DATA_MADNESS_OF_DEATHWING) == DONE)
             return false;
 
         if (menuId == GOSSIP_MENU_START_ENCOUNTER)
@@ -1459,6 +1826,18 @@ struct npc_madness_of_deathwing_dragon_aspect : public NullCreatureAI
                 break;
             case ACTION_CAST_TIME_ZONE:
                 _events.ScheduleEvent(EVENT_TIME_ZONE_PHASE_TWO, 200ms);
+                break;
+            case ACTION_CAUTERIZE_PHASE_TWO:
+                // Alexstrasza burns away part of the head's Corrupted Blood
+                // after each hemorrhage. Back-to-back thresholds extend the
+                // running drain rather than merely refreshing its duration.
+                if (Creature* deathwing = _instance->GetCreature(DATA_DEATHWING_MADNESS_OF_DEATHWING))
+                {
+                    if (Aura* cauterize = deathwing->GetAura(SPELL_CAUTERIZE_PHASE_TWO))
+                        cauterize->SetDuration(cauterize->GetDuration() + cauterize->GetMaxDuration());
+                    else
+                        me->CastSpell(deathwing, SPELL_CAUTERIZE_PHASE_TWO, true);
+                }
                 break;
             default:
                 break;
@@ -1623,6 +2002,11 @@ struct npc_madness_of_deathwing_elementium_fragment : public ScriptedAI
         me->DespawnOrUnsummon(6s);
     }
 
+    void DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/) override
+    {
+        ApplyLFRDamageReduction(_instance, victim, damage);
+    }
+
     void UpdateAI(uint32 /*diff*/) override
     {
         UpdateVictim();
@@ -1650,8 +2034,208 @@ struct npc_madness_of_deathwing_elementium_terror: public ScriptedAI
         me->DespawnOrUnsummon(3s + 200ms);
     }
 
+    void DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/) override
+    {
+        ApplyLFRDamageReduction(_instance, victim, damage);
+    }
+
 private:
     InstanceScript* _instance;
+};
+
+// Deathwing's head (57962), installed as a vehicle accessory of the body and
+// remote-controlled by the boss AI. The AI only guards its health floor and
+// scales its outgoing damage - the body's DamageTaken drives the outro.
+struct npc_madness_of_deathwing_deathwing_head : public NullCreatureAI
+{
+    npc_madness_of_deathwing_deathwing_head(Creature* creature) : NullCreatureAI(creature), _instance(me->GetInstanceScript()) { }
+
+    void DamageTaken(Unit* /*attacker*/, uint32& damage) override
+    {
+        // Share Health only mirrors damage - a killing blow on the head would
+        // race the outro sequence, so clamp it exactly like the body
+        if (damage >= me->GetHealth())
+            damage = me->GetHealth() - 1;
+    }
+
+    void DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/) override
+    {
+        ApplyLFRDamageReduction(_instance, victim, damage);
+    }
+
+private:
+    InstanceScript* _instance;
+};
+
+// Corrupting Parasite (57479, heroic): bursts out of an infested player, chews
+// on the raid while charging up Unstable Corruption; completing the cast
+// unleashes Parasitic Backlash and burrows into a new host.
+struct npc_madness_of_deathwing_corrupting_parasite : public ScriptedAI
+{
+    npc_madness_of_deathwing_corrupting_parasite(Creature* creature) : ScriptedAI(creature), _instance(me->GetInstanceScript()), _energy(0)
+    {
+        me->SetReactState(REACT_PASSIVE);
+    }
+
+    void JustAppeared() override
+    {
+        me->SetPowerType(POWER_ENERGY);
+        me->SetMaxPower(POWER_ENERGY, 100);
+        me->SetPower(POWER_ENERGY, 0);
+
+        // cosmetic tentacles flailing around the burst point
+        for (uint8 i = 0; i < 4; ++i)
+        {
+            Position pos = me->GetNearPosition(2.5f, float(M_PI_2) * i);
+            if (Creature* deathwing = _instance->GetCreature(DATA_MADNESS_OF_DEATHWING))
+                deathwing->SummonCreature(NPC_CORRUPTING_PARASITE_TENTACLE, pos, TEMPSUMMON_MANUAL_DESPAWN);
+        }
+
+        _events.ScheduleEvent(EVENT_UNSTABLE_CORRUPTION, 1s);
+        _events.ScheduleEvent(EVENT_PARASITE_ENERGY, 1s);
+    }
+
+    void JustDied(Unit* /*killer*/) override
+    {
+        DespawnTentacles();
+        me->DespawnOrUnsummon(4s);
+    }
+
+    void DoAction(int32 action) override
+    {
+        switch (action)
+        {
+            case ACTION_PARASITE_BACKLASH:
+                // Unstable Corruption finished: detonate and burrow into the
+                // next host (the fresh infestation spawns the next parasite)
+                DoCastAOE(SPELL_PARASITIC_BACKLASH, true);
+                if (Creature* deathwing = _instance->GetCreature(DATA_MADNESS_OF_DEATHWING))
+                    deathwing->CastSpell(nullptr, SPELL_CORRUPTING_PARASITE_DUMMY, true);
+                DespawnTentacles();
+                me->DespawnOrUnsummon(1s);
+                break;
+            default:
+                break;
+        }
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        _events.Update(diff);
+
+        while (uint32 eventId = _events.ExecuteEvent())
+        {
+            switch (eventId)
+            {
+                case EVENT_UNSTABLE_CORRUPTION:
+                    DoCastSelf(SPELL_UNSTABLE_CORRUPTION);
+                    _events.Repeat(12s); // re-attempt if the cast got broken; a completed cast despawns us first
+                    break;
+                case EVENT_PARASITE_ENERGY:
+                {
+                    // Energy shadows the 10s cast: 10/s, halved inside a Time
+                    // Zone (where the cast itself is also slowed by 50%)
+                    uint8 gained = me->HasAura(SPELL_TIME_ZONE_SLOW) ? 5 : 10;
+                    uint8 oldEnergy = _energy;
+                    _energy = std::min<uint8>(100, _energy + gained);
+                    me->SetPower(POWER_ENERGY, _energy);
+
+                    static constexpr std::array<std::pair<uint8, uint32>, 5> chargeStages = { {
+                        { 20, SPELL_CHARGING_UP_20 }, { 40, SPELL_CHARGING_UP_40 }, { 60, SPELL_CHARGING_UP_60 },
+                        { 80, SPELL_CHARGING_UP_80 }, { 100, SPELL_CHARGING_UP_100 }
+                    } };
+                    for (auto const& [threshold, spellId] : chargeStages)
+                        if (oldEnergy < threshold && _energy >= threshold)
+                            DoCastSelf(spellId, true);
+
+                    _events.Repeat(1s);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+    }
+
+private:
+    InstanceScript* _instance;
+    EventMap _events;
+    uint8 _energy;
+
+    void DespawnTentacles()
+    {
+        std::list<Creature*> tentacles;
+        me->GetCreatureListWithEntryInGrid(tentacles, NPC_CORRUPTING_PARASITE_TENTACLE, 15.f);
+        for (Creature* tentacle : tentacles)
+            tentacle->DespawnOrUnsummon();
+    }
+};
+
+// Congealing Blood (57798, heroic): wells up at the platform's edge and crawls
+// back to Deathwing; each blood that reaches him restores 1% health (to both
+// health-linked units - Share Health only mirrors damage, not heals).
+struct npc_madness_of_deathwing_congealing_blood : public ScriptedAI
+{
+    npc_madness_of_deathwing_congealing_blood(Creature* creature) : ScriptedAI(creature), _instance(me->GetInstanceScript()), _arrived(false)
+    {
+        me->SetReactState(REACT_PASSIVE);
+    }
+
+    void JustAppeared() override
+    {
+        if (Creature* deathwing = _instance->GetCreature(DATA_MADNESS_OF_DEATHWING))
+            deathwing->AI()->JustSummoned(me);
+
+        me->SetWalk(true);
+        _events.ScheduleEvent(EVENT_CHECK_ARRIVAL, 500ms);
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        _events.Update(diff);
+
+        while (uint32 eventId = _events.ExecuteEvent())
+        {
+            switch (eventId)
+            {
+                case EVENT_CHECK_ARRIVAL:
+                {
+                    if (_arrived)
+                        break;
+
+                    Creature* head = _instance->GetCreature(DATA_DEATHWING_MADNESS_OF_DEATHWING);
+                    if (!head || !head->IsAlive())
+                    {
+                        me->DespawnOrUnsummon();
+                        break;
+                    }
+
+                    if (me->GetExactDist2d(head) <= 6.f)
+                    {
+                        _arrived = true;
+                        DoCastSelf(SPELL_CONGEALING_BLOOD_HEAL); // implicit targets: head + body via conditions
+                        me->DespawnOrUnsummon(1s + 200ms);
+                        break;
+                    }
+
+                    // crawl to the head; crowd control stalls the crawl and
+                    // the movement is re-issued once it wears off
+                    if (!me->HasUnitState(UNIT_STATE_NOT_MOVE) && !me->isMoving())
+                        me->GetMotionMaster()->MovePoint(1, head->GetPosition());
+
+                    _events.Repeat(500ms);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+    }
+
+private:
+    InstanceScript* _instance;
+    EventMap _events;
+    bool _arrived;
 };
 
 class spell_madness_of_deathwing_presence_of_the_aspects : public SpellScript
@@ -2521,6 +3105,168 @@ class spell_madness_of_deathwing_cataclysm : public SpellScript
     }
 };
 
+// 108597 - Corrupting Parasite (heroic). Picks one random player on the
+// assaulted platform (sparing the Mutated Corruption's tank when possible)
+// and infests them.
+class spell_madness_of_deathwing_corrupting_parasite : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_CORRUPTING_PARASITE_AURA, SPELL_CORRUPTING_PARASITE_PERIODIC });
+    }
+
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        targets.remove_if([](WorldObject const* target)->bool
+        {
+            return !target->IsPlayer();
+        });
+
+        Creature* caster = GetCaster()->ToCreature();
+        if (!caster || !caster->IsAIEnabled())
+            return;
+
+        uint8 aspectId = caster->AI()->GetData(DATA_ASSAULTED_ASPECT);
+        std::list<WorldObject*> preferredTargets = targets;
+        preferredTargets.remove_if([aspectId](WorldObject const* target)->bool
+        {
+            return target->GetExactDist2d(PlatformForAspectReferencePositions[aspectId]) >= 60.f;
+        });
+
+        if (!preferredTargets.empty())
+            targets = std::move(preferredTargets);
+
+        if (targets.size() > 1)
+            if (Creature* corruption = ObjectAccessor::GetCreature(*caster, caster->AI()->GetGUID(DATA_LIVE_CORRUPTION)))
+                if (Unit* tank = corruption->GetVictim())
+                    targets.remove_if([tank](WorldObject const* target)->bool
+                    {
+                        return target == tank;
+                    });
+
+        if (targets.size() > 1)
+            Trinity::Containers::RandomResize(targets, 1);
+    }
+
+    void HandleDummyEffect(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        caster->CastSpell(target, SPELL_CORRUPTING_PARASITE_AURA, true);
+        caster->CastSpell(target, SPELL_CORRUPTING_PARASITE_PERIODIC, true);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect.Register(&spell_madness_of_deathwing_corrupting_parasite::FilterTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ENEMY);
+        OnEffectHitTarget.Register(&spell_madness_of_deathwing_corrupting_parasite::HandleDummyEffect, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 108649 - Corrupting Parasite (host debuff, heroic). The native vehicle-id
+// effect turns the host into vehicle 1941; a cosmetic tentacle clings to
+// them. On expiry (or the host's death) the parasite bursts out.
+class spell_madness_of_deathwing_corrupting_parasite_aura : public AuraScript
+{
+    void AfterApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* target = GetTarget();
+        InstanceScript* instance = target->GetInstanceScript();
+        if (!instance)
+            return;
+
+        if (Creature* deathwing = instance->GetCreature(DATA_MADNESS_OF_DEATHWING))
+        {
+            if (Creature* tentacle = deathwing->SummonCreature(NPC_CORRUPTING_PARASITE_TENTACLE, target->GetPosition(), TEMPSUMMON_MANUAL_DESPAWN))
+            {
+                _tentacleGUID = tentacle->GetGUID();
+                tentacle->CastSpell(target, VEHICLE_SPELL_RIDE_HARDCODED, true);
+            }
+        }
+    }
+
+    void AfterRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* target = GetTarget();
+
+        if (Creature* tentacle = ObjectAccessor::GetCreature(*target, _tentacleGUID))
+            tentacle->DespawnOrUnsummon();
+
+        target->RemoveAurasDueToSpell(SPELL_CORRUPTING_PARASITE_PERIODIC);
+
+        EnumFlag<AuraRemoveFlags> mode = GetTargetApplication()->GetRemoveMode();
+        if (mode != AuraRemoveFlags::Expired && mode != AuraRemoveFlags::ByDeath)
+            return;
+
+        InstanceScript* instance = target->GetInstanceScript();
+        if (!instance || instance->GetBossState(DATA_MADNESS_OF_DEATHWING) != IN_PROGRESS)
+            return;
+
+        if (Creature* deathwing = instance->GetCreature(DATA_MADNESS_OF_DEATHWING))
+            deathwing->SummonCreature(NPC_CORRUPTING_PARASITE, target->GetPosition(), TEMPSUMMON_CORPSE_TIMED_DESPAWN, 4s);
+    }
+
+    void Register() override
+    {
+        // apply-hook rides EFFECT_1: the host's vehicle kit (aura 296) must
+        // exist before the tentacle can board
+        AfterEffectApply.Register(&spell_madness_of_deathwing_corrupting_parasite_aura::AfterApply, EFFECT_1, SPELL_AURA_SET_VEHICLE_ID, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove.Register(&spell_madness_of_deathwing_corrupting_parasite_aura::AfterRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+
+private:
+    ObjectGuid _tentacleGUID;
+};
+
+// 108813 - Unstable Corruption (heroic). Completing the 10 second cast sets
+// off the backlash; killing the parasite beforehand interrupts it for good.
+class spell_madness_of_deathwing_unstable_corruption : public SpellScript
+{
+    void HandleBacklash()
+    {
+        if (Creature* caster = GetCaster()->ToCreature())
+            if (caster->IsAIEnabled())
+                caster->AI()->DoAction(ACTION_PARASITE_BACKLASH);
+    }
+
+    void Register() override
+    {
+        AfterCast.Register(&spell_madness_of_deathwing_unstable_corruption::HandleBacklash);
+    }
+};
+
+// 107029 - Impale Aspect. The basepoints carry a percentage - an unattended
+// Mutated Corruption skewers the platform's Dragon Aspect for 25% of its
+// maximum health per hit (same convention as Agonizing Pain).
+class spell_madness_of_deathwing_impale_aspect : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        SetHitDamage(CalculatePct(GetHitUnit()->GetMaxHealth(), GetEffectValue()));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget.Register(&spell_madness_of_deathwing_impale_aspect::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 106860 - Cauterize (phase two). Alexstrasza burns away one stack of the
+// head's Corrupted Blood per tick after each hemorrhage threshold.
+class spell_madness_of_deathwing_cauterize_phase_two : public AuraScript
+{
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        PreventDefaultAction();
+        GetTarget()->ModifyPower(POWER_ALTERNATE_POWER, -1);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic.Register(&spell_madness_of_deathwing_cauterize_phase_two::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+};
+
 
 class at_madness_of_deathwing_carrying_winds_jump : public AreaTriggerScript
 {
@@ -2623,6 +3369,9 @@ void AddSC_boss_madness_of_deathwing()
     RegisterDragonSoulCreatureAI(npc_madness_of_deathwing_cosmetic_limb);
     RegisterDragonSoulCreatureAI(npc_madness_of_deathwing_elementium_fragment);
     RegisterDragonSoulCreatureAI(npc_madness_of_deathwing_elementium_terror);
+    RegisterDragonSoulCreatureAI(npc_madness_of_deathwing_deathwing_head);
+    RegisterDragonSoulCreatureAI(npc_madness_of_deathwing_corrupting_parasite);
+    RegisterDragonSoulCreatureAI(npc_madness_of_deathwing_congealing_blood);
     RegisterSpellScript(spell_madness_of_deathwing_presence_of_the_aspects);
     RegisterSpellScript(spell_madness_of_deathwing_carrying_winds_jump);
     RegisterSpellScript(spell_madness_of_deathwing_carrying_winds_triggered);
@@ -2656,6 +3405,11 @@ void AddSC_boss_madness_of_deathwing()
     RegisterSpellScript(spell_madness_of_deathwing_spellweave);
     RegisterSpellScript(spell_madness_of_deathwing_elementium_blast);
     RegisterSpellScript(spell_madness_of_deathwing_cataclysm);
+    RegisterSpellScript(spell_madness_of_deathwing_corrupting_parasite);
+    RegisterSpellScript(spell_madness_of_deathwing_corrupting_parasite_aura);
+    RegisterSpellScript(spell_madness_of_deathwing_unstable_corruption);
+    RegisterSpellScript(spell_madness_of_deathwing_impale_aspect);
+    RegisterSpellScript(spell_madness_of_deathwing_cauterize_phase_two);
     new at_madness_of_deathwing_carrying_winds_jump();
     new at_madness_of_deathwing_carrying_winds_land();
 }

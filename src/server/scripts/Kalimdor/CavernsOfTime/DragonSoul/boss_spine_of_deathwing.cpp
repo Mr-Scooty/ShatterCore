@@ -769,6 +769,10 @@ private:
             if (Player* player = ref.GetSource())
                 me->CastSpell(player, SPELL_KILL_CREDIT_MOVIE, true);
 
+        // nothing in the core fires CAST_SPELL encounter credits on its own -
+        // complete DungeonEncounter 1291 (and its LFG hook) explicitly
+        _instance->UpdateEncounterStateForSpellCast(SPELL_KILL_CREDIT_MOVIE, me);
+
         _scheduler.Schedule(15s, [this](TaskContext /*context*/)
         {
             for (MapReference const& ref : me->GetMap()->GetPlayers())
