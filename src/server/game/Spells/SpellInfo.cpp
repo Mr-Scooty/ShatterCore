@@ -1926,6 +1926,15 @@ SpellCastResult SpellInfo::CheckTarget(WorldObject const* caster, WorldObject co
     // creature/player specific target checks
     if (unitTarget)
     {
+        // AoE-immune creatures remain valid explicit targets, but are skipped
+        // when an area spell or a secondary chain target is being selected.
+        // A small number of encounter spells (for example Alexstrasza's
+        // Cauterize) deliberately bypass this rule through a custom attribute.
+        if (implicit && !HasAttribute(SPELL_ATTR0_CU_IGNORE_AOE_IMMUNITY))
+            if (Creature const* creatureTarget = unitTarget->ToCreature())
+                if (creatureTarget->GetCreatureTemplate()->flags_extra & CREATURE_FLAG_EXTRA_AOE_IMMUNE)
+                    return SPELL_FAILED_BAD_TARGETS;
+
         // spells cannot be cast if target has a pet in combat either
         if (HasAttribute(SPELL_ATTR1_ONLY_PEACEFUL_TARGETS) && (unitTarget->IsInCombat() || unitTarget->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PET_IN_COMBAT)))
             return SPELL_FAILED_TARGET_AFFECTING_COMBAT;

@@ -5062,13 +5062,6 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->Effects[EFFECT_0].TargetB = SpellImplicitTargetInfo();
     });
 
-    // Parasitic Backlash: DBC pairs the source-area effect with an ALLY
-    // selector, but the parasite is hostile - it must hit the raid
-    ApplySpellFix({ 108787 }, [](SpellInfo* spellInfo)
-    {
-        spellInfo->Effects[EFFECT_0].TargetB = SpellImplicitTargetInfo(TARGET_UNIT_SRC_AREA_ENEMY);
-    });
-
     // Corrupting Parasite: the infestation must run its course - only the
     // host's death may end it early
     ApplySpellFix({ 108649 }, [](SpellInfo* spellInfo)
@@ -5076,13 +5069,11 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->Dispel = DISPEL_NONE;
     });
 
-    // Cauterize (Madness of Deathwing phase two): DBC self-targets the
-    // periodic and carries a self-only range; Alexstrasza must land it on
-    // the head she is handed from far across the platform
-    ApplySpellFix({ 106860 }, [](SpellInfo* spellInfo)
+    // Blistering Tentacles are immune to player AoE, but Alexstrasza's
+    // encounter-specific Cauterize is explicitly allowed to burn them.
+    ApplySpellFix({ 105569, 109576, 109577, 109578 }, [](SpellInfo* spellInfo)
     {
-        spellInfo->Effects[EFFECT_0].TargetA = SpellImplicitTargetInfo(TARGET_UNIT_TARGET_ANY);
-        spellInfo->RangeEntry = sSpellRangeStore.LookupEntry(13); // anywhere
+        spellInfo->AttributesCu |= SPELL_ATTR0_CU_IGNORE_AOE_IMMUNITY;
     });
 
     // ENDOF DRAGON SOUL SPELLS

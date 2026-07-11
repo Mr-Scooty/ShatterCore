@@ -334,6 +334,12 @@ public:
             if (IsLFR())
                 return true;
 
+            // Madness is only available after Spine in a progression raid.
+            // The Heroic check below additionally requires that prior kill to
+            // have been made on Heroic within this lockout.
+            if (bossId == DATA_MADNESS_OF_DEATHWING && GetBossState(DATA_SPINE_OF_DEATHWING) != DONE)
+                return false;
+
             if (!CheckHeroicGate(bossId, player))
                 return false;
 
