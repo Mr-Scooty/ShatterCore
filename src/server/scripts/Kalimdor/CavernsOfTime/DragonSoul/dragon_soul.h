@@ -108,9 +108,9 @@ enum YorsahjRainbowBits
 };
 
 // Raid Finder tuning: LFR runs are 25 player normal instances with reduced
-// boss health (stats template below) and reduced outgoing boss damage.
+// boss health and reduced outgoing boss damage.
 constexpr uint32 LFR_DAMAGE_PCT = 70;                   // playtest knob - no retail data
-constexpr uint32 NPC_MORCHOK_LFR_STATS = 58226;         // HealthModifier 350 = ~30.06M
+constexpr uint32 MORCHOK_LFR_HEALTH = 76'500'000;       // supplied 4.3.4 value
 
 // Yor'sahj LFR stats templates (community retail values)
 constexpr uint32 NPC_YORSAHJ_LFR_STATS               = 58227; // ~106.0M

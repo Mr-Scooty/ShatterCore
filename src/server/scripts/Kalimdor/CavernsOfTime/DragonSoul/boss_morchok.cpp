@@ -22,7 +22,6 @@
 #include "Map.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
-#include "ObjectMgr.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
 #include "ScriptMgr.h"
@@ -47,8 +46,13 @@ enum Texts
     SAY_BLACK_BLOOD_A           = 7,  // "...and the rage of the true gods follows."
     SAY_BLACK_BLOOD_OMEN_B      = 8,  // "The stone calls..."
     SAY_BLACK_BLOOD_B           = 9,  // "...and the black blood of the earth consumes you."
-    WHISPER_BLACK_BLOOD         = 10, // "$n! Get out of the black ooze on the ground!"
-    SAY_DEATH                   = 11  // "Impossible. This cannot be. The tower... must... fall..."
+    SAY_BLACK_BLOOD_OMEN_C      = 10, // "The ground shakes..."
+    SAY_BLACK_BLOOD_C           = 11, // "...and there is no escape from the Old Gods."
+    SAY_BLACK_BLOOD_OMEN_D      = 12, // "The surface quakes..."
+    SAY_BLACK_BLOOD_D           = 13, // "...and you drown in the hate of The Master."
+    WHISPER_BLACK_BLOOD         = 14, // "$n! Get out of the black ooze on the ground!"
+    SAY_DEATH                   = 15, // "Impossible. This cannot be. The tower... must... fall..."
+    SAY_SLAY                    = 16
 };
 
 enum Spells
@@ -88,7 +92,6 @@ enum Events
     EVENT_BERSERK,
 
     // Kohcrom
-    EVENT_KOHCROM_CRUSH_ARMOR,
     EVENT_KOHCROM_STOMP,
     EVENT_KOHCROM_SUMMON_CRYSTAL
 };
@@ -99,7 +102,8 @@ enum Actions
     ACTION_ECHO_CRYSTAL,
     ACTION_CAST_EARTHEN_VORTEX,
     ACTION_CAST_BLACK_BLOOD,
-    ACTION_RESUME_COMBAT
+    ACTION_RESUME_COMBAT,
+    ACTION_CAST_FURIOUS
 };
 
 enum MiscData
@@ -113,15 +117,22 @@ namespace
 constexpr float CrystalSafeDistance     = 10.0f;
 constexpr float CrystalWarningDistance  = 25.0f;
 
-// Detonation damage taken relative to the full (Danger) value
-constexpr float DetonateWarningPct      = 0.6f;
-constexpr float DetonateSafePct         = 0.3f;
-
 // Black Blood wave expansion (yards) - starts at the boss and rolls outwards
 constexpr float BlackBloodInitialRadius = 10.0f;
 constexpr float BlackBloodGrowthPerSec  = 4.5f;
 
 constexpr uint32 AchievementProximityRange = 5; // "Don't Stand So Close to Me"
+
+// Unnerfed 4.3.4 encounter health. On heroic Morchok starts with the combined
+// pool, then both max and current health are divided between the twins at 90%.
+constexpr uint32 MorchokHealth10Normal  = 36'000'197;
+constexpr uint32 MorchokHealth25Normal  = 102'000'000;
+constexpr uint32 MorchokHealth10Heroic  = 42'946'000;
+constexpr uint32 MorchokHealth25Heroic  = 180'404'194;
+constexpr uint32 KohcromHealth10Heroic  = 21'473'000;
+constexpr uint32 KohcromHealth25Heroic  = 90'202'097;
+
+Position const KohcromSplitPosition = { -2016.3400f, -2391.2900f, 70.8304f, 5.8110f };
 
 // Rock spike impact points captured from retail sniffs (ring around the arena)
 Position const RockSpikePositions[] =
@@ -192,29 +203,44 @@ Unit* GetResponsibleBoss(Unit* caster, WorldObject const* target)
     if (!instance)
         return caster;
 
-    Creature* other = instance->GetCreature(caster->GetEntry() == BOSS_MORCHOK ? DATA_KOHCROM : DATA_MORCHOK);
+    Creature* morchok = instance->GetCreature(DATA_MORCHOK);
+    Creature* other = instance->GetCreature(caster == morchok ? DATA_KOHCROM : DATA_MORCHOK);
     if (!other || !other->IsAlive() || !other->IsInCombat())
         return caster;
 
     return target->GetExactDist2d(caster) <= target->GetExactDist2d(other) ? caster : other;
 }
 
-// Raid Finder tuning: reduced boss health (from the LFR stats template) and
-// reduced outgoing damage, applied on top of the 25 player normal profile
-void ApplyLFRHealth(Creature* creature, InstanceScript const* instance)
+uint32 GetMorchokHealth(Map const* map, InstanceScript const* instance)
 {
-    if (!instance || !instance->IsLFR())
-        return;
+    if (instance && instance->IsLFR())
+        return MORCHOK_LFR_HEALTH;
 
-    CreatureTemplate const* lfrStats = sObjectMgr->GetCreatureTemplate(NPC_MORCHOK_LFR_STATS);
-    if (!lfrStats)
-        return;
-
-    if (CreatureBaseStats const* baseStats = sObjectMgr->GetCreatureBaseStats(creature->getLevel(), lfrStats->unit_class))
+    switch (map->GetDifficulty())
     {
-        creature->SetMaxHealth(baseStats->GenerateHealth(lfrStats));
-        creature->SetFullHealth();
+        case RAID_DIFFICULTY_25MAN_NORMAL:
+            return MorchokHealth25Normal;
+        case RAID_DIFFICULTY_10MAN_HEROIC:
+            return MorchokHealth10Heroic;
+        case RAID_DIFFICULTY_25MAN_HEROIC:
+            return MorchokHealth25Heroic;
+        default:
+            return MorchokHealth10Normal;
     }
+}
+
+uint32 GetKohcromHealth(Map const* map)
+{
+    return map->GetDifficulty() == RAID_DIFFICULTY_25MAN_HEROIC
+        ? KohcromHealth25Heroic : KohcromHealth10Heroic;
+}
+
+// creature_template uses a float health multiplier, which cannot represent all
+// of the retail integer values exactly. Set the encounter value explicitly.
+void ApplyMorchokHealth(Creature* creature, InstanceScript const* instance)
+{
+    creature->SetMaxHealth(GetMorchokHealth(creature->GetMap(), instance));
+    creature->SetFullHealth();
 }
 
 void ApplyLFRDamageReduction(InstanceScript const* instance, uint32& damage)
@@ -233,24 +259,64 @@ void SummonResonatingCrystal(Creature* caster)
 
     caster->CastSpell(target->GetPosition(), SPELL_SUMMON_RESONATING_CRYSTAL, true);
 }
+
+// On heroic, damage is divided across the two displayed health bars. Their
+// combined remaining health is authoritative, so odd damage is not lost.
+void ShareHeroicTwinDamage(Creature* creature, InstanceScript* instance, uint32& damage)
+{
+    if (!damage || !instance || !IsHeroicMorchok(creature->GetMap()))
+        return;
+
+    uint32 const twinData = creature == instance->GetCreature(DATA_MORCHOK) ? DATA_KOHCROM : DATA_MORCHOK;
+    Creature* twin = instance->GetCreature(twinData);
+    if (!twin || !twin->IsAlive() || !twin->IsInCombat())
+        return;
+
+    uint64 const combinedHealth = uint64(creature->GetHealth()) + twin->GetHealth();
+    uint64 const remainingHealth = damage < combinedHealth ? combinedHealth - damage : 0;
+
+    uint32 const creatureHealthAfter = uint32(remainingHealth / 2);
+    uint32 twinHealthAfter = uint32(remainingHealth - creatureHealthAfter);
+
+    // With one combined point left, finish the pair through the normal death
+    // path so Morchok still owns encounter completion and loot generation.
+    if (!creatureHealthAfter)
+    {
+        twin->SetHealth(1);
+        damage = creature->GetHealth();
+        return;
+    }
+
+    twinHealthAfter = std::min(twinHealthAfter, twin->GetMaxHealth());
+    twin->SetHealth(twinHealthAfter);
+    damage = creature->GetHealth() - creatureHealthAfter;
+
+    if (twin->HealthBelowPct(20) && twin->IsAIEnabled())
+        twin->AI()->DoAction(ACTION_CAST_FURIOUS);
+}
 }
 
 struct boss_morchok : public BossAI
 {
     boss_morchok(Creature* creature) : BossAI(creature, DATA_MORCHOK),
-        _kohcromSummoned(false), _furious(false), _crystalCount(0), _blackBloodWhispered(false) { }
+        _kohcromSummoned(false), _furious(false), _stompCount(0), _crystalCount(0), _firstCycle(true),
+        _kohcromSkipAction(ACTION_ECHO_STOMP), _kohcromSpawnHealth(0), _blackBloodWhispered(false) { }
 
     void Reset() override
     {
         _Reset();
         _kohcromSummoned = false;
         _furious = false;
+        _stompCount = 0;
         _crystalCount = 0;
+        _firstCycle = true;
+        _kohcromSkipAction = ACTION_ECHO_STOMP;
+        _kohcromSpawnHealth = 0;
         _blackBloodWhispered = false;
         _transitionActive = false;
         _scheduler.CancelAll();
         me->SetReactState(REACT_AGGRESSIVE);
-        ApplyLFRHealth(me, instance);
+        ApplyMorchokHealth(me, instance);
     }
 
     void DamageDealt(Unit* /*victim*/, uint32& damage, DamageEffectType /*damageType*/) override
@@ -260,11 +326,15 @@ struct boss_morchok : public BossAI
 
     void JustEngagedWith(Unit* who) override
     {
+        // LFR is detected when the first queued player enters, after creatures
+        // may already have reset with their normal difficulty statistics.
+        ApplyMorchokHealth(me, instance);
         BossAI::JustEngagedWith(who);
         Talk(SAY_AGGRO);
         instance->SendEncounterUnit(ENCOUNTER_FRAME_ENGAGE, me);
 
-        events.ScheduleEvent(EVENT_CRUSH_ARMOR, 6s);
+        if (!IsHeroicMorchok(me->GetMap()))
+            events.ScheduleEvent(EVENT_CRUSH_ARMOR, 6s);
         events.ScheduleEvent(EVENT_STOMP, 12s);
         events.ScheduleEvent(EVENT_SUMMON_RESONATING_CRYSTAL, 19s);
         events.ScheduleEvent(EVENT_EARTHEN_VORTEX, 56s);
@@ -274,19 +344,36 @@ struct boss_morchok : public BossAI
 
     void DamageTaken(Unit* /*attacker*/, uint32& damage) override
     {
+        ShareHeroicTwinDamage(me, instance, damage);
+
         if (!_kohcromSummoned && IsHeroicMorchok(me->GetMap()) && me->HealthBelowPctDamaged(90, damage))
         {
             _kohcromSummoned = true;
+
+            // The pre-split bar is the combined encounter pool. Divide both
+            // that pool and this threshold-crossing hit between the new bars.
+            uint32 const combinedHealth = me->GetHealth();
+            uint32 const combinedHealthAfter = combinedHealth > damage ? combinedHealth - damage : 1;
+            uint32 const morchokHealthBefore = (combinedHealth + 1) / 2;
+            uint32 const morchokHealthAfter = combinedHealthAfter / 2;
+
+            me->SetMaxHealth(GetKohcromHealth(me->GetMap()));
+            me->SetHealth(morchokHealthBefore);
+            _kohcromSpawnHealth = combinedHealthAfter - morchokHealthAfter;
+            damage = morchokHealthBefore - morchokHealthAfter;
+
             Talk(SAY_SUMMON_KOHCROM);
             DoCastSelf(SPELL_SUMMON_KOHCROM, true);
 
-            // Kohcrom mirrors Morchok with a short delay - re-time the pending
-            // abilities (not during the vortex transition, they are rescheduled
-            // from scratch when Black Blood ends anyway)
+            // Retail restarts both ability timers at the split. Whichever
+            // ability would have come next is the first one Kohcrom skips.
             if (!_transitionActive)
             {
-                if (events.GetTimeUntilEvent(EVENT_SUMMON_RESONATING_CRYSTAL) < events.GetTimeUntilEvent(EVENT_STOMP))
+                if (_kohcromSkipAction == ACTION_ECHO_CRYSTAL)
+                {
                     events.RescheduleEvent(EVENT_SUMMON_RESONATING_CRYSTAL, 5500ms);
+                    events.RescheduleEvent(EVENT_STOMP, 12s);
+                }
                 else
                 {
                     events.RescheduleEvent(EVENT_STOMP, 6s);
@@ -302,15 +389,34 @@ struct boss_morchok : public BossAI
         }
     }
 
+    void DoAction(int32 action) override
+    {
+        if (action == ACTION_CAST_FURIOUS && !_furious)
+        {
+            _furious = true;
+            DoCastSelf(SPELL_FURIOUS, true);
+        }
+    }
+
     void JustSummoned(Creature* summon) override
     {
         summons.Summon(summon);
 
         if (summon->GetEntry() == NPC_KOHCROM)
         {
-            // Kohcrom continues at Morchok's current health
-            summon->SetHealth(me->GetHealth());
+            // Both heroic bars use the supplied per-creature value and begin
+            // after the hit which crossed 90%, not at the pre-damage value
+            // exposed while DamageTaken is running.
+            summon->SetMaxHealth(me->GetMaxHealth());
+            summon->SetHealth(_kohcromSpawnHealth ? _kohcromSpawnHealth : me->GetHealth());
+            _kohcromSpawnHealth = 0;
         }
+    }
+
+    void KilledUnit(Unit* victim) override
+    {
+        if (victim->GetTypeId() == TYPEID_PLAYER)
+            Talk(SAY_SLAY);
     }
 
     void JustDied(Unit* /*killer*/) override
@@ -372,14 +478,15 @@ struct boss_morchok : public BossAI
                 case EVENT_STOMP:
                     DoCastAOE(SPELL_STOMP);
                     NotifyKohcrom(ACTION_ECHO_STOMP);
-                    events.Repeat(12s, 14s);
+                    if (++_stompCount < (_firstCycle ? 3 : 4))
+                        events.Repeat(12s, 14s);
                     break;
                 case EVENT_SUMMON_RESONATING_CRYSTAL:
                     Talk(EMOTE_SUMMON_CRYSTAL);
                     Talk(SAY_SUMMON_CRYSTAL);
                     SummonResonatingCrystal(me);
                     NotifyKohcrom(ACTION_ECHO_CRYSTAL);
-                    if (++_crystalCount < 3)
+                    if (++_crystalCount < (_firstCycle ? 2 : 3))
                         events.Repeat(12s, 15s);
                     break;
                 case EVENT_EARTHEN_VORTEX:
@@ -391,7 +498,7 @@ struct boss_morchok : public BossAI
                     me->AttackStop();
                     me->SetReactState(REACT_PASSIVE);
 
-                    _blackBloodTextVariant = urand(0, 1);
+                    _blackBloodTextVariant = urand(0, 3);
                     Talk(SAY_BLACK_BLOOD_OMEN_A + _blackBloodTextVariant * 2);
 
                     DoCastAOE(SPELL_EARTHEN_VORTEX);
@@ -399,7 +506,7 @@ struct boss_morchok : public BossAI
                     NotifyKohcrom(ACTION_CAST_EARTHEN_VORTEX);
 
                     events.ScheduleEvent(EVENT_BLACK_BLOOD_OMEN, 5s);
-                    events.ScheduleEvent(EVENT_BLACK_BLOOD, 7s);
+                    events.ScheduleEvent(EVENT_BLACK_BLOOD, 5s);
                     break;
                 }
                 case EVENT_BLACK_BLOOD_OMEN:
@@ -410,7 +517,7 @@ struct boss_morchok : public BossAI
                     DoCastSelf(SPELL_BLACK_BLOOD_OF_THE_EARTH);
                     NotifyKohcrom(ACTION_CAST_BLACK_BLOOD);
                     StartAchievementProximityChecks();
-                    events.ScheduleEvent(EVENT_BLACK_BLOOD_ENDED, 16s);
+                    events.ScheduleEvent(EVENT_BLACK_BLOOD_ENDED, 17s);
                     break;
                 case EVENT_BLACK_BLOOD_ENDED:
                     _transitionActive = false;
@@ -421,8 +528,12 @@ struct boss_morchok : public BossAI
                         AttackStart(victim);
                     NotifyKohcrom(ACTION_RESUME_COMBAT);
 
+                    _firstCycle = false;
+                    _stompCount = 0;
                     _crystalCount = 0;
-                    events.ScheduleEvent(EVENT_CRUSH_ARMOR, 6s);
+                    _kohcromSkipAction = ACTION_ECHO_CRYSTAL;
+                    if (!IsHeroicMorchok(me->GetMap()))
+                        events.ScheduleEvent(EVENT_CRUSH_ARMOR, 6s);
                     events.ScheduleEvent(EVENT_STOMP, 19s);
                     events.ScheduleEvent(EVENT_SUMMON_RESONATING_CRYSTAL, 26s);
                     events.ScheduleEvent(EVENT_EARTHEN_VORTEX, 74s);
@@ -447,7 +558,21 @@ private:
     void NotifyKohcrom(int32 action)
     {
         if (!_kohcromSummoned)
+        {
+            // Before the split this tracks which of the alternating abilities
+            // is due next, matching DBM's retail kohcromSkip state machine.
+            if (action == ACTION_ECHO_STOMP)
+                _kohcromSkipAction = ACTION_ECHO_CRYSTAL;
+            else if (action == ACTION_ECHO_CRYSTAL)
+                _kohcromSkipAction = ACTION_ECHO_STOMP;
             return;
+        }
+
+        if ((action == ACTION_ECHO_STOMP || action == ACTION_ECHO_CRYSTAL) && action == _kohcromSkipAction)
+        {
+            _kohcromSkipAction = 0;
+            return;
+        }
 
         if (Creature* kohcrom = instance->GetCreature(DATA_KOHCROM))
             if (kohcrom->IsAlive() && kohcrom->IsAIEnabled())
@@ -459,7 +584,8 @@ private:
         // Don't Stand So Close to Me: no two (10 player) / three (25 player) players
         // may ever be within 5 yards of each other while Black Blood is channeled.
         uint8 const clusterLimit = me->GetMap()->Is25ManRaid() ? 3 : 2;
-        _scheduler.Schedule(1s, [this, clusterLimit](TaskContext context)
+        // The spell has a two-second cast before the 15-second channel begins.
+        _scheduler.Schedule(2s, [this, clusterLimit](TaskContext context)
         {
             std::vector<Player*> players;
             for (MapReference const& ref : me->GetMap()->GetPlayers())
@@ -510,7 +636,11 @@ private:
     TaskScheduler _scheduler;
     bool _kohcromSummoned;
     bool _furious;
+    uint8 _stompCount;
     uint8 _crystalCount;
+    bool _firstCycle;
+    int32 _kohcromSkipAction;
+    uint32 _kohcromSpawnHealth;
     uint8 _blackBloodTextVariant = 0;
     bool _blackBloodWhispered;
     bool _transitionActive = false;
@@ -523,10 +653,22 @@ struct npc_kohcrom : public ScriptedAI
 
     void JustAppeared() override
     {
+        me->SetReactState(REACT_PASSIVE);
         DoZoneInCombat();
         if (_instance)
             _instance->SendEncounterUnit(ENCOUNTER_FRAME_ENGAGE, me);
-        _events.ScheduleEvent(EVENT_KOHCROM_CRUSH_ARMOR, 6s);
+
+        // Sniffed split jump: ~39.5 yards in 794 ms (50 yd/s, 25 yd/s Z).
+        me->GetMotionMaster()->MoveJump(KohcromSplitPosition, 50.0f, 25.0f);
+        _scheduler.Schedule(7s, [this](TaskContext /*context*/)
+        {
+            if (!_frozen)
+            {
+                me->SetReactState(REACT_AGGRESSIVE);
+                if (Unit* victim = me->SelectVictim())
+                    AttackStart(victim);
+            }
+        });
     }
 
     void DoAction(int32 action) override
@@ -544,7 +686,6 @@ struct npc_kohcrom : public ScriptedAI
                 break;
             case ACTION_CAST_EARTHEN_VORTEX:
                 _frozen = true;
-                _events.CancelEvent(EVENT_KOHCROM_CRUSH_ARMOR);
                 _events.CancelEvent(EVENT_KOHCROM_STOMP);
                 _events.CancelEvent(EVENT_KOHCROM_SUMMON_CRYSTAL);
                 me->AttackStop();
@@ -562,7 +703,13 @@ struct npc_kohcrom : public ScriptedAI
                 me->SetReactState(REACT_AGGRESSIVE);
                 if (Unit* victim = me->GetVictim())
                     AttackStart(victim);
-                _events.ScheduleEvent(EVENT_KOHCROM_CRUSH_ARMOR, 6s);
+                break;
+            case ACTION_CAST_FURIOUS:
+                if (!_furious)
+                {
+                    _furious = true;
+                    DoCastSelf(SPELL_FURIOUS, true);
+                }
                 break;
             default:
                 break;
@@ -571,6 +718,8 @@ struct npc_kohcrom : public ScriptedAI
 
     void DamageTaken(Unit* /*attacker*/, uint32& damage) override
     {
+        ShareHeroicTwinDamage(me, _instance, damage);
+
         if (!_furious && me->HealthBelowPctDamaged(20, damage))
         {
             _furious = true;
@@ -587,11 +736,18 @@ struct npc_kohcrom : public ScriptedAI
     {
         _summons.DespawnAll();
         if (_instance)
+        {
             _instance->SendEncounterUnit(ENCOUNTER_FRAME_DISENGAGE, me);
+            if (Creature* morchok = _instance->GetCreature(DATA_MORCHOK))
+                if (morchok->IsAlive())
+                    morchok->KillSelf();
+        }
     }
 
     void UpdateAI(uint32 diff) override
     {
+        _scheduler.Update(diff);
+
         if (!UpdateVictim())
             return;
 
@@ -604,10 +760,6 @@ struct npc_kohcrom : public ScriptedAI
         {
             switch (eventId)
             {
-                case EVENT_KOHCROM_CRUSH_ARMOR:
-                    DoCastVictim(SPELL_CRUSH_ARMOR);
-                    _events.Repeat(6s, 7s);
-                    break;
                 case EVENT_KOHCROM_STOMP:
                     DoCastAOE(SPELL_STOMP);
                     break;
@@ -629,6 +781,7 @@ private:
     InstanceScript* _instance;
     EventMap _events;
     SummonList _summons;
+    TaskScheduler _scheduler;
     bool _furious;
     bool _frozen;
 };
@@ -651,12 +804,11 @@ struct npc_morchok_resonating_crystal : public ScriptedAI
     {
         me->SetControlled(true, UNIT_STATE_ROOT);
         DoCastSelf(SPELL_RESONATING_CRYSTAL_AURA, true);
+        SelectBeamTargets();
 
         _scheduler.Schedule(1s, [this](TaskContext context)
         {
-            if (_linkedPlayers.empty())
-                SelectBeamTargets();
-            RefreshBeams();
+            SelectBeamTargets();
             context.Repeat(1s);
         });
 
@@ -682,53 +834,26 @@ private:
                 if (player->IsAlive() && !player->IsGameMaster() && me->IsWithinDist(player, 200.0f))
                     players.push_back(player);
 
-        Trinity::Containers::RandomShuffle(players);
+        std::sort(players.begin(), players.end(), [this](Player const* left, Player const* right)
+        {
+            return me->GetExactDist2d(left) < me->GetExactDist2d(right);
+        });
+
         if (players.size() > count)
             players.resize(count);
 
+        std::vector<ObjectGuid> selectedPlayers;
         for (Player* player : players)
-        {
-            _linkedPlayers.push_back(player->GetGUID());
+            selectedPlayers.push_back(player->GetGUID());
+
+        for (ObjectGuid guid : _linkedPlayers)
+            if (std::find(selectedPlayers.begin(), selectedPlayers.end(), guid) == selectedPlayers.end())
+                if (Player* player = ObjectAccessor::GetPlayer(*me, guid))
+                    RemoveBeams(player);
+
+        _linkedPlayers = std::move(selectedPlayers);
+        for (Player* player : players)
             ApplyBeam(player);
-        }
-    }
-
-    void RefreshBeams()
-    {
-        for (auto itr = _linkedPlayers.begin(); itr != _linkedPlayers.end();)
-        {
-            Player* player = ObjectAccessor::GetPlayer(*me, *itr);
-            if (!player || !player->IsAlive())
-            {
-                itr = _linkedPlayers.erase(itr);
-                LinkReplacementTarget();
-                continue;
-            }
-
-            ApplyBeam(player);
-            ++itr;
-        }
-    }
-
-    void LinkReplacementTarget()
-    {
-        std::vector<Player*> candidates;
-        for (MapReference const& ref : me->GetMap()->GetPlayers())
-        {
-            Player* player = ref.GetSource();
-            if (!player || !player->IsAlive() || player->IsGameMaster())
-                continue;
-            if (std::find(_linkedPlayers.begin(), _linkedPlayers.end(), player->GetGUID()) != _linkedPlayers.end())
-                continue;
-            candidates.push_back(player);
-        }
-
-        if (candidates.empty())
-            return;
-
-        Player* player = Trinity::Containers::SelectRandomContainerElement(candidates);
-        _linkedPlayers.push_back(player->GetGUID());
-        ApplyBeam(player);
     }
 
     void ApplyBeam(Player* player)
@@ -746,15 +871,22 @@ private:
             me->CastSpell(player, beam, true);
     }
 
+    void RemoveBeams(Player* player)
+    {
+        for (uint32 spellId : { SPELL_TARGET_SELECTION_SAFE, SPELL_TARGET_SELECTION_WARNING, SPELL_TARGET_SELECTION_DANGER })
+            player->RemoveAurasDueToSpell(spellId, me->GetGUID());
+    }
+
     void Detonate()
     {
+        // Movement during the final second can change the closest linked set.
+        SelectBeamTargets();
         DoCastSelf(SPELL_RESONATING_CRYSTAL_SELF_DESTRUCT, true);
         DoCastAOE(SPELL_RESONATING_CRYSTAL_DETONATE);
 
         for (ObjectGuid guid : _linkedPlayers)
             if (Player* player = ObjectAccessor::GetPlayer(*me, guid))
-                for (uint32 spellId : { SPELL_TARGET_SELECTION_SAFE, SPELL_TARGET_SELECTION_WARNING, SPELL_TARGET_SELECTION_DANGER })
-                    player->RemoveAurasDueToSpell(spellId, me->GetGUID());
+                RemoveBeams(player);
 
         _linkedPlayers.clear();
         me->DespawnOrUnsummon(2s);
@@ -770,25 +902,46 @@ class spell_morchok_stomp : public SpellScript
 {
     void FilterTargets(std::list<WorldObject*>& targets)
     {
-        _targetCount = uint32(targets.size());
         _soakerGuids.clear();
+
+        targets.remove_if([](WorldObject* target)
+        {
+            Player* player = target->ToPlayer();
+            return !player || !player->IsAlive() || player->IsGameMaster();
+        });
+        _targetCount = uint32(targets.size());
 
         if (targets.empty())
             return;
 
-        // The closest one (10 player) / two (25 player) targets soak a double share
-        std::list<WorldObject*> sorted = targets;
-        sorted.sort([caster = GetCaster()](WorldObject* left, WorldObject* right)
+        // The current target and the player closest to that target take a
+        // double share in every raid size. Pets never enter the split pool.
+        Player* primarySoaker = nullptr;
+        if (Unit* victim = GetCaster()->GetVictim())
+            primarySoaker = victim->ToPlayer();
+
+        if (primarySoaker)
         {
-            return caster->GetExactDist2d(left) < caster->GetExactDist2d(right);
+            if (std::find_if(targets.begin(), targets.end(), [primarySoaker](WorldObject const* target)
+                { return target->GetGUID() == primarySoaker->GetGUID(); }) != targets.end())
+                _soakerGuids.push_back(primarySoaker->GetGUID());
+            else
+                primarySoaker = nullptr;
+        }
+
+        std::list<WorldObject*> sorted = targets;
+        WorldObject* distanceOrigin = primarySoaker ? static_cast<WorldObject*>(primarySoaker) : GetCaster();
+        sorted.sort([distanceOrigin](WorldObject* left, WorldObject* right)
+        {
+            return distanceOrigin->GetExactDist2d(left) < distanceOrigin->GetExactDist2d(right);
         });
 
-        uint32 soakerCount = GetCaster()->GetMap()->Is25ManRaid() ? 2 : 1;
         for (WorldObject* target : sorted)
         {
-            if (!soakerCount--)
+            if (_soakerGuids.size() >= 2)
                 break;
-            _soakerGuids.push_back(target->GetGUID());
+            if (std::find(_soakerGuids.begin(), _soakerGuids.end(), target->GetGUID()) == _soakerGuids.end())
+                _soakerGuids.push_back(target->GetGUID());
         }
     }
 
@@ -836,19 +989,24 @@ class spell_morchok_resonating_crystal_detonate : public SpellScript
         {
             return !HasBeamFromCaster(target);
         });
+        _targetCount = uint32(targets.size());
     }
 
     void HandleDamage(SpellEffIndex /*effIndex*/)
     {
         Unit* target = GetHitUnit();
-        int32 damage = GetHitDamage();
+        if (!_targetCount)
+            return;
 
+        int32 multiplier = 3;
         if (target->HasAura(SPELL_TARGET_SELECTION_SAFE, GetCaster()->GetGUID()))
-            damage = int32(damage * DetonateSafePct);
+            multiplier = 1;
         else if (target->HasAura(SPELL_TARGET_SELECTION_WARNING, GetCaster()->GetGUID()))
-            damage = int32(damage * DetonateWarningPct);
+            multiplier = 2;
 
-        SetHitDamage(damage);
+        // The DBC value is the raid-size damage pool. Safe, warning and danger
+        // links take one, two and three shares respectively.
+        SetHitDamage(GetHitDamage() / int32(_targetCount) * multiplier);
     }
 
     void Register() override
@@ -858,11 +1016,22 @@ class spell_morchok_resonating_crystal_detonate : public SpellScript
         OnObjectAreaTargetSelect.Register(&spell_morchok_resonating_crystal_detonate::FilterTargets, EFFECT_2, TARGET_UNIT_DEST_AREA_ENEMY);
         OnEffectHitTarget.Register(&spell_morchok_resonating_crystal_detonate::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
+
+    uint32 _targetCount = 0;
 };
 
 // 103821, 110047, 110046, 110045 - Earthen Vortex
 class spell_morchok_earthen_vortex : public SpellScript
 {
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        Unit* caster = GetCaster();
+        targets.remove_if([caster](WorldObject* target)
+        {
+            return !target->ToPlayer() || GetResponsibleBoss(caster, target) != caster;
+        });
+    }
+
     void HandleForceCast(SpellEffIndex effIndex)
     {
         // The forced vehicle ride (104512 -> NPC 55723) has no serverside vehicle
@@ -870,15 +1039,44 @@ class spell_morchok_earthen_vortex : public SpellScript
         PreventHitDefaultEffect(effIndex);
 
         Unit* target = GetHitUnit();
-        if (GetResponsibleBoss(GetCaster(), target) != GetCaster())
-            return;
-
         target->GetMotionMaster()->MoveJump(GetCaster()->GetPosition(), 25.0f, 10.0f);
+    }
+
+    void HandleTeleport(SpellEffIndex effIndex)
+    {
+        // The client teleport would overwrite the scripted parabolic pull.
+        PreventHitDefaultEffect(effIndex);
     }
 
     void Register() override
     {
+        OnObjectAreaTargetSelect.Register(&spell_morchok_earthen_vortex::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
+        OnObjectAreaTargetSelect.Register(&spell_morchok_earthen_vortex::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ENEMY);
+        OnObjectAreaTargetSelect.Register(&spell_morchok_earthen_vortex::FilterTargets, EFFECT_2, TARGET_UNIT_DEST_AREA_ENEMY);
         OnEffectHitTarget.Register(&spell_morchok_earthen_vortex::HandleForceCast, EFFECT_0, SPELL_EFFECT_FORCE_CAST);
+        OnEffectHitTarget.Register(&spell_morchok_earthen_vortex::HandleTeleport, EFFECT_1, SPELL_EFFECT_TELEPORT_UNITS);
+    }
+};
+
+// Effect 0 normally puts the player in an unavailable serverside vehicle for
+// five seconds. Hold the player through that window while preserving the DBC
+// effect 2 periodic-percent damage aura.
+class aura_morchok_earthen_vortex : public AuraScript
+{
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        GetTarget()->SetControlled(true, UNIT_STATE_STUNNED);
+    }
+
+    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        GetTarget()->SetControlled(false, UNIT_STATE_STUNNED);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply.Register(&aura_morchok_earthen_vortex::HandleApply, EFFECT_2, SPELL_AURA_PERIODIC_DAMAGE_PERCENT, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove.Register(&aura_morchok_earthen_vortex::HandleRemove, EFFECT_2, SPELL_AURA_PERIODIC_DAMAGE_PERCENT, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -944,17 +1142,21 @@ class aura_morchok_falling_fragments : public AuraScript
     {
         Unit* caster = GetTarget();
 
-        std::vector<uint8> candidates;
-        for (uint8 i = 0; i < uint8(std::size(RockSpikePositions)); ++i)
-            if (_usedPositions.find(i) == _usedPositions.end() && caster->GetExactDist2d(RockSpikePositions[i]) < 55.0f)
-                candidates.push_back(i);
+        // Retail sends two distinct fragment missiles on each 500 ms tick.
+        for (uint8 fragment = 0; fragment < 2; ++fragment)
+        {
+            std::vector<uint8> candidates;
+            for (uint8 i = 0; i < uint8(std::size(RockSpikePositions)); ++i)
+                if (_usedPositions.find(i) == _usedPositions.end() && caster->GetExactDist2d(RockSpikePositions[i]) < 55.0f)
+                    candidates.push_back(i);
 
-        if (candidates.empty())
-            return;
+            if (candidates.empty())
+                return;
 
-        uint8 const index = Trinity::Containers::SelectRandomContainerElement(candidates);
-        _usedPositions.insert(index);
-        caster->CastSpell(RockSpikePositions[index], SPELL_FALLING_FRAGMENT_MISSILE, true);
+            uint8 const index = Trinity::Containers::SelectRandomContainerElement(candidates);
+            _usedPositions.insert(index);
+            caster->CastSpell(RockSpikePositions[index], SPELL_FALLING_FRAGMENT_MISSILE, true);
+        }
     }
 
     void Register() override
@@ -978,6 +1180,7 @@ void AddSC_boss_morchok()
     RegisterSpellScript(spell_morchok_stomp);
     RegisterSpellScript(spell_morchok_resonating_crystal_detonate);
     RegisterSpellScript(spell_morchok_earthen_vortex);
+    RegisterSpellScript(aura_morchok_earthen_vortex);
     RegisterSpellScript(spell_morchok_black_blood_damage);
     RegisterSpellScript(aura_morchok_falling_fragments);
 }

@@ -603,6 +603,14 @@ public:
                     if (group->isLFRGroup() && sLFGMgr->inLfgDungeonMap(group->GetGUID(), instance->GetId(), instance->GetDifficulty()))
                     {
                         SetLFR(true);
+
+                        // The map and its bosses can be loaded before the first
+                        // queued player establishes that this is an LFR run.
+                        for (uint32 bossId : { DATA_MORCHOK, DATA_WARLORD_ZONOZZ, DATA_YORSAHJ_THE_UNSLEEPING,
+                            DATA_HAGARA_THE_STORMBINDER, DATA_ULTRAXION, DATA_WARMASTER_BLACKHORN })
+                            if (Creature* boss = GetCreature(bossId))
+                                boss->SetLootMode(LOOT_MODE_HARD_MODE_1);
+
                         SaveToDB();
                     }
                 }
