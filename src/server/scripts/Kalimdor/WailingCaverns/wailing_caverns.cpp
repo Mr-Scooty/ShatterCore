@@ -61,7 +61,7 @@ enum Enums
     SAY_FAREWELL                  = 5,
     SAY_ATTACKED                  = 11,
 
-    GOSSIP_OPTION_LET_EVENT_BEGIN = 201,
+    GOSSIP_OPTION_LET_EVENT_BEGIN = 202, // Muyoh's own menu - menu 201 belongs to the sleeping Naralex, who has no script
     NPC_TEXT_NARALEX_SLEEPS_AGAIN = 698,
     NPC_TEXT_FANGLORDS_ARE_DEAD   = 699,
 

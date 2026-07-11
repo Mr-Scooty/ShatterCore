@@ -36,6 +36,7 @@ ObjectData const creatureData[] =
     { NPC_LORD_COBRAHN,   DATA_LORD_COBRAHN   },
     { NPC_LORD_PYTHAS,    DATA_LORD_PYTHAS    },
     { NPC_LORD_SERPENTIS, DATA_LORD_SERPENTIS },
+    { NPC_NARALEX,        DATA_NARALEX        },
     { 0,                  0                   } // END
 
 };
@@ -76,10 +77,17 @@ public:
             }
         }
 
-        void SetData(uint32 type, uint32 /*data*/) override
+        void SetData(uint32 type, uint32 data) override
         {
             switch (type)
             {
+                case DATA_NARALEX_EVENT:
+                case DATA_NARALEX_PART1:
+                case DATA_NARALEX_PART2:
+                case DATA_NARALEX_PART3:
+                case DATA_MUTANUS_THE_DEVOURER:
+                    naralexEventData[type - DATA_NARALEX_EVENT] = data;
+                    break;
                 case DATA_NARALEX_YELLED:
                     yelled = true;
                     break;
@@ -90,6 +98,12 @@ public:
         {
             switch (type)
             {
+                case DATA_NARALEX_EVENT:
+                case DATA_NARALEX_PART1:
+                case DATA_NARALEX_PART2:
+                case DATA_NARALEX_PART3:
+                case DATA_MUTANUS_THE_DEVOURER:
+                    return naralexEventData[type - DATA_NARALEX_EVENT];
                 case DATA_NARALEX_YELLED:
                     return yelled;
             }
@@ -98,6 +112,7 @@ public:
 
     private:
         bool yelled;
+        uint32 naralexEventData[DATA_MUTANUS_THE_DEVOURER - DATA_NARALEX_EVENT + 1] = { }; // all NOT_STARTED
         GuidVector WailingCavernsGUIDs;
 
     };
