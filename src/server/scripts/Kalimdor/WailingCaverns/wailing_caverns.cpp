@@ -32,6 +32,7 @@ EndContentData */
 #include "Player.h"
 #include "ScriptedEscortAI.h"
 #include "ScriptedGossip.h"
+#include "TemporarySummon.h"
 #include "wailing_caverns.h"
 
 /*######
@@ -69,6 +70,19 @@ enum Enums
     SPELL_SERPENTINE_CLEANSING    = 6270,
     SPELL_NARALEXS_AWAKENING      = 6271,
     SPELL_FLIGHT_FORM             = 33943
+};
+
+// After the awakening both fly up through the chamber toward the exit passages
+Position const NaralexFlightPath[] =
+{
+    { 117.095512f, 247.107971f, -86.0f     },
+    { 90.388809f,  276.135406f, -83.389801f }
+};
+
+Position const MuyohFlightPath[] =
+{
+    { 117.095512f, 247.107971f, -86.0f     },
+    { 144.375443f, 281.045837f, -82.477135f }
 };
 
 class npc_disciple_of_naralex : public CreatureScript
@@ -180,7 +194,10 @@ public:
 
         void JustSummoned(Creature* summoned) override
         {
-             summoned->AI()->AttackStart(me);
+            if (summoned->GetEntry() == NPC_MUTANUS_THE_DEVOURER)
+                return; // handles his own emergence and engage (boss_mutanus_the_devourer)
+
+            summoned->AI()->AttackStart(me);
         }
 
         void UpdateAI(uint32 diff) override
@@ -276,8 +293,8 @@ public:
                                 ++eventProgress;
                                 if (Creature* naralex = ObjectAccessor::GetCreature(*me, instance->GetGuidData(DATA_NARALEX)))
                                     naralex->AI()->Talk(EMOTE_HORRENDOUS_VISION);
-                                me->SummonCreature(NPC_MUTANUS_THE_DEVOURER, 150.872f, 262.905f, -103.503f, 0, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 300000);
-                                Talk(SAY_MUTANUS_THE_DEVOURER);
+                                if (Creature* mutanus = me->SummonCreature(NPC_MUTANUS_THE_DEVOURER, 150.872f, 262.905f, -103.503f, 0, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 300000))
+                                    Talk(SAY_MUTANUS_THE_DEVOURER, mutanus); // text contains $n - needs a chat target to resolve
                                 instance->SetData(DATA_MUTANUS_THE_DEVOURER, IN_PROGRESS);
                             }
                             else
@@ -322,28 +339,29 @@ public:
                                 ++eventProgress;
                                 eventTimer = 1500;
                                 if (Creature* naralex = ObjectAccessor::GetCreature(*me, instance->GetGuidData(DATA_NARALEX)))
-                                    naralex->GetMotionMaster()->MovePoint(25, naralex->GetPositionX(), naralex->GetPositionY(), naralex->GetPositionZ());
+                                {
+                                    naralex->SetCanFly(true);
+                                    naralex->SetDisableGravity(true);
+                                }
+                                me->SetCanFly(true);
+                                me->SetDisableGravity(true);
                             }
                             else
                             if (eventProgress == 10)
                             {
                                 ++eventProgress;
-                                eventTimer = 2500;
+                                eventTimer = 8000;
                                 if (Creature* naralex = ObjectAccessor::GetCreature(*me, instance->GetGuidData(DATA_NARALEX)))
-                                {
-                                    naralex->GetMotionMaster()->MovePoint(0, 117.095512f, 247.107971f, -96.167870f);
-                                    naralex->GetMotionMaster()->MovePoint(1, 90.388809f, 276.135406f, -83.389801f);
-                                }
-                                me->GetMotionMaster()->MovePoint(26, 117.095512f, 247.107971f, -96.167870f);
-                                me->GetMotionMaster()->MovePoint(27, 144.375443f, 281.045837f, -82.477135f);
+                                    naralex->GetMotionMaster()->MoveSmoothPath(0, NaralexFlightPath, 2, false, true);
+                                me->GetMotionMaster()->MoveSmoothPath(26, MuyohFlightPath, 2, false, true);
                             }
                             else
                             if (eventProgress == 11)
                             {
                                 if (Creature* naralex = ObjectAccessor::GetCreature(*me, instance->GetGuidData(DATA_NARALEX)))
-                                    naralex->SetVisible(false);
-                                me->SetVisible(false);
+                                    naralex->DespawnOrUnsummon(0, Seconds(7 * DAY));
                                 instance->SetData(DATA_NARALEX_PART3, DONE);
+                                me->DespawnOrUnsummon(0, Seconds(7 * DAY));
                             }
                         break;
                     }

@@ -106,6 +106,7 @@ void AddSC_boss_lord_cobrahn();
 void AddSC_boss_lord_serpentis();
 void AddSC_boss_verdan_the_everliving();
 void AddSC_boss_skum();
+void AddSC_boss_mutanus_the_devourer();
 void AddSC_boss_zum_rah();                   //Zul'Farrak
 void AddSC_zulfarrak();
 void AddSC_instance_zulfarrak();
@@ -255,6 +256,7 @@ void AddKalimdorScripts()
     AddSC_boss_lord_serpentis();
     AddSC_boss_verdan_the_everliving();
     AddSC_boss_skum();
+    AddSC_boss_mutanus_the_devourer();
     AddSC_boss_zum_rah();                   //Zul'Farrak
     AddSC_zulfarrak();
     AddSC_instance_zulfarrak();
