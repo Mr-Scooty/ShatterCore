@@ -1357,6 +1357,75 @@ public:
 };
 
 // -----------------------------------------------------------------------------
+// Liberate the Kaja'mite (14124)
+// -----------------------------------------------------------------------------
+
+enum KablooeyData
+{
+    GO_KAJAMITE_DEPOSIT             = 195488, // bombable goober, era phase 383
+    GO_KAJAMITE_CHUNK               = 195492, // consumable chest with the quest item
+
+    CHUNKS_PER_DEPOSIT              = 3,
+    CHUNK_DESPAWN_SECS              = 120,
+};
+
+// 67682 - Kablooey!: EFFECT_0 (ACTIVATE_OBJECT, action Open) hits the deposit
+// goobers within 5yd of the blast. Retail (Goblin_P2 sniff): the deposit plays
+// custom anim 0, despawns, and three Kaja'mite Chunk chests scatter 2-4yd
+// around its base with random facing.
+class spell_kezan_kablooey_bombs : public SpellScriptLoader
+{
+public:
+    spell_kezan_kablooey_bombs() : SpellScriptLoader("spell_kezan_kablooey_bombs") { }
+
+    class spell_kezan_kablooey_bombs_SpellScript : public SpellScript
+    {
+    public:
+        void HandleActivateObject(SpellEffIndex effIndex)
+        {
+            // The goober's own Use() path (kill credit, IN_USE state machine)
+            // does nothing useful here; the explosion is scripted in full.
+            PreventHitDefaultEffect(effIndex);
+
+            GameObject* deposit = GetHitGObj();
+            if (!deposit || deposit->GetEntry() != GO_KAJAMITE_DEPOSIT || !deposit->isSpawned())
+                return;
+
+            Unit* caster = GetCaster();
+            if (!caster)
+                return;
+
+            deposit->SendCustomAnim(0);
+            deposit->DespawnOrUnsummon(); // respawns after gameobject.spawntimesecs
+
+            for (uint8 i = 0; i < CHUNKS_PER_DEPOSIT; ++i)
+            {
+                float angle = frand(0.0f, 2.0f * float(M_PI));
+                float dist = frand(1.5f, 3.5f);
+                float x = deposit->GetPositionX() + dist * std::cos(angle);
+                float y = deposit->GetPositionY() + dist * std::sin(angle);
+                float z = deposit->GetPositionZ();
+                deposit->UpdateGroundPositionZ(x, y, z);
+
+                float facing = frand(0.0f, 2.0f * float(M_PI));
+                caster->SummonGameObject(GO_KAJAMITE_CHUNK, Position(x, y, z, facing),
+                    QuaternionData::fromEulerAnglesZYX(facing, 0.0f, 0.0f), CHUNK_DESPAWN_SECS);
+            }
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_kezan_kablooey_bombs_SpellScript::HandleActivateObject, EFFECT_0, SPELL_EFFECT_ACTIVATE_OBJECT);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_kablooey_bombs_SpellScript();
+    }
+};
+
+// -----------------------------------------------------------------------------
 // 447 (14125)
 // -----------------------------------------------------------------------------
 
@@ -1701,6 +1770,7 @@ void AddSC_kezan_quests()
     new spell_kezan_vault_interact();
     new spell_kezan_vault_tool();
     new spell_kezan_mook_disguise();
+    new spell_kezan_kablooey_bombs();
     new npc_gasbot();
     new go_gasbot_control_panel();
     new spell_kezan_yacht_mortar();
