@@ -89,9 +89,6 @@ enum HotRodTexts
     SAY_CITIZEN_RUN_OVER = 0
 };
 
-// The DBC cone of 66301 reaches 12yd; only actual bumper contact counts as running over.
-static constexpr float RUN_OVER_CONTACT_DIST = 5.0f;
-
 static bool ShouldKeepRollingWithHomiesCompanions(Player const* player)
 {
     if (!player)
@@ -349,15 +346,10 @@ public:
     class spell_kezan_hot_rod_run_over_SpellScript : public SpellScript
     {
     public:
-        void FilterTargets(std::list<WorldObject*>& targets)
-        {
-            // The DBC cone reaches 12yd - only bumper contact counts as running over.
-            WorldObject* caster = GetCaster();
-            targets.remove_if([caster](WorldObject* target)
-            {
-                return !caster->IsWithinDist(target, RUN_OVER_CONTACT_DIST);
-            });
-        }
+        // The full 12yd DBC cone is used on purpose: an aggroed Hired Looter chases
+        // the rod and slips past a short "bumper" range between two 100ms ticks -
+        // retail kills them on approach (the sniff shows the same citizen hit twice
+        // 206ms apart, so the retail cone is deep, not contact-sized).
 
         void HandleRunOver(SpellEffIndex effIndex)
         {
@@ -393,7 +385,6 @@ public:
 
         void Register() override
         {
-            OnObjectAreaTargetSelect.Register(&spell_kezan_hot_rod_run_over_SpellScript::FilterTargets, EFFECT_0, TARGET_UNIT_CONE_ENTRY);
             OnEffectHitTarget.Register(&spell_kezan_hot_rod_run_over_SpellScript::HandleRunOver, EFFECT_0, SPELL_EFFECT_KNOCK_BACK);
         }
     };
