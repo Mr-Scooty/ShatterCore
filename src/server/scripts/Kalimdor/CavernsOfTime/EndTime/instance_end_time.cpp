@@ -16,6 +16,7 @@
  */
 
 #include "end_time.h"
+#include "Containers.h"
 #include "EventMap.h"
 #include "Creature.h"
 #include "CreatureAI.h"
@@ -24,14 +25,19 @@
 #include "ScriptMgr.h"
 
 #include <array>
+#include <sstream>
 
 namespace EndTime
 {
 ObjectData const creatureData[] =
 {
-    { BOSS_MUROZOND,        DATA_MUROZOND       },
-    { NPC_ARCANE_CIRCLE,    DATA_ARCANE_CIRCLE  },
-    { 0,                    0                   } // END
+    { BOSS_MUROZOND,            DATA_MUROZOND           },
+    { BOSS_ECHO_OF_JAINA,       DATA_ECHO_OF_JAINA      },
+    { BOSS_ECHO_OF_BAINE,       DATA_ECHO_OF_BAINE      },
+    { BOSS_ECHO_OF_SYLVANAS,    DATA_ECHO_OF_SYLVANAS   },
+    { BOSS_ECHO_OF_TYRANDE,     DATA_ECHO_OF_TYRANDE    },
+    { NPC_ARCANE_CIRCLE,        DATA_ARCANE_CIRCLE      },
+    { 0,                        0                       } // END
 };
 
 ObjectData const gameobjectData[] =
@@ -41,7 +47,8 @@ ObjectData const gameobjectData[] =
 
 DoorData const doorData[] =
 {
-    { 0, 0, DOOR_TYPE_ROOM } // END
+    { GO_FIRE_WALL, DATA_ECHO_OF_BAINE, DOOR_TYPE_ROOM },
+    { 0,            0,                  DOOR_TYPE_ROOM } // END
 };
 
 enum ETEvents
@@ -52,7 +59,7 @@ enum ETEvents
 enum ETSpawnGroups
 {
     SPAWN_GROUP_ID_MUROZOND_CHEST   = 437,
-    SPAWN_GROUP_ID_ECHO_OF_JAINA    = 460
+    SPAWN_GROUP_ID_ECHO_OF_JAINA    = 463
 };
 
 enum ETAreaIds
@@ -66,14 +73,16 @@ enum ETWorldStates
     WORLD_STATE_ID_COLLECTED_STAVE_FRAGMENTS        = 6025
 };
 
-enum ETMapEvents
-{
-    MAP_EVENT_AZURE_DRAGONSHRINE_ENTERED = 29225
-};
-
 enum ETSpells
 {
-    SPELL_SUMMON_PHANTOM = 102200
+    SPELL_SUMMON_PHANTOM            = 102200,
+    SPELL_FIRST_ECHO_KILL_CREDIT    = 110163, // Serverside Spell
+    SPELL_SECOND_ECHO_KILL_CREDIT   = 110164  // Serverside Spell
+};
+
+enum ETAchievementCriteria
+{
+    CRITERIA_ID_SEVERED_TIES = 18499
 };
 
 std::array<Position const, 2> MurozondSpawnPositions =
@@ -90,28 +99,45 @@ public:
     struct instance_end_time_InstanceMapScript : public InstanceScript
     {
         instance_end_time_InstanceMapScript(InstanceMap* map) : InstanceScript(map),
-            _killedInfiniteDragonkins(0), _collectedStaffFragments(0)
+            _killedInfiniteDragonkins(0), _collectedStaffFragments(0), _killedEchoes(0),
+            _moonGuardEligible(true), _severedTiesEligible(false), _loadInProgress(false),
+            _shadowGauntletState(NOT_STARTED)
         {
             SetHeaders(DataHeader);
             SetBossNumber(EncounterCount);
             LoadDoorData(doorData);
             LoadObjectData(creatureData, gameobjectData);
+            _activeEchoes = { DATA_ECHO_OF_BAINE, DATA_ECHO_OF_JAINA };
         }
 
         void ProcessEvent(WorldObject* /*obj*/, uint32 eventId, WorldObject* /*invoker*/) override
         {
-            if (_executedMapEvents.find(eventId) != _executedMapEvents.end())
-                return;
-
             switch (eventId)
             {
                 case MAP_EVENT_AZURE_DRAGONSHRINE_ENTERED:
-                    if (GetBossState(DATA_ECHO_OF_JAINA) == DONE)
-                        break;
-                    DoUpdateWorldState(WORLD_STATE_ID_SHOW_COLLECTED_STAVE_FRAGMENTS, 1);
+                    if (_executedMapEvents.find(eventId) != _executedMapEvents.end())
+                        return;
+                    if (GetBossState(DATA_ECHO_OF_JAINA) != DONE)
+                        DoUpdateWorldState(WORLD_STATE_ID_SHOW_COLLECTED_STAVE_FRAGMENTS, 1);
                     break;
+                case MAP_EVENT_MOON_GUARD_FAILED:
+                    _moonGuardEligible = false;
+                    return;
+                case MAP_EVENT_OBSIDIAN_DRAGONSHRINE_ENTERED:
+                    if (_executedMapEvents.find(eventId) != _executedMapEvents.end())
+                        return;
+                    if (Creature* baine = GetCreature(DATA_ECHO_OF_BAINE))
+                        if (baine->IsAIEnabled())
+                            baine->AI()->DoAction(1 /*ACTION_INTRO*/);
+                    break;
+                case MAP_EVENT_EMERALD_DRAGONSHRINE_ENTERED:
+                    // Not fire-once on purpose - the gauntlet re-arms itself after a wipe and restarts on the next arrival
+                    if (Creature* tyrande = GetCreature(DATA_ECHO_OF_TYRANDE))
+                        if (tyrande->IsAIEnabled())
+                            tyrande->AI()->DoAction(1 /*ACTION_START_GAUNTLET*/);
+                    return;
                 default:
-                    break;
+                    return;
             }
 
             _executedMapEvents.insert(eventId);
@@ -121,17 +147,45 @@ public:
         {
             InstanceScript::Create();
 
+            SelectActiveEchoes();
+
             // The instance has been created without save data, just spawn Murozond at his initial position.
             instance->SummonCreature(BOSS_MUROZOND, MurozondSpawnPositions[0]);
         }
 
         void Load(char const* data) override
         {
+            _loadInProgress = true;
             InstanceScript::Load(data);
+            _loadInProgress = false;
 
             // The instance has been created from existing save data, but Murozond has not been defeated yet. Spawn him at his initial position.
             if (GetBossState(DATA_MUROZOND) != DONE)
                 instance->SummonCreature(BOSS_MUROZOND, MurozondSpawnPositions[0]);
+
+            for (uint8 echo : _activeEchoes)
+                if (GetBossState(echo) == DONE)
+                    ++_killedEchoes;
+        }
+
+        void WriteSaveDataMore(std::ostringstream& data) override
+        {
+            data << ' ' << uint32(_activeEchoes[0]) << ' ' << uint32(_activeEchoes[1]) << ' ' << uint32(_shadowGauntletState == DONE ? DONE : NOT_STARTED);
+        }
+
+        void ReadSaveDataMore(std::istringstream& data) override
+        {
+            uint32 first = DATA_ECHO_OF_BAINE, second = DATA_ECHO_OF_JAINA, gauntlet = NOT_STARTED;
+            data >> first >> second >> gauntlet;
+            if (first > DATA_ECHO_OF_TYRANDE || second > DATA_ECHO_OF_TYRANDE || first == second)
+            {
+                // Corrupt save data, fall back to a fixed pair.
+                first = DATA_ECHO_OF_BAINE;
+                second = DATA_ECHO_OF_JAINA;
+            }
+
+            _activeEchoes = { uint8(first), uint8(second) };
+            _shadowGauntletState = gauntlet == DONE ? DONE : NOT_STARTED;
         }
 
         void OnUnitDeath(Unit* unit) override
@@ -205,14 +259,26 @@ public:
                             circle->DespawnOrUnsummon();
                     }
                     break;
+                case DATA_ECHO_OF_SYLVANAS:
+                    if (state == IN_PROGRESS)
+                        _severedTiesEligible = false; // re-armed by the boss AI when two ghouls die during one Calling of the Highborne
+                    break;
                 default:
                     break;
+            }
+
+            // The dungeon encounters are generic 'First Echo' and 'Second Echo' entries, credited in kill order.
+            // Boss states replayed from save data are counted in Load() instead.
+            if (type <= DATA_ECHO_OF_TYRANDE && state == DONE && !_loadInProgress)
+            {
+                ++_killedEchoes;
+                DoCastSpellOnPlayers(_killedEchoes == 1 ? SPELL_FIRST_ECHO_KILL_CREDIT : SPELL_SECOND_ECHO_KILL_CREDIT);
             }
 
             return true;
         }
 
-        void SetData(uint32 type, uint32 /*value*/) override
+        void SetData(uint32 type, uint32 value) override
         {
             switch (type)
             {
@@ -231,9 +297,52 @@ public:
                     else
                         instance->SpawnGroupSpawn(SPAWN_GROUP_ID_ECHO_OF_JAINA);
                     break;
+                case DATA_SEVERED_TIES_ELIGIBLE:
+                    _severedTiesEligible = value != 0;
+                    break;
+                case DATA_MOON_GUARD_ELIGIBLE:
+                    _moonGuardEligible = value != 0;
+                    break;
+                case DATA_SHADOW_GAUNTLET:
+                    _shadowGauntletState = EncounterState(value);
+                    if (value == DONE)
+                        SaveToDB();
+                    break;
                 default:
                     break;
             }
+        }
+
+        uint32 GetData(uint32 type) const override
+        {
+            switch (type)
+            {
+                case DATA_ACTIVE_ECHO_1:
+                    return _activeEchoes[0];
+                case DATA_ACTIVE_ECHO_2:
+                    return _activeEchoes[1];
+                case DATA_MOON_GUARD_ELIGIBLE:
+                    return _moonGuardEligible ? 1 : 0;
+                case DATA_SEVERED_TIES_ELIGIBLE:
+                    return _severedTiesEligible ? 1 : 0;
+                case DATA_SHADOW_GAUNTLET:
+                    return _shadowGauntletState;
+                default:
+                    return 0;
+            }
+        }
+
+        bool CheckAchievementCriteriaMeet(uint32 criteriaId, Player const* /*source*/, Unit const* /*target*/, uint32 /*miscValue1*/) override
+        {
+            switch (criteriaId)
+            {
+                case CRITERIA_ID_SEVERED_TIES:
+                    return _severedTiesEligible;
+                default:
+                    break;
+            }
+
+            return false;
         }
 
         void Update(uint32 diff) override
@@ -254,9 +363,22 @@ public:
         }
 
     private:
+        void SelectActiveEchoes()
+        {
+            std::array<uint8, 4> pool = { DATA_ECHO_OF_BAINE, DATA_ECHO_OF_JAINA, DATA_ECHO_OF_SYLVANAS, DATA_ECHO_OF_TYRANDE };
+            Trinity::Containers::RandomShuffle(pool);
+            _activeEchoes = { pool[0], pool[1] };
+        }
+
         EventMap _events;
         uint8 _killedInfiniteDragonkins;
         uint8 _collectedStaffFragments;
+        uint8 _killedEchoes;
+        bool _moonGuardEligible;
+        bool _severedTiesEligible;
+        bool _loadInProgress;
+        EncounterState _shadowGauntletState;
+        std::array<uint8, 2> _activeEchoes;
 
         std::unordered_set<uint32> _executedMapEvents;
     };

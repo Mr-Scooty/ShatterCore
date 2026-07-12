@@ -46,6 +46,7 @@ enum Spells
     SPELL_TEMPORAL_SNAPSHOT                     = 101592,
     SPELL_TEMPORAL_BLAST                        = 102381,
     SPELL_DISTORTION_BOMB_1                     = 101983,
+    SPELL_DISTORTION_BOMB_1_ALT                 = 101984, // Second interleaved bomb series, active for the entire fight
     SPELL_DISTORTION_BOMB_2                     = 102516,
     SPELL_TAIL_SWEEP                            = 108589,
     SPELL_DISTORTION_BOMB_REWIND_TIME           = 102652, // Casted when rewinding time.
@@ -75,6 +76,8 @@ enum Events
     EVENT_TEMPORAL_SNAPSHOT,
     EVENT_TEMPORAL_BLAST,
     EVENT_INFINITE_BREATH,
+    EVENT_TAIL_SWEEP,
+    EVENT_ENABLE_HOURGLASS,
     EVENT_REENGAGE_PLAYERS,
     EVENT_DESPAWN,
 
@@ -193,15 +196,25 @@ struct boss_murozond : public BossAI
                 me->SetReactState(REACT_AGGRESSIVE);
                 events.ScheduleEvent(EVENT_TEMPORAL_BLAST, 5s);
                 events.ScheduleEvent(EVENT_INFINITE_BREATH, 8s + 500ms);
+                events.ScheduleEvent(EVENT_TAIL_SWEEP, 17s);
 
                 if (GameObject* hourglass = instance->GetGameObject(DATA_HOURGLASS_OF_TIME))
                     hourglass->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
 
-                // Distortion bombs are being executed independently from events
+                // Distortion bombs are being executed independently from events.
+                // Two bomb series run interleaved for the entire fight.
                 scheduler.Schedule(1ms, [this](TaskContext task)
                 {
                     if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.f, true))
                         me->CastSpell(target, SPELL_DISTORTION_BOMB_1, true); // No DoCast here because we have to bypass the casting state check.
+
+                    task.Repeat(6s);
+                });
+
+                scheduler.Schedule(4s, [this](TaskContext task)
+                {
+                    if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.f, true))
+                        me->CastSpell(target, SPELL_DISTORTION_BOMB_1_ALT, true);
 
                     task.Repeat(6s);
                 });
@@ -238,15 +251,16 @@ struct boss_murozond : public BossAI
                 Talk(SAY_REWIND_TIME + _rewindTimeCount);
                 ++_rewindTimeCount;
 
-                if (_rewindTimeCount == 5)
-                    if (GameObject* hourglass = instance->GetGameObject(DATA_HOURGLASS_OF_TIME))
-                        hourglass->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                // The hourglass has to recharge after each use and becomes permanently unusable after the fifth one
+                if (GameObject* hourglass = instance->GetGameObject(DATA_HOURGLASS_OF_TIME))
+                    hourglass->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
 
                 me->InterruptNonMeleeSpells(true);
                 me->AttackStop();
                 me->StopMoving();
                 me->SetReactState(REACT_PASSIVE);
                 me->CancelSpellMissiles(SPELL_DISTORTION_BOMB_1, true);
+                me->CancelSpellMissiles(SPELL_DISTORTION_BOMB_1_ALT, true);
                 me->CancelSpellMissiles(SPELL_DISTORTION_BOMB_2, true);
                 me->RemoveAllDynObjects();
 
@@ -274,6 +288,8 @@ struct boss_murozond : public BossAI
                 scheduler.CancelAll();
                 events.Reset();
                 events.ScheduleEvent(EVENT_REENGAGE_PLAYERS, 7s);
+                if (_rewindTimeCount < 5)
+                    events.ScheduleEvent(EVENT_ENABLE_HOURGLASS, 15s);
                 break;
             default:
                 break;
@@ -295,6 +311,7 @@ struct boss_murozond : public BossAI
                 me->SetReactState(REACT_PASSIVE);
                 me->SetAIAnimKitId(AI_ANIM_KIT_MUROZOND_DEATH);
                 me->CancelSpellMissiles(SPELL_DISTORTION_BOMB_1, true);
+                me->CancelSpellMissiles(SPELL_DISTORTION_BOMB_1_ALT, true);
                 me->CancelSpellMissiles(SPELL_DISTORTION_BOMB_2, true);
                 me->RemoveAllDynObjects();
                 DoCastSelf(SPELL_FADING);
@@ -347,10 +364,19 @@ struct boss_murozond : public BossAI
                     DoCastVictim(SPELL_INFINITE_BREATH);
                     events.Repeat(23s);
                     break;
+                case EVENT_TAIL_SWEEP:
+                    DoCastAOE(SPELL_TAIL_SWEEP);
+                    events.Repeat(12s);
+                    break;
+                case EVENT_ENABLE_HOURGLASS:
+                    if (GameObject* hourglass = instance->GetGameObject(DATA_HOURGLASS_OF_TIME))
+                        hourglass->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                    break;
                 case EVENT_REENGAGE_PLAYERS:
                     me->SetReactState(REACT_AGGRESSIVE);
                     events.ScheduleEvent(EVENT_TEMPORAL_BLAST, 1s);
                     events.ScheduleEvent(EVENT_INFINITE_BREATH, 10s);
+                    events.ScheduleEvent(EVENT_TAIL_SWEEP, 12s);
 
                     scheduler
                         .Schedule(4s, [this](TaskContext task)
@@ -358,7 +384,13 @@ struct boss_murozond : public BossAI
                             if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.f, true))
                                 me->CastSpell(target, SPELL_DISTORTION_BOMB_1, true);
 
-                            
+                            task.Repeat(6s);
+                        })
+                        .Schedule(5s + 500ms, [this](TaskContext task)
+                        {
+                            if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.f, true))
+                                me->CastSpell(target, SPELL_DISTORTION_BOMB_1_ALT, true);
+
                             task.Repeat(6s);
                         })
                         .Schedule(7s, [this](TaskContext task)
