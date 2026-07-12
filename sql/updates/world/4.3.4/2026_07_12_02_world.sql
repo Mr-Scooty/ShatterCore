@@ -1,10 +1,11 @@
 -- Kezan: "Robbing Hoods" (14121) - the Hot Rod could not run anything over.
 -- Retail (Goblin_P2 sniff): while the Hot Rod moves, the driver spams 66301 (frontal cone
 -- knockback, ~100ms cadence). A hit Hired Looter (35234) casts 67041 on the driver (creates
--- Stolen Loot 47530) and dies on the spot; Kezan Citizens (35063/35075) and Villa Mooks (49218)
--- are launched by the native knockback and the citizens yell at the driver. Nothing cast 66301
--- here, so driving into looters just aggroed them and they burned down the 102hp Hot Rod,
--- dumping the driver into melee. Scripted in spell_kezan_hot_rod_run_over + npc_hot_rod_vehicle.
+-- Stolen Loot 47530), is launched by the native knockback, and dies; Kezan Citizens
+-- (35063/35075) and Villa Mooks (49218) are also launched, and the citizens yell at the driver.
+-- Nothing cast 66301 here, so driving into looters just aggroed them and they burned down the
+-- 102hp Hot Rod, dumping the driver into melee. Scripted in spell_kezan_hot_rod_run_over +
+-- npc_hot_rod_vehicle.
 DELETE FROM `spell_script_names` WHERE `spell_id`=66301;
 INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (66301, 'spell_kezan_hot_rod_run_over');
