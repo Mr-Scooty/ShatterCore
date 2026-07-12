@@ -44,7 +44,9 @@ using namespace std::chrono_literals;
 enum HotRodSpells
 {
     SPELL_KEYS_TO_HOT_ROD = 91551,
-    SPELL_RIDE_VEHICLE = 46598
+    SPELL_RIDE_VEHICLE = 46598,
+    SPELL_HOT_ROD_KNOCK_BACK = 66301, // frontal cone, driver casts it while the rod is moving
+    SPELL_STOLEN_LOOT = 67041         // looter-cast on the driver, creates item 47530
 };
 
 enum HotRodData
@@ -71,8 +73,21 @@ enum HotRodData
 
     SPELL_RESUMMON_IZZY = 66646,
     SPELL_RESUMMON_ACE = 66644,
-    SPELL_RESUMMON_GOBBER = 66645
+    SPELL_RESUMMON_GOBBER = 66645,
+
+    QUEST_ROBBING_HOODS = 14121,
+    NPC_HIRED_LOOTER = 35234,
+    NPC_KEZAN_CITIZEN_1 = 35063,
+    NPC_KEZAN_CITIZEN_2 = 35075
 };
+
+enum HotRodTexts
+{
+    SAY_CITIZEN_RUN_OVER = 0
+};
+
+// The DBC cone of 66301 reaches 12yd; only actual bumper contact counts as running over.
+static constexpr float RUN_OVER_CONTACT_DIST = 5.0f;
 
 static bool ShouldKeepRollingWithHomiesCompanions(Player const* player)
 {
@@ -92,7 +107,8 @@ enum HotRodEvents
     EVENT_BOARD_VEHICLE = 2,
     EVENT_GRANT_CREDIT = 3,
     EVENT_DESPAWN_FAILSAFE = 4,
-    EVENT_REQUEUE_BOARDERS = 5
+    EVENT_REQUEUE_BOARDERS = 5,
+    EVENT_RUN_OVER = 6
 };
 
 enum HotRodActions
@@ -200,6 +216,7 @@ public:
                     player->RemoveExtraUnitMovementFlag(MOVEMENTFLAG2_NO_JUMPING);
                     me->RemoveExtraUnitMovementFlag(MOVEMENTFLAG2_NO_JUMPING);
                     _events.ScheduleEvent(EVENT_REQUEUE_BOARDERS, 1s);
+                    _events.ScheduleEvent(EVENT_RUN_OVER, 100ms);
                 }
                 else
                 {
@@ -258,6 +275,20 @@ public:
                     if (Player* player = ObjectAccessor::GetPlayer(*me, _driverGUID))
                         EnsureSummonedCompanionsBoard(player);
                 }
+                else if (eventId == EVENT_RUN_OVER)
+                {
+                    if (_driverGUID.IsEmpty())
+                        continue;
+
+                    // Retail: the driver spams the run-over cone (~100ms cadence in the
+                    // Goblin_P2 sniff) for as long as the Hot Rod is being driven.
+                    if (Player* driver = ObjectAccessor::GetPlayer(*me, _driverGUID))
+                    {
+                        if (me->isMoving())
+                            driver->CastSpell(driver, SPELL_HOT_ROD_KNOCK_BACK, true);
+                        _events.ScheduleEvent(EVENT_RUN_OVER, 100ms);
+                    }
+                }
             }
         }
 
@@ -300,6 +331,73 @@ public:
     CreatureAI* GetAI(Creature* creature) const override
     {
         return new npc_hot_rod_vehicleAI(creature);
+    }
+};
+
+// 66301 - Hot Rod Knock Back: frontal cone the driver spams while moving. Retail
+// (Goblin_P2 sniff): a run-over Hired Looter casts 67041 on the driver (creates
+// Stolen Loot 47530 for Robbing Hoods) and drops dead on the spot; Kezan Citizens
+// are launched (native knockback, BP/MiscValue 90) and yell at the driver.
+class spell_kezan_hot_rod_run_over : public SpellScriptLoader
+{
+public:
+    spell_kezan_hot_rod_run_over() : SpellScriptLoader("spell_kezan_hot_rod_run_over") { }
+
+    class spell_kezan_hot_rod_run_over_SpellScript : public SpellScript
+    {
+    public:
+        void FilterTargets(std::list<WorldObject*>& targets)
+        {
+            // The DBC cone reaches 12yd - only bumper contact counts as running over.
+            WorldObject* caster = GetCaster();
+            targets.remove_if([caster](WorldObject* target)
+            {
+                return !caster->IsWithinDist(target, RUN_OVER_CONTACT_DIST);
+            });
+        }
+
+        void HandleRunOver(SpellEffIndex effIndex)
+        {
+            Creature* target = GetHitCreature();
+            if (!target || !target->IsAlive())
+                return;
+
+            Player* driver = GetCaster()->ToPlayer();
+
+            if (target->GetEntry() == NPC_HIRED_LOOTER)
+            {
+                // The looter hands over its Stolen Loot and dies where it stands (no
+                // knockback in the sniff). KillSelf leaves the corpse untapped so the
+                // run-over reward cannot be double-dipped from the corpse loot.
+                PreventHitDefaultEffect(effIndex);
+                if (driver && driver->GetQuestStatus(QUEST_ROBBING_HOODS) == QUEST_STATUS_INCOMPLETE)
+                    target->CastSpell(driver, SPELL_STOLEN_LOOT, true);
+                target->KillSelf();
+                return;
+            }
+
+            // Anyone already sailing through the air from a previous tick is skipped -
+            // the 100ms cone would otherwise re-launch them mid-flight.
+            if (target->GetMotionMaster()->GetCurrentMovementGeneratorType() == EFFECT_MOTION_TYPE)
+            {
+                PreventHitDefaultEffect(effIndex);
+                return;
+            }
+
+            if (driver && (target->GetEntry() == NPC_KEZAN_CITIZEN_1 || target->GetEntry() == NPC_KEZAN_CITIZEN_2))
+                target->AI()->Talk(SAY_CITIZEN_RUN_OVER, driver);
+        }
+
+        void Register() override
+        {
+            OnObjectAreaTargetSelect.Register(&spell_kezan_hot_rod_run_over_SpellScript::FilterTargets, EFFECT_0, TARGET_UNIT_CONE_ENTRY);
+            OnEffectHitTarget.Register(&spell_kezan_hot_rod_run_over_SpellScript::HandleRunOver, EFFECT_0, SPELL_EFFECT_KNOCK_BACK);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_hot_rod_run_over_SpellScript();
     }
 };
 
@@ -1199,6 +1297,7 @@ void AddSC_kezan()
 {
     new spell_item_keys_to_the_hot_rod();
     new npc_hot_rod_vehicle();
+    new spell_kezan_hot_rod_run_over();
     new npc_hot_rod_follower();
     new npc_rolling_with_homies_gossip();
     new player_script_rolling_with_homies();
