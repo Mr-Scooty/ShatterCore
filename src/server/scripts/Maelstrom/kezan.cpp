@@ -107,13 +107,41 @@ enum HotRodEvents
     EVENT_BOARD_VEHICLE = 2,
     EVENT_GRANT_CREDIT = 3,
     EVENT_DESPAWN_FAILSAFE = 4,
-    EVENT_REQUEUE_BOARDERS = 5,
-    EVENT_RUN_OVER = 6
+    EVENT_REQUEUE_BOARDERS = 5
 };
 
 enum HotRodActions
 {
     ACTION_BOARD_VEHICLE = 1
+};
+
+// A controllable vehicle's scripted AI is replaced by PossessedAI while it is
+// being driven. Use the vehicle's unit event processor so this retail periodic
+// cast continues after that AI swap.
+class HotRodRunOverEvent : public BasicEvent
+{
+public:
+    HotRodRunOverEvent(Creature* hotRod, ObjectGuid driverGUID) : _hotRod(hotRod), _driverGUID(driverGUID) { }
+
+    bool Execute(uint64 eventTime, uint32 /*diff*/) override
+    {
+        Player* driver = ObjectAccessor::GetPlayer(*_hotRod, _driverGUID);
+        Vehicle* vehicle = _hotRod->GetVehicleKit();
+        if (!driver || !vehicle || vehicle->GetPassenger(0) != driver)
+            return true;
+
+        // Retail: the driver casts the frontal run-over cone roughly every
+        // 100ms while the Hot Rod is moving.
+        if (_hotRod->isMoving())
+            driver->CastSpell(nullptr, SPELL_HOT_ROD_KNOCK_BACK, true);
+
+        _hotRod->m_Events.AddEvent(this, eventTime + 100);
+        return false;
+    }
+
+private:
+    Creature* _hotRod;
+    ObjectGuid _driverGUID;
 };
 
 class spell_item_keys_to_the_hot_rod : public SpellScriptLoader
@@ -216,7 +244,7 @@ public:
                     player->RemoveExtraUnitMovementFlag(MOVEMENTFLAG2_NO_JUMPING);
                     me->RemoveExtraUnitMovementFlag(MOVEMENTFLAG2_NO_JUMPING);
                     _events.ScheduleEvent(EVENT_REQUEUE_BOARDERS, 1s);
-                    _events.ScheduleEvent(EVENT_RUN_OVER, 100ms);
+                    me->m_Events.AddEventAtOffset(new HotRodRunOverEvent(me, _driverGUID), 100ms);
                 }
                 else
                 {
@@ -275,20 +303,6 @@ public:
                     if (Player* player = ObjectAccessor::GetPlayer(*me, _driverGUID))
                         EnsureSummonedCompanionsBoard(player);
                 }
-                else if (eventId == EVENT_RUN_OVER)
-                {
-                    if (_driverGUID.IsEmpty())
-                        continue;
-
-                    // Retail: the driver spams the run-over cone (~100ms cadence in the
-                    // Goblin_P2 sniff) for as long as the Hot Rod is being driven.
-                    if (Player* driver = ObjectAccessor::GetPlayer(*me, _driverGUID))
-                    {
-                        if (me->isMoving())
-                            driver->CastSpell(driver, SPELL_HOT_ROD_KNOCK_BACK, true);
-                        _events.ScheduleEvent(EVENT_RUN_OVER, 100ms);
-                    }
-                }
             }
         }
 
@@ -335,9 +349,9 @@ public:
 };
 
 // 66301 - Hot Rod Knock Back: frontal cone the driver spams while moving. Retail
-// (Goblin_P2 sniff): a run-over Hired Looter casts 67041 on the driver (creates
-// Stolen Loot 47530 for Robbing Hoods) and drops dead on the spot; Kezan Citizens
-// are launched (native knockback, BP/MiscValue 90) and yell at the driver.
+// (Goblin_P2 sniff): a run-over Hired Looter is launched, casts 67041 on the driver
+// (creates Stolen Loot 47530 for Robbing Hoods), and dies; Kezan Citizens are also
+// launched (native knockback, BP/MiscValue 90) and yell at the driver.
 class spell_kezan_hot_rod_run_over : public SpellScriptLoader
 {
 public:
@@ -351,7 +365,27 @@ public:
         // retail kills them on approach (the sniff shows the same citizen hit twice
         // 206ms apart, so the retail cone is deep, not contact-sized).
 
-        void HandleRunOver(SpellEffIndex effIndex)
+        void HandleRunOver(SpellEffIndex /*effIndex*/)
+        {
+            _citizenToTalk.Clear();
+
+            Creature* target = GetHitCreature();
+            if (!target || !target->IsAlive())
+                return;
+
+            // AfterHit handles the loot and death only after the native knockback
+            // has launched the looter, matching the packet order in the sniff.
+            if (target->GetEntry() == NPC_HIRED_LOOTER)
+                return;
+
+            // Retail re-launches targets still inside the cone on later ticks, but a
+            // citizen only reacts on the first hit rather than yelling every 100ms.
+            if (target->GetMotionMaster()->GetCurrentMovementGeneratorType() != EFFECT_MOTION_TYPE &&
+                (target->GetEntry() == NPC_KEZAN_CITIZEN_1 || target->GetEntry() == NPC_KEZAN_CITIZEN_2))
+                _citizenToTalk = target->GetGUID();
+        }
+
+        void HandleAfterHit()
         {
             Creature* target = GetHitCreature();
             if (!target || !target->IsAlive())
@@ -361,32 +395,25 @@ public:
 
             if (target->GetEntry() == NPC_HIRED_LOOTER)
             {
-                // The looter hands over its Stolen Loot and dies where it stands (no
-                // knockback in the sniff). KillSelf leaves the corpse untapped so the
-                // run-over reward cannot be double-dipped from the corpse loot.
-                PreventHitDefaultEffect(effIndex);
+                // The looter hands over its Stolen Loot after being launched, then dies.
+                // KillSelf leaves the corpse untapped so the reward cannot also be looted.
                 if (driver && driver->GetQuestStatus(QUEST_ROBBING_HOODS) == QUEST_STATUS_INCOMPLETE)
                     target->CastSpell(driver, SPELL_STOLEN_LOOT, true);
+
                 target->KillSelf();
-                return;
             }
-
-            // Anyone already sailing through the air from a previous tick is skipped -
-            // the 100ms cone would otherwise re-launch them mid-flight.
-            if (target->GetMotionMaster()->GetCurrentMovementGeneratorType() == EFFECT_MOTION_TYPE)
-            {
-                PreventHitDefaultEffect(effIndex);
-                return;
-            }
-
-            if (driver && (target->GetEntry() == NPC_KEZAN_CITIZEN_1 || target->GetEntry() == NPC_KEZAN_CITIZEN_2))
+            else if (driver && target->GetGUID() == _citizenToTalk)
                 target->AI()->Talk(SAY_CITIZEN_RUN_OVER, driver);
         }
 
         void Register() override
         {
             OnEffectHitTarget.Register(&spell_kezan_hot_rod_run_over_SpellScript::HandleRunOver, EFFECT_0, SPELL_EFFECT_KNOCK_BACK);
+            AfterHit.Register(&spell_kezan_hot_rod_run_over_SpellScript::HandleAfterHit);
         }
+
+    private:
+        ObjectGuid _citizenToTalk;
     };
 
     SpellScript* GetSpellScript() const override
