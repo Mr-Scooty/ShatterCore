@@ -269,20 +269,17 @@ struct npc_baines_totem : public NullCreatureAI
             _visualGuid = visual->GetGUID();
     }
 
-    void OnSpellClick(Unit* clicker, bool& /*result*/) override
+    void OnSpellClick(Unit* /*clicker*/, bool& result) override
     {
-        if (_clicked)
+        if (!result || _clicked)
             return;
 
         _clicked = true;
+        me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_SPELLCLICK);
 
-        // The carry overlay initializes a client side cast in retail. We handle the throw right away instead.
-        clicker->RemoveAurasDueToSpell(SPELL_THROW_TOTEM_CARRY);
-        clicker->RemoveAurasDueToSpell(SPELL_THROW_TOTEM_OVERLAY);
-
-        if (InstanceScript* instance = me->GetInstanceScript())
-            if (Creature* baine = instance->GetCreature(DATA_ECHO_OF_BAINE))
-                clicker->CastSpell(baine, SPELL_TOTEM_BACK, true);
+        // npc_spellclick_spells applies 107837 to the clicker. Its periodic 101601 aura asks the
+        // client to initialize the destination-targeted 101603 throw, which in turn hits Baine
+        // with 101602. Keep that native pickup/aim/throw interaction instead of auto-throwing.
 
         if (Creature* visual = ObjectAccessor::GetCreature(*me, _visualGuid))
             visual->DespawnOrUnsummon(400ms);

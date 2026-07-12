@@ -23,7 +23,9 @@
 #include "InstanceScript.h"
 #include "Map.h"
 #include "ScriptMgr.h"
+#include "TemporarySummon.h"
 
+#include <algorithm>
 #include <array>
 #include <sstream>
 
@@ -121,7 +123,7 @@ public:
                         DoUpdateWorldState(WORLD_STATE_ID_SHOW_COLLECTED_STAVE_FRAGMENTS, 1);
                     break;
                 case MAP_EVENT_MOON_GUARD_FAILED:
-                    _moonGuardEligible = false;
+                    SetData(DATA_MOON_GUARD_ELIGIBLE, 0);
                     return;
                 case MAP_EVENT_OBSIDIAN_DRAGONSHRINE_ENTERED:
                     if (_executedMapEvents.find(eventId) != _executedMapEvents.end())
@@ -161,7 +163,19 @@ public:
 
             // The instance has been created from existing save data, but Murozond has not been defeated yet. Spawn him at his initial position.
             if (GetBossState(DATA_MUROZOND) != DONE)
-                instance->SummonCreature(BOSS_MUROZOND, MurozondSpawnPositions[0]);
+            {
+                if (Creature* murozond = instance->SummonCreature(BOSS_MUROZOND, MurozondSpawnPositions[0]))
+                    if (_killedInfiniteDragonkins >= 8 && murozond->IsAIEnabled())
+                        murozond->AI()->SetData(DATA_MUROZOND_INTRO, DONE);
+            }
+            else
+                instance->SpawnGroupSpawn(SPAWN_GROUP_ID_MUROZOND_CHEST);
+
+            // Manual spawn groups are not restored automatically with instance save data.
+            if (_collectedStaffFragments >= 16 && GetBossState(DATA_ECHO_OF_JAINA) != DONE)
+                instance->SpawnGroupSpawn(SPAWN_GROUP_ID_ECHO_OF_JAINA);
+
+            DoUpdateWorldState(WORLD_STATE_ID_COLLECTED_STAVE_FRAGMENTS, _collectedStaffFragments);
 
             for (uint8 echo : _activeEchoes)
                 if (GetBossState(echo) == DONE)
@@ -170,13 +184,19 @@ public:
 
         void WriteSaveDataMore(std::ostringstream& data) override
         {
-            data << ' ' << uint32(_activeEchoes[0]) << ' ' << uint32(_activeEchoes[1]) << ' ' << uint32(_shadowGauntletState == DONE ? DONE : NOT_STARTED);
+            data << ' ' << uint32(_activeEchoes[0]) << ' ' << uint32(_activeEchoes[1])
+                 << ' ' << uint32(_shadowGauntletState == DONE ? DONE : NOT_STARTED)
+                 << ' ' << uint32(_moonGuardEligible)
+                 << ' ' << uint32(_collectedStaffFragments)
+                 << ' ' << uint32(_killedInfiniteDragonkins);
         }
 
         void ReadSaveDataMore(std::istringstream& data) override
         {
             uint32 first = DATA_ECHO_OF_BAINE, second = DATA_ECHO_OF_JAINA, gauntlet = NOT_STARTED;
+            uint32 moonGuardEligible = 1, collectedStaffFragments = 0, killedInfiniteDragonkins = 0;
             data >> first >> second >> gauntlet;
+            data >> moonGuardEligible >> collectedStaffFragments >> killedInfiniteDragonkins;
             if (first > DATA_ECHO_OF_TYRANDE || second > DATA_ECHO_OF_TYRANDE || first == second)
             {
                 // Corrupt save data, fall back to a fixed pair.
@@ -186,6 +206,9 @@ public:
 
             _activeEchoes = { uint8(first), uint8(second) };
             _shadowGauntletState = gauntlet == DONE ? DONE : NOT_STARTED;
+            _moonGuardEligible = moonGuardEligible != 0;
+            _collectedStaffFragments = uint8(std::min<uint32>(collectedStaffFragments, 16));
+            _killedInfiniteDragonkins = uint8(std::min<uint32>(killedInfiniteDragonkins, 8));
         }
 
         void OnUnitDeath(Unit* unit) override
@@ -197,11 +220,15 @@ public:
             {
                 case NPC_INFINITE_SUPRESSOR:
                 case NPC_INFINITE_WARDEN:
+                    if (_killedInfiniteDragonkins >= 8 || GetBossState(DATA_MUROZOND) == DONE)
+                        break;
+
                     ++_killedInfiniteDragonkins;
                     if (_killedInfiniteDragonkins == 4 || _killedInfiniteDragonkins == 8)
                         if (Creature* murozond = GetCreature(DATA_MUROZOND))
                             if (murozond->IsAIEnabled())
                                 murozond->AI()->SetData(DATA_MUROZOND_INTRO, _killedInfiniteDragonkins == 4 ? IN_PROGRESS : DONE);
+                    SaveToDB();
                     break;
                 default:
                     break;
@@ -269,7 +296,8 @@ public:
 
             // The dungeon encounters are generic 'First Echo' and 'Second Echo' entries, credited in kill order.
             // Boss states replayed from save data are counted in Load() instead.
-            if (type <= DATA_ECHO_OF_TYRANDE && state == DONE && !_loadInProgress)
+            if (type <= DATA_ECHO_OF_TYRANDE && state == DONE && !_loadInProgress
+                && IsActiveEcho(type) && _killedEchoes < 2)
             {
                 ++_killedEchoes;
                 DoCastSpellOnPlayers(_killedEchoes == 1 ? SPELL_FIRST_ECHO_KILL_CREDIT : SPELL_SECOND_ECHO_KILL_CREDIT);
@@ -283,7 +311,7 @@ public:
             switch (type)
             {
                 case DATA_COLLECTED_FRAGMENT_OF_JAINAS_STAFF:
-                    if (GetBossState(DATA_ECHO_OF_JAINA) == DONE)
+                    if (GetBossState(DATA_ECHO_OF_JAINA) == DONE || _collectedStaffFragments >= 16)
                         break;
 
                     ++_collectedStaffFragments;
@@ -296,13 +324,21 @@ public:
                     }
                     else
                         instance->SpawnGroupSpawn(SPAWN_GROUP_ID_ECHO_OF_JAINA);
+                    SaveToDB();
                     break;
                 case DATA_SEVERED_TIES_ELIGIBLE:
                     _severedTiesEligible = value != 0;
                     break;
                 case DATA_MOON_GUARD_ELIGIBLE:
-                    _moonGuardEligible = value != 0;
+                {
+                    bool eligible = value != 0;
+                    if (_moonGuardEligible != eligible)
+                    {
+                        _moonGuardEligible = eligible;
+                        SaveToDB();
+                    }
                     break;
+                }
                 case DATA_SHADOW_GAUNTLET:
                     _shadowGauntletState = EncounterState(value);
                     if (value == DONE)
@@ -363,6 +399,11 @@ public:
         }
 
     private:
+        bool IsActiveEcho(uint32 type) const
+        {
+            return type == _activeEchoes[0] || type == _activeEchoes[1];
+        }
+
         void SelectActiveEchoes()
         {
             std::array<uint8, 4> pool = { DATA_ECHO_OF_BAINE, DATA_ECHO_OF_JAINA, DATA_ECHO_OF_SYLVANAS, DATA_ECHO_OF_TYRANDE };
