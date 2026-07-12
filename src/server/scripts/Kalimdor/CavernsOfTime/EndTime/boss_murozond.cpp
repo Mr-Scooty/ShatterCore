@@ -37,6 +37,10 @@ TODO List:
 #include "SpellScript.h"
 #include "TemporarySummon.h"
 
+#include <algorithm>
+#include <array>
+#include <unordered_map>
+
 namespace EndTime::Murozond
 {
 enum Spells
@@ -66,7 +70,8 @@ enum Spells
     SPELL_MARK_MASTER_AS_DESUMMONED             = 80929, // Todo: research and when exactly to use.
     SPELL_TEMPORAL_DISPLACEMENT                 = 80354,
     SPELL_EXHAUSTION                            = 57723,
-    SPELL_SATED                                 = 57724
+    SPELL_SATED                                 = 57724,
+    SPELL_INSANITY                              = 95809
 };
 
 enum Events
@@ -124,12 +129,19 @@ Position const ArenaFlightPosition                  = { 4181.117f, -420.21933f, 
 Position const ArenaLandPosition                    = { 4181.117f, -420.21933f, 119.77462f };
 constexpr float FlightPreFightOrientation           = 3.1066861f;
 
-std::array<Milliseconds, 4> DistortionBombIntervals =
+std::array<Milliseconds, 5> DistortionBombIntervals =
 {
     6s,
     2s,
     1s + 500ms,
+    1s + 500ms,
     1s + 500ms
+};
+
+struct PlayerSnapshot
+{
+    uint64 Health = 0;
+    std::array<int32, MAX_POWERS> Powers = { };
 };
 
 struct boss_murozond : public BossAI
@@ -154,6 +166,20 @@ struct boss_murozond : public BossAI
     void JustEngagedWith(Unit* who) override
     {
         _JustEngagedWith(who);
+
+        _playerSnapshots.clear();
+        for (MapReference const& ref : instance->instance->GetPlayers())
+        {
+            Player* player = ref.GetSource();
+            if (!player || !player->IsAlive() || player->IsGameMaster())
+                continue;
+
+            PlayerSnapshot& snapshot = _playerSnapshots[player->GetGUID()];
+            snapshot.Health = player->GetHealth();
+            for (uint8 power = 0; power < MAX_POWERS; ++power)
+                snapshot.Powers[power] = player->GetPower(Powers(power));
+        }
+
         instance->DoCastSpellOnPlayers(SPELL_SANDS_OF_THE_HOURGLASS);
         instance->SendEncounterUnit(ENCOUNTER_FRAME_ENGAGE, me, 1);
         Talk(SAY_AGGRO);
@@ -248,6 +274,9 @@ struct boss_murozond : public BossAI
         switch (action)
         {
             case ACTION_REWIND_TIME: // This whole action is triggered by a serverside spell so we have creative freedom here.
+                if (_rewindTimeCount >= DistortionBombIntervals.size())
+                    break;
+
                 Talk(SAY_REWIND_TIME + _rewindTimeCount);
                 ++_rewindTimeCount;
 
@@ -273,6 +302,23 @@ struct boss_murozond : public BossAI
                             if (player->isDead())
                                 player->ResurrectPlayer(100.f);
 
+                            auto snapshotItr = _playerSnapshots.find(player->GetGUID());
+                            if (snapshotItr != _playerSnapshots.end())
+                            {
+                                PlayerSnapshot const& snapshot = snapshotItr->second;
+                                player->SetHealth(std::min<uint64>(snapshot.Health, player->GetMaxHealth()));
+                                for (uint8 power = 0; power < MAX_POWERS; ++power)
+                                    player->SetPower(Powers(power), snapshot.Powers[power]);
+                            }
+                            else
+                            {
+                                // A late joiner has no pull-time snapshot; full restoration is the
+                                // closest equivalent and matches the Hourglass tooltip.
+                                player->SetFullHealth();
+                                Powers primaryPower = player->GetPowerType();
+                                player->SetPower(primaryPower, player->GetMaxPower(primaryPower));
+                            }
+
                             player->SetPower(POWER_ALTERNATE_POWER, player->GetMaxPower(POWER_ALTERNATE_POWER) - _rewindTimeCount);
                             player->GetSpellHistory()->ResetAllCooldowns(); // Todo: does this really reset ALL of them or just class specific spells? (thinking about profession cooldowns)
                         }
@@ -284,6 +330,7 @@ struct boss_murozond : public BossAI
                 instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_EXHAUSTION);
                 instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_SATED);
                 instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_TEMPORAL_DISPLACEMENT);
+                instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_INSANITY);
 
                 scheduler.CancelAll();
                 events.Reset();
@@ -415,6 +462,7 @@ struct boss_murozond : public BossAI
 private:
     uint8 _rewindTimeCount;
     bool _defeated;
+    std::unordered_map<ObjectGuid, PlayerSnapshot> _playerSnapshots;
 };
 
 struct npc_murozond_mirror_image : public NullCreatureAI

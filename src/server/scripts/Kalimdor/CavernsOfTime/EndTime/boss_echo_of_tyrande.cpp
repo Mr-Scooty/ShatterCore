@@ -32,6 +32,8 @@
 #include "SpellScript.h"
 #include "TemporarySummon.h"
 
+#include <vector>
+
 namespace EndTime::EchoOfTyrande
 {
 enum Spells
@@ -42,7 +44,8 @@ enum Spells
     SPELL_STARDUST                      = 102173,
     SPELL_MOONLANCE                     = 102151,
     SPELL_MOONLANCE_SPLIT               = 102152,
-    SPELL_EYES_OF_THE_GODDESS           = 102606,
+    SPELL_EYES_OF_THE_GODDESS_FIRST     = 102181,
+    SPELL_EYES_OF_THE_GODDESS_REPEAT    = 102606,
     SPELL_EYES_OF_THE_GODDESS_INSTANT   = 102608,
     SPELL_LUNAR_GUIDANCE                = 102472,
     SPELL_TEARS_OF_ELUNE                = 102241,
@@ -161,6 +164,36 @@ constexpr float EyeCircleRadius     = 34.6f;
 constexpr float EyeSpeed            = 7.46f;
 constexpr float LanceSpeed          = 7.5f;
 
+bool IsHealer(Player const* player)
+{
+    if (uint8 roles = sLFGMgr->GetRoles(player->GetGUID()))
+        return (roles & lfg::PLAYER_ROLE_HEALER) != 0;
+
+    switch (player->GetPrimaryTalentTree(player->GetActiveSpec()))
+    {
+        case TALENT_TREE_PALADIN_HOLY:
+        case TALENT_TREE_PRIEST_DISCIPLINE:
+        case TALENT_TREE_PRIEST_HOLY:
+        case TALENT_TREE_SHAMAN_RESTORATION:
+        case TALENT_TREE_DRUID_RESTORATION:
+            return true;
+        default:
+            break;
+    }
+
+    return false;
+}
+
+Player* SelectHealer(Map* map)
+{
+    for (MapReference const& ref : map->GetPlayers())
+        if (Player* player = ref.GetSource())
+            if (player->IsAlive() && !player->IsGameMaster() && IsHealer(player))
+                return player;
+
+    return nullptr;
+}
+
 struct boss_echo_of_tyrande : public BossAI
 {
     boss_echo_of_tyrande(Creature* creature) : BossAI(creature, DATA_ECHO_OF_TYRANDE),
@@ -170,7 +203,7 @@ struct boss_echo_of_tyrande : public BossAI
     {
         me->SetControlled(true, UNIT_STATE_ROOT);
         if (instance->GetData(DATA_SHADOW_GAUNTLET) == DONE)
-            MakeAttackable();
+            RestorePostGauntletState();
     }
 
     void JustEngagedWith(Unit* who) override
@@ -181,8 +214,8 @@ struct boss_echo_of_tyrande : public BossAI
 
         if (instance->GetData(DATA_MOON_GUARD_ELIGIBLE))
             DoCastAOE(SPELL_ACHIEVEMENT_CREDIT, true);
-        else
-            instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_ACHIEVEMENT_TRACKER);
+        instance->SetData(DATA_MOON_GUARD_ELIGIBLE, 0);
+        instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_ACHIEVEMENT_TRACKER);
 
         events.ScheduleEvent(EVENT_MOONBOLT, 1ms);
         events.ScheduleEvent(EVENT_STARDUST, 7s);
@@ -202,7 +235,14 @@ struct boss_echo_of_tyrande : public BossAI
         _Reset();
         _lunarGuidanceCount = 0;
         _tearsOfElune = false;
+        _firstMoonlance = true;
+        _firstEyes = true;
         me->SetControlled(true, UNIT_STATE_ROOT);
+
+        // Evade removes Dark Moonlight and reloads the template's In Shadow aura.
+        // A completed gauntlet must remain completed across boss attempts.
+        if (me->IsInWorld() && instance->GetData(DATA_SHADOW_GAUNTLET) == DONE)
+            RestorePostGauntletState();
     }
 
     void JustDied(Unit* killer) override
@@ -265,6 +305,11 @@ struct boss_echo_of_tyrande : public BossAI
                         pool->DespawnOrUnsummon();
 
                     instance->SetData(DATA_SHADOW_GAUNTLET, NOT_STARTED);
+                    instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_ACHIEVEMENT_TRACKER);
+                    ResetGauntletAdds();
+                    _currentPoolGuid = ObjectGuid::Empty;
+                    _dispatchedWaves = 0;
+                    _aliveWaveAdds = 0;
                     _gauntletResetPending = false;
                 });
                 break;
@@ -287,6 +332,9 @@ struct boss_echo_of_tyrande : public BossAI
     void UpdateAI(uint32 diff) override
     {
         scheduler.Update(diff);
+
+        if (instance->GetData(DATA_SHADOW_GAUNTLET) == IN_PROGRESS && !_gauntletResetPending && !HasLivingGauntletPlayer())
+            DoAction(ACTION_GAUNTLET_RESET);
 
         if (!UpdateVictim())
             return;
@@ -323,9 +371,11 @@ struct boss_echo_of_tyrande : public BossAI
                     {
                         _firstEyes = false;
                         Talk(SAY_EYES_OF_THE_GODDESS);
+                        DoCastSelf(SPELL_EYES_OF_THE_GODDESS_FIRST);
                     }
+                    else
+                        DoCastSelf(SPELL_EYES_OF_THE_GODDESS_REPEAT);
                     DoCastSelf(SPELL_EYES_OF_THE_GODDESS_INSTANT, true);
-                    DoCastSelf(SPELL_EYES_OF_THE_GODDESS);
                     events.Repeat(21s, 26s);
                     break;
                 case EVENT_LUNAR_GUIDANCE:
@@ -354,6 +404,13 @@ struct boss_echo_of_tyrande : public BossAI
     }
 
 private:
+    void RestorePostGauntletState()
+    {
+        MakeAttackable();
+        me->RemoveAllDynObjects();
+        me->CastSpell(me->GetPosition(), SPELL_DARK_MOONLIGHT, true);
+    }
+
     void MakeAttackable()
     {
         me->RemoveAurasDueToSpell(SPELL_IN_SHADOW);
@@ -429,6 +486,29 @@ private:
             ++_aliveWaveAdds;
             --count;
         }
+
+        // The 4.3.4 spawn data has fewer static Sentinels and Huntresses than the retail
+        // wave schedule requires. Materialize only the shortfall, just outside the light.
+        std::vector<uint32> entryPool(entries);
+        while (count && !entryPool.empty())
+        {
+            float angle = frand(0.f, float(2 * M_PI));
+            float distance = frand(25.f, 40.f);
+            Position position = around;
+            position.m_positionX += std::cos(angle) * distance;
+            position.m_positionY += std::sin(angle) * distance;
+            position.m_positionZ += 5.f;
+            me->UpdateGroundPositionZ(position.m_positionX, position.m_positionY, position.m_positionZ);
+
+            uint32 entry = entryPool[urand(0, uint32(entryPool.size() - 1))];
+            Creature* add = me->SummonCreature(entry, position, TEMPSUMMON_CORPSE_DESPAWN);
+            if (!add || !add->IsAIEnabled())
+                break;
+
+            add->AI()->DoAction(ACTION_ACTIVATE);
+            ++_aliveWaveAdds;
+            --count;
+        }
     }
 
     void CheckPoolCleared()
@@ -454,10 +534,51 @@ private:
 
     void CompleteGauntlet()
     {
+        instance->DoRemoveAurasDueToSpellOnPlayers(SPELL_ACHIEVEMENT_TRACKER);
         instance->SetData(DATA_SHADOW_GAUNTLET, DONE);
         Talk(EMOTE_DARK_MOONLIGHT);
-        MakeAttackable();
-        me->CastSpell(me->GetPosition(), SPELL_DARK_MOONLIGHT, true);
+        RestorePostGauntletState();
+    }
+
+    bool HasLivingGauntletPlayer() const
+    {
+        for (MapReference const& ref : me->GetMap()->GetPlayers())
+            if (Player* player = ref.GetSource())
+                if (player->IsAlive() && !player->IsGameMaster() && me->IsWithinDist(player, 300.f, false))
+                    return true;
+
+        return false;
+    }
+
+    void ResetGauntletAdds()
+    {
+        uint32 const entries[] =
+        {
+            NPC_TIME_TWISTED_SENTINEL,
+            NPC_TIME_TWISTED_NIGHTSABER_1,
+            NPC_TIME_TWISTED_NIGHTSABER_2,
+            NPC_TIME_TWISTED_NIGHTSABER_3,
+            NPC_TIME_TWISTED_HUNTRESS
+        };
+
+        for (uint32 entry : entries)
+        {
+            std::list<Creature*> adds;
+            me->GetCreatureListWithEntryInGrid(adds, entry, 250.f);
+            for (Creature* add : adds)
+            {
+                if (add->ToTempSummon())
+                {
+                    add->DespawnOrUnsummon();
+                    continue;
+                }
+
+                if (!add->IsAlive())
+                    add->Respawn(true);
+                else if (add->IsAIEnabled() && !add->AI()->GetData(DATA_IS_DORMANT))
+                    add->AI()->EnterEvadeMode();
+            }
+        }
     }
 
     uint8 _currentPool;
@@ -562,6 +683,14 @@ struct npc_echo_of_tyrande_gauntlet_add : public ScriptedAI
         me->SetReactState(REACT_AGGRESSIVE);
         DoCastSelf(SPELL_IN_SHADOW, true);
         DoZoneInCombat();
+
+        // Retail waves initially make a beeline for the healer. One point of opening
+        // threat selects that target while still allowing the tank to pick the add up.
+        if (Player* healer = SelectHealer(me->GetMap()))
+        {
+            me->GetThreatManager().AddThreat(healer, 1.f);
+            AttackStart(healer);
+        }
     }
 
     void EnterEvadeMode(EvadeReason why) override
@@ -759,25 +888,7 @@ class spell_echo_of_tyrande_achievement_tracker : public SpellScript
         targets.remove_if([](WorldObject const* target)
         {
             Player const* player = target->ToPlayer();
-            if (!player)
-                return true;
-
-            if (uint8 roles = sLFGMgr->GetRoles(player->GetGUID()))
-                return (roles & lfg::PLAYER_ROLE_HEALER) == 0;
-
-            switch (player->GetPrimaryTalentTree(player->GetActiveSpec()))
-            {
-                case TALENT_TREE_PALADIN_HOLY:
-                case TALENT_TREE_PRIEST_DISCIPLINE:
-                case TALENT_TREE_PRIEST_HOLY:
-                case TALENT_TREE_SHAMAN_RESTORATION:
-                case TALENT_TREE_DRUID_RESTORATION:
-                    return false;
-                default:
-                    break;
-            }
-
-            return true;
+            return !player || !IsHealer(player);
         });
     }
 

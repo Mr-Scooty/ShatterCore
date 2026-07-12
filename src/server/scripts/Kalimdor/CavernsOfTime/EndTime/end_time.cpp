@@ -60,6 +60,11 @@ enum GossipMenuIds
     GOSSIP_MENU_OPTION_ID_WELL_OF_ETERNITY  = 0
 };
 
+enum NozdormuSpells
+{
+    SPELL_TELEPORT_PLAYERS_WELL_OF_ETERNITY = 107691
+};
+
 Position const NozdormuEncounterTeleportPosition    = { 4033.37f, -294.457f, 181.613f, 5.8119464f };
 Position const NozdormuDefeatTeleportPosition       = { 4138.48f, -429.436f, 122.259f, 5.8119464f };
 
@@ -85,9 +90,15 @@ struct npc_end_time_nozdormu : public NullCreatureAI
         return true;
     }
 
-    bool GossipSelect(Player* /*player*/, uint32 /*menuId*/, uint32 /*gossipListId*/) override
+    bool GossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
     {
-        // Todo: Well of Eternity teleport
+        if (!_instance || menuId != GOSSIP_MENU_ID_NOZDORMU
+            || gossipListId != GOSSIP_MENU_OPTION_ID_WELL_OF_ETERNITY
+            || _instance->GetBossState(DATA_MUROZOND) != DONE || player->IsInCombat())
+            return true;
+
+        CloseGossipMenuFor(player);
+        me->CastSpell(player, SPELL_TELEPORT_PLAYERS_WELL_OF_ETERNITY, true);
 
         return true;
     }
@@ -211,7 +222,7 @@ TransitDeviceEchoWing const TransitDeviceEchoWings[] =
     { DATA_ECHO_OF_BAINE,       AREA_ID_OBSIDIAN_DRAGONSHRINE,  GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_OBSIDIAN,   GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_OBSIDIAN   }
 };
 
-static std::unordered_map<uint32 /*gossipIndex*/, uint32 /*teleportSpellId*/> TransitDeviceTeleportSpells =
+static std::unordered_map<uint32 /*gossipIndex*/, uint32 /*teleportSpellId*/> const TransitDeviceTeleportSpells =
 {
     { GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME,        SPELL_TELEPORT_TO_ENTRANCE              },
     { GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_RUBY,         SPELL_TELEPORT_TO_RUBY_DRAGONSHRINE     },
@@ -224,6 +235,31 @@ static std::unordered_map<uint32 /*gossipIndex*/, uint32 /*teleportSpellId*/> Tr
     { GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_OBSIDIAN,    SPELL_TELEPORT_TO_OBSIDIAN_DRAGONSHRINE },
     { GOSSIP_INDEX_TELEPORT_TO_BRONZE_DRAGONSHRINE,     SPELL_TELEPORT_TO_BRONZE_DRAGONSHRINE   }
 };
+
+bool IsTransitOptionAvailable(Player const* player, InstanceScript const* instance, uint32 gossipIndex)
+{
+    if (gossipIndex == GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME)
+        return player->GetAreaId() != AREA_ID_ENTRYWAY_OF_TIME;
+
+    uint32 firstEcho = instance->GetData(DATA_ACTIVE_ECHO_1);
+    uint32 secondEcho = instance->GetData(DATA_ACTIVE_ECHO_2);
+
+    for (TransitDeviceEchoWing const& wing : TransitDeviceEchoWings)
+    {
+        if (player->GetAreaId() == wing.AreaId)
+            continue;
+
+        if (wing.BossDataId == firstEcho && gossipIndex == wing.FirstEchoGossipIndex)
+            return true;
+
+        if (wing.BossDataId == secondEcho && gossipIndex == wing.SecondEchoGossipIndex)
+            return instance->GetBossState(firstEcho) == DONE;
+    }
+
+    return gossipIndex == GOSSIP_INDEX_TELEPORT_TO_BRONZE_DRAGONSHRINE
+        && player->GetAreaId() != AREA_ID_BRONZE_DRAGONSHRINE
+        && instance->GetBossState(firstEcho) == DONE && instance->GetBossState(secondEcho) == DONE;
+}
 
 struct go_end_time_time_transit_device : public GameObjectAI
 {
@@ -242,7 +278,8 @@ struct go_end_time_time_transit_device : public GameObjectAI
         if (player->GetAreaId() != AREA_ID_ENTRYWAY_OF_TIME)
             AddGossipItemFor(player, GOSSIP_MENU_ID_SELECT_YOUR_DESTINATION, GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + AsUnderlyingType(GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME));
 
-        // Each instance offers a randomly selected pair of Echo wings. The player's current shrine is never offered.
+        // Retail exposes the selected wings sequentially: only the first Echo is available initially,
+        // then both Echo wings after the first has been defeated. The current shrine is never offered.
         uint32 const activeEchoes[2] = { _instance->GetData(DATA_ACTIVE_ECHO_1), _instance->GetData(DATA_ACTIVE_ECHO_2) };
         for (TransitDeviceEchoWing const& wing : TransitDeviceEchoWings)
         {
@@ -253,7 +290,11 @@ struct go_end_time_time_transit_device : public GameObjectAI
             if (wing.BossDataId == activeEchoes[0])
                 gossipIndex = wing.FirstEchoGossipIndex;
             else if (wing.BossDataId == activeEchoes[1])
+            {
+                if (_instance->GetBossState(activeEchoes[0]) != DONE)
+                    continue;
                 gossipIndex = wing.SecondEchoGossipIndex;
+            }
             else
                 continue;
 
@@ -270,17 +311,21 @@ struct go_end_time_time_transit_device : public GameObjectAI
         return true;
     }
 
-    bool GossipSelect(Player* player, uint32 /*gossipMenuId*/, uint32 action) override
+    bool GossipSelect(Player* player, uint32 gossipMenuId, uint32 gossipListId) override
     {
-        uint32 index = player->PlayerTalkClass->GetGossipOptionAction(action) - GOSSIP_ACTION_INFO_DEF;
-        ClearGossipMenuFor(player);
-
-        if (player->IsInCombat())
+        if (!_instance || gossipMenuId != GOSSIP_MENU_ID_SELECT_YOUR_DESTINATION)
             return true;
 
+        uint32 gossipAction = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
+        ClearGossipMenuFor(player);
+
+        if (player->IsInCombat() || gossipAction < GOSSIP_ACTION_INFO_DEF)
+            return true;
+
+        uint32 index = gossipAction - GOSSIP_ACTION_INFO_DEF;
         auto itr = TransitDeviceTeleportSpells.find(index);
-        if (itr != TransitDeviceTeleportSpells.end())
-            player->CastSpell(player, itr->second);
+        if (itr != TransitDeviceTeleportSpells.end() && IsTransitOptionAvailable(player, _instance, index))
+            player->CastSpell(player, itr->second, true);
 
         return true;
     }
