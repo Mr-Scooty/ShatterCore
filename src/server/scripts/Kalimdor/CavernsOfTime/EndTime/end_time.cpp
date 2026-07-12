@@ -158,13 +158,22 @@ private:
 
 enum TimeTransitDeviceAreaIds
 {
-    AREA_ID_ENTRYWAY_OF_TIME = 5796
+    AREA_ID_RUBY_DRAGONSHRINE       = 5790,
+    AREA_ID_OBSIDIAN_DRAGONSHRINE   = 5792,
+    AREA_ID_AZURE_DRAGONSHRINE      = 5793,
+    AREA_ID_EMERALD_DRAGONSHRINE    = 5794,
+    AREA_ID_BRONZE_DRAGONSHRINE     = 5795,
+    AREA_ID_ENTRYWAY_OF_TIME        = 5796
 };
 
 enum TimeTransitDeviceSpells
 {
-    SPELL_TELEPORT_TO_ENTRANCE          = 102564,
-    SPELL_TELEPORT_TO_BLUE_DRAGONSHRINE = 102126
+    SPELL_TELEPORT_TO_ENTRANCE              = 102564,
+    SPELL_TELEPORT_TO_BLUE_DRAGONSHRINE     = 102126,
+    SPELL_TELEPORT_TO_RUBY_DRAGONSHRINE     = 102579,
+    SPELL_TELEPORT_TO_OBSIDIAN_DRAGONSHRINE = 103868,
+    SPELL_TELEPORT_TO_EMERALD_DRAGONSHRINE  = 104761,
+    SPELL_TELEPORT_TO_BRONZE_DRAGONSHRINE   = 104764
 };
 
 enum TimeTransitGossipMenuIds
@@ -174,16 +183,46 @@ enum TimeTransitGossipMenuIds
 
 enum TimeTransitGossipIndexes
 {
-    GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME               = 0,
-    GOSSIP_INDEX_TELEPORT_TO_BLUE_DRAGONSHRINE_FIRST_ECHO   = 3,
-    GOSSIP_INDEX_TELEPORT_TO_BLUE_DRAGONSHRINE_SECOND_ECHO  = 7
+    GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME           = 0,
+    GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_RUBY            = 1,
+    GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_EMERALD         = 2,
+    GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_BLUE            = 3,
+    GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_OBSIDIAN        = 4,
+    GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_RUBY           = 5,
+    GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_EMERALD        = 6,
+    GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_BLUE           = 7,
+    GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_OBSIDIAN       = 8,
+    GOSSIP_INDEX_TELEPORT_TO_BRONZE_DRAGONSHRINE        = 9
 };
 
-static std::unordered_map<uint32 /*gossipMenuId*/, uint32 /*teleportSpellId*/> TransitDeviceTeleportSpells =
+struct TransitDeviceEchoWing
 {
-    { GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME,                SPELL_TELEPORT_TO_ENTRANCE          },
-    { GOSSIP_INDEX_TELEPORT_TO_BLUE_DRAGONSHRINE_FIRST_ECHO,    SPELL_TELEPORT_TO_BLUE_DRAGONSHRINE },
-    { GOSSIP_INDEX_TELEPORT_TO_BLUE_DRAGONSHRINE_SECOND_ECHO,   SPELL_TELEPORT_TO_BLUE_DRAGONSHRINE }
+    uint32 BossDataId;
+    uint32 AreaId;
+    uint32 FirstEchoGossipIndex;
+    uint32 SecondEchoGossipIndex;
+};
+
+TransitDeviceEchoWing const TransitDeviceEchoWings[] =
+{
+    { DATA_ECHO_OF_SYLVANAS,    AREA_ID_RUBY_DRAGONSHRINE,      GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_RUBY,       GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_RUBY       },
+    { DATA_ECHO_OF_TYRANDE,     AREA_ID_EMERALD_DRAGONSHRINE,   GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_EMERALD,    GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_EMERALD    },
+    { DATA_ECHO_OF_JAINA,       AREA_ID_AZURE_DRAGONSHRINE,     GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_BLUE,       GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_BLUE       },
+    { DATA_ECHO_OF_BAINE,       AREA_ID_OBSIDIAN_DRAGONSHRINE,  GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_OBSIDIAN,   GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_OBSIDIAN   }
+};
+
+static std::unordered_map<uint32 /*gossipIndex*/, uint32 /*teleportSpellId*/> TransitDeviceTeleportSpells =
+{
+    { GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME,        SPELL_TELEPORT_TO_ENTRANCE              },
+    { GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_RUBY,         SPELL_TELEPORT_TO_RUBY_DRAGONSHRINE     },
+    { GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_EMERALD,      SPELL_TELEPORT_TO_EMERALD_DRAGONSHRINE  },
+    { GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_BLUE,         SPELL_TELEPORT_TO_BLUE_DRAGONSHRINE     },
+    { GOSSIP_INDEX_TELEPORT_TO_FIRST_ECHO_OBSIDIAN,     SPELL_TELEPORT_TO_OBSIDIAN_DRAGONSHRINE },
+    { GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_RUBY,        SPELL_TELEPORT_TO_RUBY_DRAGONSHRINE     },
+    { GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_EMERALD,     SPELL_TELEPORT_TO_EMERALD_DRAGONSHRINE  },
+    { GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_BLUE,        SPELL_TELEPORT_TO_BLUE_DRAGONSHRINE     },
+    { GOSSIP_INDEX_TELEPORT_TO_SECOND_ECHO_OBSIDIAN,    SPELL_TELEPORT_TO_OBSIDIAN_DRAGONSHRINE },
+    { GOSSIP_INDEX_TELEPORT_TO_BRONZE_DRAGONSHRINE,     SPELL_TELEPORT_TO_BRONZE_DRAGONSHRINE   }
 };
 
 struct go_end_time_time_transit_device : public GameObjectAI
@@ -203,8 +242,28 @@ struct go_end_time_time_transit_device : public GameObjectAI
         if (player->GetAreaId() != AREA_ID_ENTRYWAY_OF_TIME)
             AddGossipItemFor(player, GOSSIP_MENU_ID_SELECT_YOUR_DESTINATION, GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + AsUnderlyingType(GOSSIP_INDEX_TELEPORT_TO_ENTRYWAY_OF_TIME));
 
-        // @todo: world state based menu generation
-        AddGossipItemFor(player, GOSSIP_MENU_ID_SELECT_YOUR_DESTINATION, GOSSIP_INDEX_TELEPORT_TO_BLUE_DRAGONSHRINE_FIRST_ECHO, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + AsUnderlyingType(GOSSIP_INDEX_TELEPORT_TO_BLUE_DRAGONSHRINE_FIRST_ECHO));
+        // Each instance offers a randomly selected pair of Echo wings. The player's current shrine is never offered.
+        uint32 const activeEchoes[2] = { _instance->GetData(DATA_ACTIVE_ECHO_1), _instance->GetData(DATA_ACTIVE_ECHO_2) };
+        for (TransitDeviceEchoWing const& wing : TransitDeviceEchoWings)
+        {
+            if (player->GetAreaId() == wing.AreaId)
+                continue;
+
+            uint32 gossipIndex = 0;
+            if (wing.BossDataId == activeEchoes[0])
+                gossipIndex = wing.FirstEchoGossipIndex;
+            else if (wing.BossDataId == activeEchoes[1])
+                gossipIndex = wing.SecondEchoGossipIndex;
+            else
+                continue;
+
+            AddGossipItemFor(player, GOSSIP_MENU_ID_SELECT_YOUR_DESTINATION, gossipIndex, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + gossipIndex);
+        }
+
+        // The Bronze Dragonshrine only opens up when both active Echoes have been defeated
+        if (player->GetAreaId() != AREA_ID_BRONZE_DRAGONSHRINE
+            && _instance->GetBossState(activeEchoes[0]) == DONE && _instance->GetBossState(activeEchoes[1]) == DONE)
+            AddGossipItemFor(player, GOSSIP_MENU_ID_SELECT_YOUR_DESTINATION, GOSSIP_INDEX_TELEPORT_TO_BRONZE_DRAGONSHRINE, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + AsUnderlyingType(GOSSIP_INDEX_TELEPORT_TO_BRONZE_DRAGONSHRINE));
 
         SendGossipMenuFor(player, player->GetGossipTextId(GOSSIP_MENU_ID_SELECT_YOUR_DESTINATION, me), me->GetGUID());
 
@@ -214,8 +273,14 @@ struct go_end_time_time_transit_device : public GameObjectAI
     bool GossipSelect(Player* player, uint32 /*gossipMenuId*/, uint32 action) override
     {
         uint32 index = player->PlayerTalkClass->GetGossipOptionAction(action) - GOSSIP_ACTION_INFO_DEF;
-        player->CastSpell(player, TransitDeviceTeleportSpells[index]);
         ClearGossipMenuFor(player);
+
+        if (player->IsInCombat())
+            return true;
+
+        auto itr = TransitDeviceTeleportSpells.find(index);
+        if (itr != TransitDeviceTeleportSpells.end())
+            player->CastSpell(player, itr->second);
 
         return true;
     }
