@@ -379,12 +379,13 @@ class spell_echo_of_jaina_blink : public SpellScript
             return false;
         });
 
-        if (blinkTargets.size() > 1)
-        {
-            blinkTargets.sort(Trinity::ObjectDistanceOrderPred(GetCaster()));
-            blinkTargets.resize(1);
-            target = *blinkTargets.front();
-        }
+        // The spell ships without implicit-target conditions, so the core picks an
+        // arbitrary nearby unit - always override, even with a single stalker left.
+        if (blinkTargets.empty())
+            return;
+
+        blinkTargets.sort(Trinity::ObjectDistanceOrderPred(GetCaster()));
+        target = *blinkTargets.front();
     }
 
     void Register() override

@@ -221,7 +221,7 @@ struct boss_murozond : public BossAI
                 me->SetHover(false);
                 me->SetReactState(REACT_AGGRESSIVE);
                 events.ScheduleEvent(EVENT_TEMPORAL_BLAST, 5s);
-                events.ScheduleEvent(EVENT_INFINITE_BREATH, 8s + 500ms);
+                events.ScheduleEvent(EVENT_INFINITE_BREATH, 16s); // DBM: 22 s from pull; he lands ~6 s in
                 events.ScheduleEvent(EVENT_TAIL_SWEEP, 17s);
 
                 if (GameObject* hourglass = instance->GetGameObject(DATA_HOURGLASS_OF_TIME))
@@ -263,6 +263,15 @@ struct boss_murozond : public BossAI
                     me->setActive(true);
                     me->GetMotionMaster()->MovePoint(POINT_ARENA, ArenaFlightPosition, false);
                 }
+                else if (data == SPECIAL)
+                {
+                    // Reload with the gauntlet already finished: snap to the arena
+                    // hover point without replaying the yell and flight.
+                    me->NearTeleportTo(ArenaFlightPosition);
+                    me->SetHomePosition(ArenaFlightPosition);
+                    me->SetFacingTo(FlightPreFightOrientation);
+                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                }
                 break;
             default:
                 break;
@@ -292,6 +301,7 @@ struct boss_murozond : public BossAI
                 me->CancelSpellMissiles(SPELL_DISTORTION_BOMB_1_ALT, true);
                 me->CancelSpellMissiles(SPELL_DISTORTION_BOMB_2, true);
                 me->RemoveAllDynObjects();
+                DoCastAOE(SPELL_DISTORTION_BOMB_REWIND_TIME, true);
 
                 for (auto& itr : instance->instance->GetPlayers())
                 {
@@ -384,7 +394,9 @@ struct boss_murozond : public BossAI
 
     void UpdateAI(uint32 diff) override
     {
-        if (!UpdateVictim())
+        // After the defeat he lingers at 1 HP for the outro - combat may drop
+        // in that window and UpdateVictim() would evade-despawn him mid-RP.
+        if (!_defeated && !UpdateVictim())
             return;
 
         events.Update(diff);
@@ -409,7 +421,7 @@ struct boss_murozond : public BossAI
                     break;
                 case EVENT_INFINITE_BREATH:
                     DoCastVictim(SPELL_INFINITE_BREATH);
-                    events.Repeat(23s);
+                    events.Repeat(22s); // DBM cadence
                     break;
                 case EVENT_TAIL_SWEEP:
                     DoCastAOE(SPELL_TAIL_SWEEP);
@@ -421,8 +433,10 @@ struct boss_murozond : public BossAI
                     break;
                 case EVENT_REENGAGE_PLAYERS:
                     me->SetReactState(REACT_AGGRESSIVE);
-                    events.ScheduleEvent(EVENT_TEMPORAL_BLAST, 1s);
-                    events.ScheduleEvent(EVENT_INFINITE_BREATH, 10s);
+                    // DBM restarts blast at 12 s / breath at 22 s from the Rewind Time aura,
+                    // which lands 7 s before this re-engage.
+                    events.ScheduleEvent(EVENT_TEMPORAL_BLAST, 5s);
+                    events.ScheduleEvent(EVENT_INFINITE_BREATH, 15s);
                     events.ScheduleEvent(EVENT_TAIL_SWEEP, 12s);
 
                     scheduler

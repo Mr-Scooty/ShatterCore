@@ -157,7 +157,7 @@ struct boss_echo_of_sylvanas : public BossAI
         events.ScheduleEvent(EVENT_UNHOLY_SHOT, 7s);
         events.ScheduleEvent(EVENT_SHRIEK_OF_THE_HIGHBORNE, 13s);
         events.ScheduleEvent(EVENT_BLIGHTED_ARROWS, 15s + 500ms);
-        events.ScheduleEvent(EVENT_CALLING_OF_THE_HIGHBORNE, 30s);
+        events.ScheduleEvent(EVENT_CALLING_OF_THE_HIGHBORNE, 40s); // DBM: first Calling at 40 s
     }
 
     void EnterEvadeMode(EvadeReason why) override
@@ -168,6 +168,7 @@ struct boss_echo_of_sylvanas : public BossAI
         summons.DespawnAll();
         me->RemoveAurasDueToSpell(SPELL_CALLING_OF_THE_HIGHBORNE);
         me->SetDisableGravity(false);
+        me->SetReactState(REACT_AGGRESSIVE); // a wipe during Calling would otherwise leave her passive
         ScriptedAI::EnterEvadeMode(why);
     }
 
@@ -261,6 +262,12 @@ struct boss_echo_of_sylvanas : public BossAI
                     break;
                 case EVENT_BLIGHTED_ARROWS:
                     SummonBlightedArrowsLine();
+                    // Mirror the post-Calling salvos: the AoE flips the stalkers
+                    // into the falling-arrow visual.
+                    scheduler.Schedule(1s + 200ms, [this](TaskContext)
+                    {
+                        DoCastAOE(SPELL_BLIGHTED_ARROWS);
+                    });
                     break;
                 case EVENT_CALLING_OF_THE_HIGHBORNE:
                     StartCallingPhase();

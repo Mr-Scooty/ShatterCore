@@ -166,7 +166,7 @@ public:
             {
                 if (Creature* murozond = instance->SummonCreature(BOSS_MUROZOND, MurozondSpawnPositions[0]))
                     if (_killedInfiniteDragonkins >= 8 && murozond->IsAIEnabled())
-                        murozond->AI()->SetData(DATA_MUROZOND_INTRO, DONE);
+                        murozond->AI()->SetData(DATA_MUROZOND_INTRO, SPECIAL); // silent restore - no RP replay
             }
             else
                 instance->SpawnGroupSpawn(SPAWN_GROUP_ID_MUROZOND_CHEST);
@@ -300,7 +300,11 @@ public:
                 && IsActiveEcho(type) && _killedEchoes < 2)
             {
                 ++_killedEchoes;
-                DoCastSpellOnPlayers(_killedEchoes == 1 ? SPELL_FIRST_ECHO_KILL_CREDIT : SPELL_SECOND_ECHO_KILL_CREDIT);
+                uint32 creditSpellId = _killedEchoes == 1 ? SPELL_FIRST_ECHO_KILL_CREDIT : SPELL_SECOND_ECHO_KILL_CREDIT;
+                DoCastSpellOnPlayers(creditSpellId);
+                // Player-cast credit spells never reach the encounter system on
+                // their own (only creature casts routed through script hooks do).
+                UpdateEncounterStateForSpellCast(creditSpellId, nullptr);
             }
 
             return true;

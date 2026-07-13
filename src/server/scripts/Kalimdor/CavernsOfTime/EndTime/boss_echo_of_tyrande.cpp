@@ -854,7 +854,8 @@ struct npc_echo_of_tyrande_eye_of_elune : public NullCreatureAI
 private:
     void StartOrbit()
     {
-        bool clockwise = me->GetEntry() == NPC_EYE_OF_ELUNE_5;
+        // Each summon pair sends one eye clockwise and the other counter-clockwise
+        bool clockwise = me->GetEntry() == NPC_EYE_OF_ELUNE_1 || me->GetEntry() == NPC_EYE_OF_ELUNE_3 || me->GetEntry() == NPC_EYE_OF_ELUNE_5;
         float startAngle = clockwise ? 1.43f : Position::NormalizeOrientation(1.43f + float(M_PI));
         float step = float(2 * M_PI) / 16.f * (clockwise ? -1.f : 1.f);
 
