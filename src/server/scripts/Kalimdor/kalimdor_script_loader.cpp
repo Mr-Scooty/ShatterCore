@@ -55,6 +55,10 @@ void AddSC_boss_echo_of_sylvanas();
 void AddSC_boss_echo_of_tyrande();
 void AddSC_instance_end_time();
 void AddSC_instance_well_of_eternity();      //CoT Well of Eternity
+void AddSC_well_of_eternity();
+void AddSC_boss_perotharn();
+void AddSC_boss_queen_azshara();
+void AddSC_boss_mannoroth_and_varothen();
 void AddSC_instance_hour_of_twilight();      //CoT Hour of Twilight
 void AddSC_instance_dragon_soul();           //CoT Dragon Soul
 void AddSC_boss_madness_of_deathwing();
@@ -208,6 +212,10 @@ void AddKalimdorScripts()
     AddSC_boss_echo_of_tyrande();
     AddSC_instance_end_time();
     AddSC_instance_well_of_eternity();      //CoT Well of Eternity
+    AddSC_well_of_eternity();
+    AddSC_boss_perotharn();
+    AddSC_boss_queen_azshara();
+    AddSC_boss_mannoroth_and_varothen();
     AddSC_instance_hour_of_twilight();      //CoT Hour of Twilight
     AddSC_instance_dragon_soul();           //CoT Dragon Soul
     AddSC_boss_madness_of_deathwing();
