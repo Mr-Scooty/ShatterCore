@@ -32,6 +32,7 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "PhasingHandler.h"
 #include "Player.h"
 #include "QuestDef.h"
 #include "ScriptedCreature.h"
@@ -79,6 +80,9 @@ enum KezanCreatures
     NPC_FBOK_VAULT                  = 35486,
     NPC_MOOK_DISGUISE               = 48925,
     NPC_GASBOT                      = 37598,
+    NPC_OVERLOADED_GENERATOR        = 37561,
+    NPC_STOVE_LEAK                  = 37590,
+    NPC_SMOLDERING_BED              = 37594,
     NPC_SPELL_PRACTICE_CREDIT       = 44175
 };
 
@@ -119,9 +123,24 @@ enum KezanSpells
     // Waltz Right In
     SPELL_MOOK_DISGUISE             = 67435,
 
-    // 447
-    SPELL_GASBOT_COMPANION          = 70254,
-    SPELL_GASBOT_EXPLOSION          = 69608,
+    // 447 (P2 sniff: every step is a player-cast master chain - the goober/panel
+    // force-casts a short master aura whose script despawns the previous prop
+    // and summons a fresh one at TARGET_DEST_NEARBY_ENTRY, anchored on the goober)
+    SPELL_GENERATOR_MASTER          = 70223, // via goober force-cast 70197
+    SPELL_GENERATOR_DESPAWN         = 70220,
+    SPELL_GENERATOR_SUMMON          = 70198, // 37561, carries visual 70226
+    SPELL_STOVE_MASTER              = 70239, // via goober force-cast 70238
+    SPELL_STOVE_DESPAWN             = 70240,
+    SPELL_STOVE_SUMMON              = 70241, // 37590, carries visual 70236
+    SPELL_BED_MASTER                = 70247, // lands with the cigar missile 70251 (goober force-cast 70245)
+    SPELL_BED_DESPAWN               = 70248,
+    SPELL_BED_SUMMON                = 70249, // 37594, carries visual 70250
+    SPELL_SUMMON_GASBOT             = 70252, // summon 37598 at TARGET_DEST_NEARBY_ENTRY (the panel)
+    SPELL_GASBOT_MASTER             = 70254, // 500ms dummy on the arsonist: despawn stale bot, summon fresh one
+    SPELL_GASBOT_DESPAWN            = 70255, // script effect on area Gasbots
+    SPELL_GASBOT_GAS_STREAM         = 70256, // permanent dummy on the bot and its four gas targets (spray visual)
+    SPELL_GASBOT_EXPLOSION          = 70259, // self dummy, detonation visual
+    SPELL_GASBOT_SCRIPT_TO_CHAR     = 70260, // script effect at TARGET_UNIT_MASTER: the HQ-ablaze credit
 
     // Life Savings
     SPELL_YACHT_MORTAR_LAUNCH       = 92633  // jump to spell_target_position (the yacht deck)
@@ -159,7 +178,6 @@ enum KezanActions
 {
     ACTION_DEATHWING_FLYOVER        = 1,
     ACTION_PARTYGOER_SERVED         = 2,
-    ACTION_GASBOT_DETONATE          = 3,
     ACTION_DEATHWING_LEG_1          = 4,
     ACTION_DEATHWING_SYNC_LEG_1     = 5,
     ACTION_DEATHWING_YELL           = 6,
@@ -1532,14 +1550,32 @@ public:
 
 enum GasbotData
 {
-    GO_DEFECTIVE_GENERATOR          = 201735,
-    GO_LEAKY_STOVE                  = 201733,
-    GO_FLAMMABLE_BED                = 201734,
+    EVENT_GASBOT_GAS_STREAM         = 1,
+    EVENT_GASBOT_DETONATE           = 2,
+    EVENT_GASBOT_DESPAWN            = 3,
 
     POINT_GASBOT_KTC                = 1
 };
 
-Position const GasbotDetonatePos = { -8424.346f, 1328.0365f, 102.042694f, 1.570796f };
+// P2 sniff: the panel chain (70253 -> 70254 -> 70255 + 70252, all player-cast)
+// summons the bot in front of the panel; it walks (2.5 yd/s) straight up the
+// KTC Headquarters front steps with the gas streams on, detonates at the top
+// (t+16.8s) and is destroyed 1.6s later.
+Position const GasbotSpawnPos = { -8424.346f, 1328.0365f, 102.042694f, 1.570796f };
+
+Position const GasbotPath[] =
+{
+    { -8424.281f, 1328.6875f, 102.22952f  },
+    { -8424.281f, 1331.6875f, 102.47952f  },
+    { -8424.281f, 1334.6875f, 102.47952f  },
+    { -8424.217f, 1341.3385f, 102.41634f  },
+    { -8424.228f, 1344.4723f, 103.27698f  },
+    { -8424.147f, 1346.4358f, 104.670074f },
+    { -8424.052f, 1350.2894f, 104.81177f  },
+    { -8424.134f, 1354.3507f, 104.69782f  },
+    { -8424.043f, 1358.6611f, 104.947815f },
+    { -8423.944f, 1364.3264f, 104.69782f  }
+};
 
 class npc_gasbot : public CreatureScript
 {
@@ -1548,74 +1584,65 @@ public:
 
     struct npc_gasbotAI : public ScriptedAI
     {
-        npc_gasbotAI(Creature* creature) : ScriptedAI(creature), _detonating(false), _failsafeTimer(0) { }
+        npc_gasbotAI(Creature* creature) : ScriptedAI(creature), _detonated(false) { }
 
-        void IsSummonedBy(Unit* summoner) override
+        void IsSummonedBy(Unit* /*summoner*/) override
         {
-            if (!summoner)
-                return;
-
-            _ownerGUID = summoner->GetGUID();
             me->SetReactState(REACT_PASSIVE);
-            me->GetMotionMaster()->MoveFollow(summoner, 2.5f, float(M_PI / 4));
-        }
-
-        void DoAction(int32 action) override
-        {
-            if (action != ACTION_GASBOT_DETONATE || _detonating)
-                return;
-
-            _detonating = true;
-            _failsafeTimer = 15 * IN_MILLISECONDS;
-            me->GetMotionMaster()->Clear();
-            me->GetMotionMaster()->MovePoint(POINT_GASBOT_KTC, GasbotDetonatePos);
+            me->SetWalk(true);
+            _events.ScheduleEvent(EVENT_GASBOT_GAS_STREAM, 1500ms);
         }
 
         void MovementInform(uint32 type, uint32 pointId) override
         {
-            if (type != POINT_MOTION_TYPE || pointId != POINT_GASBOT_KTC)
+            if (type != EFFECT_MOTION_TYPE || pointId != POINT_GASBOT_KTC)
                 return;
 
+            _events.CancelEvent(EVENT_GASBOT_DETONATE);
             Detonate();
         }
 
         void UpdateAI(uint32 diff) override
         {
-            if (_detonating && _failsafeTimer)
+            _events.Update(diff);
+
+            while (uint32 eventId = _events.ExecuteEvent())
             {
-                if (_failsafeTimer <= diff)
+                switch (eventId)
                 {
-                    _failsafeTimer = 0;
-                    Detonate();
+                    case EVENT_GASBOT_GAS_STREAM:
+                        // TARGET_UNIT_CASTER_AND_PASSENGERS: the bot plus its four gas targets.
+                        DoCastSelf(SPELL_GASBOT_GAS_STREAM);
+                        me->GetMotionMaster()->MoveSmoothPath(POINT_GASBOT_KTC, GasbotPath, std::size(GasbotPath), true);
+                        _events.ScheduleEvent(EVENT_GASBOT_DETONATE, 17s); // failsafe in case the spline is rejected
+                        break;
+                    case EVENT_GASBOT_DETONATE:
+                        Detonate();
+                        break;
+                    case EVENT_GASBOT_DESPAWN:
+                        me->DespawnOrUnsummon();
+                        break;
+                    default:
+                        break;
                 }
-                else
-                    _failsafeTimer -= diff;
             }
         }
 
     private:
         void Detonate()
         {
-            if (!me->IsAlive() || me->GetEntry() != NPC_GASBOT)
-                return;
-
             if (_detonated)
                 return;
             _detonated = true;
 
-            if (sSpellMgr->GetSpellInfo(SPELL_GASBOT_EXPLOSION))
-                me->CastSpell(me, SPELL_GASBOT_EXPLOSION, true);
-
-            if (Player* owner = ObjectAccessor::GetPlayer(*me, _ownerGUID))
-                owner->KilledMonsterCredit(NPC_GASBOT);
-
-            me->DespawnOrUnsummon(1500);
+            me->CastSpell(me, SPELL_GASBOT_EXPLOSION, false);
+            // TARGET_UNIT_MASTER resolves to the summoner; the SpellScript grants the credit.
+            me->CastSpell(me->GetCharmerOrOwner(), SPELL_GASBOT_SCRIPT_TO_CHAR, true);
+            _events.ScheduleEvent(EVENT_GASBOT_DESPAWN, 1600ms);
         }
 
-        ObjectGuid _ownerGUID;
-        bool _detonating;
-        bool _detonated = false;
-        uint32 _failsafeTimer;
+        EventMap _events;
+        bool _detonated;
     };
 
     CreatureAI* GetAI(Creature* creature) const override
@@ -1624,67 +1651,214 @@ public:
     }
 };
 
-// 201736 - Gasbot Control Panel: summons the player's Gasbot, then detonates it
-// once the three arson credits are in.
-class go_gasbot_control_panel : public GameObjectScript
+// 70223, 70239, 70247 - the three arson-house master auras (forced onto the
+// player by the house goobers): despawn the previous prop, summon a fresh one.
+class spell_kezan_arson_master : public SpellScriptLoader
 {
 public:
-    go_gasbot_control_panel() : GameObjectScript("go_gasbot_control_panel") { }
+    spell_kezan_arson_master() : SpellScriptLoader("spell_kezan_arson_master") { }
 
-    struct go_gasbot_control_panelAI : public GameObjectAI
+    class spell_kezan_arson_master_SpellScript : public SpellScript
     {
-        go_gasbot_control_panelAI(GameObject* go) : GameObjectAI(go) { }
-
-        bool GossipHello(Player* player) override
+    public:
+        void HandleApply(SpellEffIndex /*effIndex*/)
         {
-            if (player->GetQuestStatus(QUEST_447) != QUEST_STATUS_INCOMPLETE)
-                return true;
+            Unit* target = GetHitUnit();
+            if (!target)
+                return;
 
-            if (player->GetReqKillOrCastCurrentCount(QUEST_447, NPC_GASBOT) > 0)
-                return true; // fourth credit already earned
-
-            // Always make sure the player has a Gasbot first - the houses can
-            // be burned in any order, including before ever using the panel.
-            Creature* gasbot = FindPlayerGasbot(player);
-            if (!gasbot)
+            uint32 despawnSpell = 0;
+            uint32 summonSpell = 0;
+            switch (GetSpellInfo()->Id)
             {
-                gasbot = player->SummonCreature(NPC_GASBOT, me->GetPosition(), TEMPSUMMON_MANUAL_DESPAWN);
-                if (gasbot && sSpellMgr->GetSpellInfo(SPELL_GASBOT_COMPANION))
-                    player->CastSpell(player, SPELL_GASBOT_COMPANION, true);
-                return true;
+                case SPELL_GENERATOR_MASTER:
+                    despawnSpell = SPELL_GENERATOR_DESPAWN;
+                    summonSpell = SPELL_GENERATOR_SUMMON;
+                    break;
+                case SPELL_STOVE_MASTER:
+                    despawnSpell = SPELL_STOVE_DESPAWN;
+                    summonSpell = SPELL_STOVE_SUMMON;
+                    break;
+                case SPELL_BED_MASTER:
+                    despawnSpell = SPELL_BED_DESPAWN;
+                    summonSpell = SPELL_BED_SUMMON;
+                    break;
+                default:
+                    return;
             }
 
-            bool housesDone =
-                player->GetReqKillOrCastCurrentCount(QUEST_447, -int32(GO_DEFECTIVE_GENERATOR)) > 0 &&
-                player->GetReqKillOrCastCurrentCount(QUEST_447, -int32(GO_LEAKY_STOVE)) > 0 &&
-                player->GetReqKillOrCastCurrentCount(QUEST_447, -int32(GO_FLAMMABLE_BED)) > 0;
+            target->CastSpell(target, despawnSpell, true);
+            target->CastSpell(target, summonSpell, true);
 
-            if (housesDone && gasbot->AI())
-                gasbot->AI()->DoAction(ACTION_GASBOT_DETONATE);
-
-            return true;
+            // The goober credit (KillCreditGO) has already been granted at this
+            // point; if this was the last objective, light up the HQ (phase 385).
+            if (Player* player = target->ToPlayer())
+                if (player->GetQuestStatus(QUEST_447) == QUEST_STATUS_COMPLETE)
+                    PhasingHandler::OnConditionChange(player);
         }
 
-    private:
-        static Creature* FindPlayerGasbot(Player* player)
+        void Register() override
         {
-            std::list<Creature*> gasbots;
-            player->GetCreatureListWithEntryInGrid(gasbots, NPC_GASBOT, 150.0f);
-            for (Creature* gasbot : gasbots)
-            {
-                if (gasbot->GetOwnerGUID() == player->GetGUID())
-                    return gasbot;
-                if (TempSummon* summon = gasbot->ToTempSummon())
-                    if (summon->GetSummonerGUID() == player->GetGUID())
-                        return gasbot;
-            }
-            return nullptr;
+            OnEffectHitTarget.Register(&spell_kezan_arson_master_SpellScript::HandleApply, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
         }
     };
 
-    GameObjectAI* GetAI(GameObject* go) const override
+    SpellScript* GetSpellScript() const override
     {
-        return new go_gasbot_control_panelAI(go);
+        return new spell_kezan_arson_master_SpellScript();
+    }
+};
+
+// 70220, 70240, 70248, 70255 - despawn the previous arson prop / Gasbot (area entry target)
+class spell_kezan_arson_despawn : public SpellScriptLoader
+{
+public:
+    spell_kezan_arson_despawn() : SpellScriptLoader("spell_kezan_arson_despawn") { }
+
+    class spell_kezan_arson_despawn_SpellScript : public SpellScript
+    {
+    public:
+        void HandleScript(SpellEffIndex /*effIndex*/)
+        {
+            if (Creature* prop = GetHitCreature())
+                prop->DespawnOrUnsummon();
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_kezan_arson_despawn_SpellScript::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_arson_despawn_SpellScript();
+    }
+};
+
+// 70253 - 447: AICast Gasbot Master (panel goober, playerCast)
+class spell_kezan_gasbot_panel : public SpellScriptLoader
+{
+public:
+    spell_kezan_gasbot_panel() : SpellScriptLoader("spell_kezan_gasbot_panel") { }
+
+    class spell_kezan_gasbot_panel_SpellScript : public SpellScript
+    {
+    public:
+        void HandleScript(SpellEffIndex /*effIndex*/)
+        {
+            Player* player = GetHitPlayer();
+            if (!player)
+                return;
+
+            // The event is only worth running while the fourth credit is still owed.
+            if (player->GetQuestStatus(QUEST_447) != QUEST_STATUS_INCOMPLETE)
+                return;
+            if (player->GetReqKillOrCastCurrentCount(QUEST_447, NPC_GASBOT) > 0)
+                return;
+
+            player->CastSpell(player, SPELL_GASBOT_MASTER, true);
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_kezan_gasbot_panel_SpellScript::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_gasbot_panel_SpellScript();
+    }
+};
+
+// 70254 - 447: Gasbot Master
+class spell_kezan_gasbot_master : public SpellScriptLoader
+{
+public:
+    spell_kezan_gasbot_master() : SpellScriptLoader("spell_kezan_gasbot_master") { }
+
+    class spell_kezan_gasbot_master_SpellScript : public SpellScript
+    {
+    public:
+        void HandleApply(SpellEffIndex /*effIndex*/)
+        {
+            Unit* target = GetHitUnit();
+            if (!target)
+                return;
+
+            // Retail order: clear any lingering bot, then summon a fresh one.
+            target->CastSpell(target, SPELL_GASBOT_DESPAWN, true);
+            target->CastSpell(target, SPELL_SUMMON_GASBOT, true);
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_kezan_gasbot_master_SpellScript::HandleApply, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_gasbot_master_SpellScript();
+    }
+};
+
+// 70252 - 447: Summon Gasbot
+class spell_kezan_summon_gasbot : public SpellScriptLoader
+{
+public:
+    spell_kezan_summon_gasbot() : SpellScriptLoader("spell_kezan_summon_gasbot") { }
+
+    class spell_kezan_summon_gasbot_SpellScript : public SpellScript
+    {
+    public:
+        void SetDest(SpellDestination& dest)
+        {
+            // The nearby-entry anchor (the panel) is ~3 yd off the sniffed spawn point.
+            dest.Relocate(GasbotSpawnPos);
+        }
+
+        void Register() override
+        {
+            OnDestinationTargetSelect.Register(&spell_kezan_summon_gasbot_SpellScript::SetDest, EFFECT_0, TARGET_DEST_NEARBY_ENTRY);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_summon_gasbot_SpellScript();
+    }
+};
+
+// 70260 - 447: Gasbot Scriptcast to Character
+class spell_kezan_gasbot_credit : public SpellScriptLoader
+{
+public:
+    spell_kezan_gasbot_credit() : SpellScriptLoader("spell_kezan_gasbot_credit") { }
+
+    class spell_kezan_gasbot_credit_SpellScript : public SpellScript
+    {
+    public:
+        void HandleScript(SpellEffIndex /*effIndex*/)
+        {
+            Player* player = GetHitPlayer();
+            if (!player)
+                return;
+
+            player->KilledMonsterCredit(NPC_GASBOT);
+            PhasingHandler::OnConditionChange(player); // 447 Fires phase in (385) the moment the quest completes
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_kezan_gasbot_credit_SpellScript::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_gasbot_credit_SpellScript();
     }
 };
 
@@ -1809,7 +1983,7 @@ public:
                 break;
             case QUEST_447:
                 if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
-                    CleanupOwnedCreatures(player, { NPC_GASBOT });
+                    CleanupOwnedCreatures(player, { NPC_GASBOT, NPC_OVERLOADED_GENERATOR, NPC_STOVE_LEAK, NPC_SMOLDERING_BED });
                 break;
             case QUEST_LIFE_SAVINGS:
                 if (status == QUEST_STATUS_REWARDED)
@@ -1874,7 +2048,12 @@ void AddSC_kezan_quests()
     new spell_kezan_mook_disguise();
     new spell_kezan_kablooey_bombs();
     new npc_gasbot();
-    new go_gasbot_control_panel();
+    new spell_kezan_arson_master();
+    new spell_kezan_arson_despawn();
+    new spell_kezan_gasbot_panel();
+    new spell_kezan_gasbot_master();
+    new spell_kezan_summon_gasbot();
+    new spell_kezan_gasbot_credit();
     new spell_kezan_yacht_mortar();
     new player_script_kezan_events();
 }
