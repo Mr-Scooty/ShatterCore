@@ -793,6 +793,26 @@ void WorldSession::HandlePetCastSpellOpcode(WorldPacket& recvPacket)
     if (!caster->HasSpell(spellId) || spellInfo->IsPassive())
         return;
 
+    // Vehicle-bar spells authored from the passenger's perspective: implicit
+    // target TARGET_UNIT_VEHICLE only resolves for a caster that is itself
+    // seated on a vehicle. The client still routes them through
+    // CMSG_PET_CAST_SPELL with the vehicle as caster, but retail executes
+    // them on the seated player (P2 sniff, Great Bank Heist toolset
+    // 67508/67522/67524/67525/67526: SMSG_SPELL_GO caster is the player, hit
+    // target is the vault vehicle).
+    if (caster == _player->GetCharmed() && caster->IsVehicle())
+    {
+        for (SpellEffectInfo const& effect : spellInfo->Effects)
+        {
+            if (effect.TargetA.GetTarget() == TARGET_UNIT_VEHICLE ||
+                effect.TargetB.GetTarget() == TARGET_UNIT_VEHICLE)
+            {
+                caster = _player;
+                break;
+            }
+        }
+    }
+
     SpellCastTargets targets;
     targets.Read(recvPacket, caster);
     HandleClientCastFlags(recvPacket, castFlags, targets);
@@ -824,7 +844,10 @@ void WorldSession::HandlePetCastSpellOpcode(WorldPacket& recvPacket)
     }
     else
     {
-        spell->SendPetCastResult(result);
+        if (caster == _player)
+            spell->SendCastResult(result);
+        else
+            spell->SendPetCastResult(result);
 
         if (!caster->GetSpellHistory()->HasCooldown(spellId))
             caster->GetSpellHistory()->ResetCooldown(spellId, true);
