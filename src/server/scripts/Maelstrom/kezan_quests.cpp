@@ -100,8 +100,16 @@ enum KezanSpells
     SPELL_SUMMON_DISCO_BALL         = 66930,
 
     // The Great Bank Heist
-    SPELL_SUMMON_VAULT_VEHICLE      = 67488, // summons 35486, rides via 67476
-    SPELL_VAULT_PROMPT_TIMER        = 67502,
+    SPELL_SUMMON_VAULT_VEHICLE      = 67488, // summons 35486, native ride chain via BP = 67476
+    SPELL_VAULT_CRACKED             = 67492, // create-item 46858 aimed at the passenger
+    SPELL_VAULT_POWER_CORRECT       = 67493, // +10 mana self-energize
+    SPELL_VAULT_POWER_INCORRECT     = 67494, // -10 mana self-energize (scripted; core drops negative energize)
+    SPELL_VAULT_TELEGRAPH_DRILL     = 67495, // per-prompt state auras on the vault (P2 sniff)
+    SPELL_VAULT_TELEGRAPH_EXPLOSIVES = 67496,
+    SPELL_VAULT_TELEGRAPH_LISTEN    = 67497,
+    SPELL_VAULT_TELEGRAPH_LOCKPICK  = 67498,
+    SPELL_VAULT_TELEGRAPH_G_RAY     = 67499,
+    SPELL_VAULT_TIMER               = 67502, // 5s input window; the tools require it on their caster
     SPELL_TOOL_AMAZING_G_RAY        = 67526,
     SPELL_TOOL_BLASTCRACKERS        = 67508,
     SPELL_TOOL_EAR_O_SCOPE          = 67524,
@@ -190,6 +198,12 @@ enum KezanMisc
     // Event_EbonHold_CrowdScream1-4 every ~3s while Deathwing is overhead.
     SOUND_CROWD_CHEER_KICK          = 17467,
     SOUND_CROWD_CHEER_SUMMON        = 8574,
+
+    // The Great Bank Heist vault feedback dings (P2 sniff, object sound
+    // sourced at the vault and targeted at the passenger).
+    SOUND_VAULT_CORRECT             = 11595,
+    SOUND_VAULT_INCORRECT_1         = 847,
+    SOUND_VAULT_INCORRECT_2         = 16381,
 
     // 90615 'Fourth and Goal: Character Earthquake' uses SpellVisual 20130,
     // whose impact kit (19579) contains sound 1485 and
@@ -1047,7 +1061,9 @@ enum VaultEvents
     EVENT_VAULT_INTRO_3             = 3,
     EVENT_VAULT_INTRO_4             = 4,
     EVENT_VAULT_NEXT_PROMPT         = 5,
-    EVENT_VAULT_TIMEOUT             = 6
+    EVENT_VAULT_TIMEOUT             = 6,
+    EVENT_VAULT_DECAY               = 7,
+    EVENT_VAULT_EJECT               = 8
 };
 
 enum VaultTools
@@ -1061,8 +1077,15 @@ enum VaultTools
 };
 
 uint32 const VaultToolSpells[TOOL_MAX] = { SPELL_TOOL_AMAZING_G_RAY, SPELL_TOOL_BLASTCRACKERS, SPELL_TOOL_EAR_O_SCOPE, SPELL_TOOL_INFINIFOLD_LOCKPICK, SPELL_TOOL_KAJAMITE_DRILL };
+uint32 const VaultTelegraphSpells[TOOL_MAX] = { SPELL_VAULT_TELEGRAPH_G_RAY, SPELL_VAULT_TELEGRAPH_EXPLOSIVES, SPELL_VAULT_TELEGRAPH_LISTEN, SPELL_VAULT_TELEGRAPH_LOCKPICK, SPELL_VAULT_TELEGRAPH_DRILL };
 uint8 const VaultToolTexts[TOOL_MAX] = { SAY_VAULT_PROMPT_G_RAY, SAY_VAULT_PROMPT_BLASTCRACKERS, SAY_VAULT_PROMPT_EAR_O_SCOPE, SAY_VAULT_PROMPT_LOCKPICK, SAY_VAULT_PROMPT_DRILL };
 
+// Retail flow (P2 sniff): the seated player pet-casts a tool, the cast is
+// executed by the player at the vault (TARGET_UNIT_VEHICLE, gated on the 5s
+// 67502 window aura), and the vault answers with 67493 (+10 mana) or 67494
+// (-10 mana). The mana bar is the vault-breaking progress bar; it decays 5
+// power every 5s tick. The vault is cracked by a correct answer landing while
+// the bar is already full (the only full-overflow energize in the sniff).
 class npc_first_bank_vault : public CreatureScript
 {
 public:
@@ -1070,7 +1093,12 @@ public:
 
     struct npc_first_bank_vaultAI : public VehicleAI
     {
-        npc_first_bank_vaultAI(Creature* creature) : VehicleAI(creature), _progress(0), _currentTool(TOOL_MAX), _awaitingInput(false) { }
+        npc_first_bank_vaultAI(Creature* creature) : VehicleAI(creature), _currentTool(TOOL_MAX), _awaitingInput(false)
+        {
+            me->SetPowerType(POWER_MANA);
+            me->SetMaxPower(POWER_MANA, 100);
+            me->SetPower(POWER_MANA, 0);
+        }
 
         void PassengerBoarded(Unit* passenger, int8 /*seatId*/, bool apply) override
         {
@@ -1081,22 +1109,23 @@ public:
             if (apply)
             {
                 _playerGUID = player->GetGUID();
-                _progress = 0;
                 _currentTool = TOOL_MAX;
                 _awaitingInput = false;
 
-                me->SetPowerType(POWER_MANA);
-                me->SetMaxPower(POWER_MANA, 100);
                 me->SetPower(POWER_MANA, 0);
 
+                // Retail grants the quest credit the moment the ride aura lands.
                 player->KilledMonsterCredit(NPC_FBOK_VAULT);
 
+                // Retail beats: intro whispers at +1.5s/+8s/+16s/+24s, first
+                // prompt at ~27s, decay tick every ~5s from boarding.
                 _events.Reset();
-                _events.ScheduleEvent(EVENT_VAULT_INTRO_1, 500ms);
-                _events.ScheduleEvent(EVENT_VAULT_INTRO_2, 5s);
-                _events.ScheduleEvent(EVENT_VAULT_INTRO_3, 10s);
-                _events.ScheduleEvent(EVENT_VAULT_INTRO_4, 15s);
-                _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 18s);
+                _events.ScheduleEvent(EVENT_VAULT_INTRO_1, 1500ms);
+                _events.ScheduleEvent(EVENT_VAULT_INTRO_2, 8s);
+                _events.ScheduleEvent(EVENT_VAULT_INTRO_3, 16s);
+                _events.ScheduleEvent(EVENT_VAULT_INTRO_4, 24s);
+                _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 27s);
+                _events.ScheduleEvent(EVENT_VAULT_DECAY, 5s);
             }
             else
             {
@@ -1121,27 +1150,42 @@ public:
             if (!player)
                 return;
 
+            if (_currentTool < TOOL_MAX)
+                me->RemoveAurasDueToSpell(VaultTelegraphSpells[_currentTool]);
+
             if (uint32(action) == _currentTool)
             {
-                _progress = std::min<int32>(_progress + 5, 100);
-                Talk(SAY_VAULT_CORRECT, player);
+                bool const wasFull = me->GetPower(POWER_MANA) >= me->GetMaxPower(POWER_MANA);
+                me->PlayDistanceSound(SOUND_VAULT_CORRECT, player);
+
+                if (wasFull)
+                {
+                    // Native create-item 46858 aimed at the passenger, with a
+                    // fallback in case the cast system drops the seated player
+                    // as a hit target.
+                    me->CastSpell(me, SPELL_VAULT_CRACKED, true);
+                    if (!player->HasItemCount(ITEM_PERSONAL_RICHES))
+                        player->AddItem(ITEM_PERSONAL_RICHES, 1);
+
+                    me->CastSpell(me, SPELL_VAULT_POWER_CORRECT, true);
+                    Talk(SAY_VAULT_SUCCESS, player);
+                    _events.ScheduleEvent(EVENT_VAULT_EJECT, 200ms);
+                }
+                else
+                {
+                    me->CastSpell(me, SPELL_VAULT_POWER_CORRECT, true);
+                    Talk(SAY_VAULT_CORRECT, player);
+                    _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 3s);
+                }
             }
             else
             {
-                _progress = std::max<int32>(_progress - 5, 0);
+                me->PlayDistanceSound(SOUND_VAULT_INCORRECT_1, player);
+                me->PlayDistanceSound(SOUND_VAULT_INCORRECT_2, player);
+                me->CastSpell(me, SPELL_VAULT_POWER_INCORRECT, true);
                 Talk(SAY_VAULT_INCORRECT, player);
+                _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 3s);
             }
-
-            me->SetPower(POWER_MANA, _progress);
-
-            if (_progress >= 100)
-            {
-                Talk(SAY_VAULT_SUCCESS, player);
-                player->AddItem(ITEM_PERSONAL_RICHES, 1);
-                player->ExitVehicle();
-            }
-            else
-                _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 2s);
         }
 
         void UpdateAI(uint32 diff) override
@@ -1153,8 +1197,20 @@ public:
 
             while (uint32 eventId = _events.ExecuteEvent())
             {
+                switch (eventId)
+                {
+                    case EVENT_VAULT_DECAY:
+                        // Retail: the progress bar bleeds 5 power every ~5s.
+                        if (int32 power = me->GetPower(POWER_MANA))
+                            me->SetPower(POWER_MANA, std::max<int32>(power - 5, 0));
+                        _events.ScheduleEvent(EVENT_VAULT_DECAY, 5s);
+                        continue;
+                    default:
+                        break;
+                }
+
                 if (!player)
-                    break;
+                    continue;
 
                 switch (eventId)
                 {
@@ -1171,19 +1227,36 @@ public:
                         Talk(SAY_VAULT_INTRO_4, player);
                         break;
                     case EVENT_VAULT_NEXT_PROMPT:
+                    {
                         _currentTool = urand(0, TOOL_MAX - 1);
+                        me->CastSpell(me, VaultTelegraphSpells[_currentTool], true);
+
+                        // 67502 hits the vault (client greys the bar buttons
+                        // without it) and the seat-0 passenger (the tools
+                        // require it on their caster). The cast system drops
+                        // hits on vehicle-driving players, so back-fill the
+                        // passenger half with AddAura.
+                        me->CastSpell(me, SPELL_VAULT_TIMER, true);
+                        if (!me->HasAura(SPELL_VAULT_TIMER))
+                            me->AddAura(SPELL_VAULT_TIMER, me);
+                        if (!player->HasAura(SPELL_VAULT_TIMER))
+                            me->AddAura(SPELL_VAULT_TIMER, player);
+
                         _awaitingInput = true;
                         Talk(VaultToolTexts[_currentTool], player);
-                        if (sSpellMgr->GetSpellInfo(SPELL_VAULT_PROMPT_TIMER))
-                            me->CastSpell(me, SPELL_VAULT_PROMPT_TIMER, true);
                         _events.ScheduleEvent(EVENT_VAULT_TIMEOUT, 5s);
                         break;
+                    }
                     case EVENT_VAULT_TIMEOUT:
+                        // No retail penalty for hesitating - the decay tick is
+                        // the cost. Just move on to the next prompt.
                         _awaitingInput = false;
-                        _progress = std::max<int32>(_progress - 5, 0);
-                        me->SetPower(POWER_MANA, _progress);
-                        Talk(SAY_VAULT_INCORRECT, player);
-                        _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 2s);
+                        if (_currentTool < TOOL_MAX)
+                            me->RemoveAurasDueToSpell(VaultTelegraphSpells[_currentTool]);
+                        _events.ScheduleEvent(EVENT_VAULT_NEXT_PROMPT, 1s);
+                        break;
+                    case EVENT_VAULT_EJECT:
+                        player->ExitVehicle();
                         break;
                     default:
                         break;
@@ -1194,7 +1267,6 @@ public:
     private:
         EventMap _events;
         ObjectGuid _playerGUID;
-        int32 _progress;
         uint32 _currentTool;
         bool _awaitingInput;
     };
@@ -1242,7 +1314,8 @@ public:
     }
 };
 
-// 67526/67508/67524/67525/67522 - vault cracking tools.
+// 67526/67508/67524/67525/67522 - vault cracking tools, cast by the seated
+// player at the vault (TARGET_UNIT_VEHICLE).
 class spell_kezan_vault_tool : public SpellScriptLoader
 {
 public:
@@ -1251,20 +1324,10 @@ public:
     class spell_kezan_vault_tool_SpellScript : public SpellScript
     {
     public:
-        void HandleAfterCast()
+        void HandleDummy(SpellEffIndex /*effIndex*/)
         {
-            Unit* caster = GetCaster();
-            if (!caster)
-                return;
-
-            Creature* vault = nullptr;
-            if (caster->GetEntry() == NPC_FBOK_VAULT)
-                vault = caster->ToCreature();
-            else if (Unit* base = caster->GetVehicleBase())
-                if (base->GetEntry() == NPC_FBOK_VAULT)
-                    vault = base->ToCreature();
-
-            if (!vault || !vault->AI())
+            Creature* vault = GetHitCreature();
+            if (!vault || vault->GetEntry() != NPC_FBOK_VAULT || !vault->AI())
                 return;
 
             for (uint8 i = 0; i < TOOL_MAX; ++i)
@@ -1277,8 +1340,17 @@ public:
             }
         }
 
+        void HandleAfterCast()
+        {
+            // Retail strips the input-window aura from the player the moment
+            // a tool is used (cast-interrupt on 67502).
+            if (Unit* caster = GetCaster())
+                caster->RemoveAurasDueToSpell(SPELL_VAULT_TIMER);
+        }
+
         void Register() override
         {
+            OnEffectHitTarget.Register(&spell_kezan_vault_tool_SpellScript::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
             AfterCast.Register(&spell_kezan_vault_tool_SpellScript::HandleAfterCast);
         }
     };
@@ -1286,6 +1358,35 @@ public:
     SpellScript* GetSpellScript() const override
     {
         return new spell_kezan_vault_tool_SpellScript();
+    }
+};
+
+// 67494 - The Great Bank Heist: Power Incorrect. The core drops negative
+// energizes for mana, apply the -10 by hand.
+class spell_kezan_vault_power_incorrect : public SpellScriptLoader
+{
+public:
+    spell_kezan_vault_power_incorrect() : SpellScriptLoader("spell_kezan_vault_power_incorrect") { }
+
+    class spell_kezan_vault_power_incorrect_SpellScript : public SpellScript
+    {
+    public:
+        void HandleEnergize(SpellEffIndex effIndex)
+        {
+            PreventHitDefaultEffect(effIndex);
+            if (Unit* target = GetHitUnit())
+                target->ModifyPower(POWER_MANA, GetEffectValue());
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_kezan_vault_power_incorrect_SpellScript::HandleEnergize, EFFECT_0, SPELL_EFFECT_ENERGIZE);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_kezan_vault_power_incorrect_SpellScript();
     }
 };
 
@@ -1769,6 +1870,7 @@ void AddSC_kezan_quests()
     new npc_first_bank_vault();
     new spell_kezan_vault_interact();
     new spell_kezan_vault_tool();
+    new spell_kezan_vault_power_incorrect();
     new spell_kezan_mook_disguise();
     new spell_kezan_kablooey_bombs();
     new npc_gasbot();
