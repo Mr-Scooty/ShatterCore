@@ -83,6 +83,7 @@ enum KezanCreatures
     NPC_OVERLOADED_GENERATOR        = 37561,
     NPC_STOVE_LEAK                  = 37590,
     NPC_SMOLDERING_BED              = 37594,
+    NPC_CLAIMS_ADJUSTER             = 37602,
     NPC_SPELL_PRACTICE_CREDIT       = 44175
 };
 
@@ -1577,6 +1578,22 @@ Position const GasbotPath[] =
     { -8423.944f, 1364.3264f, 104.69782f  }
 };
 
+// Shared by every path that can finish 447's last objective: flip the player
+// into the burnt-HQ phase (385 - fires, Claims Adjuster, fireworks bunnies)
+// and have the freshly revealed adjuster react (sniff: yell 0.4s after the
+// explosion, aimed at the arsonist).
+static void RevealBurntHeadquarters(Player* player)
+{
+    PhasingHandler::OnConditionChange(player);
+
+    if (player->GetQuestStatus(QUEST_447) != QUEST_STATUS_COMPLETE)
+        return;
+
+    if (Creature* adjuster = player->FindNearestCreature(NPC_CLAIMS_ADJUSTER, 150.0f))
+        if (adjuster->AI())
+            adjuster->AI()->Talk(0, player);
+}
+
 class npc_gasbot : public CreatureScript
 {
 public:
@@ -1655,7 +1672,7 @@ public:
                     player->GetReqKillOrCastCurrentCount(QUEST_447, NPC_GASBOT) == 0)
                 {
                     player->KilledMonsterCredit(NPC_GASBOT);
-                    PhasingHandler::OnConditionChange(player);
+                    RevealBurntHeadquarters(player);
                 }
             }
 
@@ -1716,7 +1733,7 @@ public:
             // point; if this was the last objective, light up the HQ (phase 385).
             if (Player* player = target->ToPlayer())
                 if (player->GetQuestStatus(QUEST_447) == QUEST_STATUS_COMPLETE)
-                    PhasingHandler::OnConditionChange(player);
+                    RevealBurntHeadquarters(player);
         }
 
         void Register() override
@@ -1869,7 +1886,7 @@ public:
                 return;
 
             player->KilledMonsterCredit(NPC_GASBOT);
-            PhasingHandler::OnConditionChange(player); // 447 Fires phase in (385) the moment the quest completes
+            RevealBurntHeadquarters(player); // fires + Claims Adjuster phase in (385) the moment the quest completes
         }
 
         void Register() override
