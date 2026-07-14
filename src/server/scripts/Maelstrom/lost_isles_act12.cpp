@@ -510,7 +510,8 @@ public:
         SpellCastResult CheckTarget()
         {
             Unit* target = GetExplTargetUnit();
-            if (!target || target->GetEntry() != NPC_BOMB_THROWING_MONKEY || !target->IsAlive())
+            if (!target || target->GetEntry() != NPC_BOMB_THROWING_MONKEY || !target->IsAlive()
+                || target->HasAura(SPELL_EXPLODING_BANANAS))
                 return SPELL_FAILED_BAD_TARGETS;
             return SPELL_CAST_OK;
         }
@@ -522,11 +523,19 @@ public:
             if (!monkey || !player)
                 return;
 
-            if (sSpellMgr->GetSpellInfo(SPELL_EXPLODING_BANANAS))
-                monkey->CastSpell(monkey, SPELL_EXPLODING_BANANAS, false);
-
             player->KilledMonsterCredit(NPC_MONKEY_BUSINESS_CREDIT);
-            monkey->DespawnOrUnsummon(2500, 30s);
+
+            if (monkey->HasAura(SPELL_EXPLODING_BANANAS))
+                return;
+
+            monkey->SetFacingToObject(player);
+            monkey->CastSpell(monkey, SPELL_EXPLODING_BANANAS, false);
+            // Retail (P3 sniff): the monkey munches the banana and blows up ~4.5s later,
+            // dying for real and leaving a corpse.
+            monkey->m_Events.AddEventAtOffset([monkey]()
+            {
+                monkey->KillSelf();
+            }, 4500ms);
         }
 
         void Register() override
