@@ -1586,8 +1586,17 @@ public:
     {
         npc_gasbotAI(Creature* creature) : ScriptedAI(creature), _detonated(false) { }
 
-        void IsSummonedBy(Unit* /*summoner*/) override
+        void IsSummonedBy(Unit* summoner) override
         {
+            if (summoner)
+            {
+                // Plain TempSummons (SummonProperties 942) only get CREATEDBY, but
+                // 70260's TARGET_UNIT_MASTER resolves via GetCharmerOrOwner, which
+                // reads SUMMONEDBY - adopt the arsonist so the credit can land.
+                me->SetOwnerGUID(summoner->GetGUID());
+                _summonerGUID = summoner->GetGUID();
+            }
+
             me->SetReactState(REACT_PASSIVE);
             me->SetWalk(true);
             _events.ScheduleEvent(EVENT_GASBOT_GAS_STREAM, 1500ms);
@@ -1638,10 +1647,23 @@ public:
             me->CastSpell(me, SPELL_GASBOT_EXPLOSION, false);
             // TARGET_UNIT_MASTER resolves to the summoner; the SpellScript grants the credit.
             me->CastSpell(me->GetCharmerOrOwner(), SPELL_GASBOT_SCRIPT_TO_CHAR, true);
+
+            // Failsafe: if the master-targeted cast could not deliver, credit directly.
+            if (Player* player = ObjectAccessor::GetPlayer(*me, _summonerGUID))
+            {
+                if (player->GetQuestStatus(QUEST_447) == QUEST_STATUS_INCOMPLETE &&
+                    player->GetReqKillOrCastCurrentCount(QUEST_447, NPC_GASBOT) == 0)
+                {
+                    player->KilledMonsterCredit(NPC_GASBOT);
+                    PhasingHandler::OnConditionChange(player);
+                }
+            }
+
             _events.ScheduleEvent(EVENT_GASBOT_DESPAWN, 1600ms);
         }
 
         EventMap _events;
+        ObjectGuid _summonerGUID;
         bool _detonated;
     };
 
