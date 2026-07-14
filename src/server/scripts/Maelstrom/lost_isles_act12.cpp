@@ -56,6 +56,7 @@ enum LostIslesAct12Quests
 
 enum LostIslesAct12Creatures
 {
+    NPC_DOC_ZAPNOZZLE               = 36608,
     NPC_GOBLIN_SURVIVOR             = 34748,
     NPC_BOMB_THROWING_MONKEY        = 34699,
     NPC_MONKEY_BUSINESS_CREDIT      = 35760,
@@ -80,6 +81,10 @@ enum LostIslesAct12Creatures
 
 enum LostIslesAct12Spells
 {
+    // Don't Go Into the Light!
+    SPELL_NEAR_DEATH                = 69010, // native stun + invisibility 7 + lying-down visual
+    SPELL_SUMMON_DOC_ZAPNOZZLE      = 69018, // personal-spawn summon (SummonProperties 3052, flag 0x10)
+
     // Monkey Business
     SPELL_NITRO_POTASSIUM_BANANAS   = 67917,
     SPELL_EXPLODING_BANANAS         = 67919,
@@ -130,6 +135,80 @@ enum LostIslesAct12Spells
 enum LostIslesAct12Misc
 {
     ZONE_LOST_ISLES                 = 4720
+};
+
+// -----------------------------------------------------------------------------
+// Don't Go Into the Light! (14239)
+// -----------------------------------------------------------------------------
+
+// 69018 - Don't Go Into The Light!: Summon Doc Zapnozzle.
+// The spell is fired from spell_area twice on a fresh landing (the 69010
+// aura-apply hook and the area-update loop both autocast it) and again on
+// every login while the player is still Near Death - keep a single private
+// Doc per player.
+class spell_lost_isles_summon_doc_zapnozzle : public SpellScriptLoader
+{
+public:
+    spell_lost_isles_summon_doc_zapnozzle() : SpellScriptLoader("spell_lost_isles_summon_doc_zapnozzle") { }
+
+    class spell_lost_isles_summon_doc_zapnozzle_SpellScript : public SpellScript
+    {
+    public:
+        void HandleSummon(SpellEffIndex effIndex)
+        {
+            Unit* caster = GetCaster();
+            if (!caster)
+                return;
+
+            std::list<Creature*> docs;
+            caster->GetCreatureListWithEntryInGrid(docs, NPC_DOC_ZAPNOZZLE, 250.0f);
+            for (Creature* doc : docs)
+                if (doc->GetPrivateObjectOwner() == caster->GetGUID())
+                {
+                    PreventHitDefaultEffect(effIndex);
+                    return;
+                }
+        }
+
+        void Register() override
+        {
+            OnEffectHit.Register(&spell_lost_isles_summon_doc_zapnozzle_SpellScript::HandleSummon, EFFECT_0, SPELL_EFFECT_SUMMON);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_lost_isles_summon_doc_zapnozzle_SpellScript();
+    }
+};
+
+// 69013 - Don't Go Into The Light!: Quest Complete (quest 14239 reward spell).
+// Retail ends the resuscitation here: the script effect strips Near Death,
+// which unroots the player and stands them back up.
+class spell_lost_isles_dont_go_into_the_light : public SpellScriptLoader
+{
+public:
+    spell_lost_isles_dont_go_into_the_light() : SpellScriptLoader("spell_lost_isles_dont_go_into_the_light") { }
+
+    class spell_lost_isles_dont_go_into_the_light_SpellScript : public SpellScript
+    {
+    public:
+        void HandleScript(SpellEffIndex /*effIndex*/)
+        {
+            if (Unit* target = GetHitUnit())
+                target->RemoveAurasDueToSpell(SPELL_NEAR_DEATH);
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_lost_isles_dont_go_into_the_light_SpellScript::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_lost_isles_dont_go_into_the_light_SpellScript();
+    }
 };
 
 // -----------------------------------------------------------------------------
@@ -1076,6 +1155,8 @@ private:
 
 void AddSC_lost_isles_act12()
 {
+    new spell_lost_isles_summon_doc_zapnozzle();
+    new spell_lost_isles_dont_go_into_the_light();
     new npc_frightened_miner();
     new spell_lost_isles_weed_whacker();
     new spell_lost_isles_weed_whacker_aura();
