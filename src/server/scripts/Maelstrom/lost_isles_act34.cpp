@@ -115,6 +115,7 @@ enum LostIslesAct34Spells
 
     // Paratroopers
     SPELL_PARACHUTE                 = 73363,
+    SPELL_PARATROOPER_SHOOT         = 6660,
 
     // Morale Boost
     SPELL_ACE_FREED                 = 73602,
@@ -568,6 +569,31 @@ public:
                 AttackStart(target);
         }
 
+        void JustEngagedWith(Unit* /*who*/) override
+        {
+            _shootTimer = urand(1500, 2500);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            if (!UpdateVictim())
+                return;
+
+            // Sniff: Shoot (6660) is their bread-and-butter ranged auto (~2s).
+            if (_shootTimer <= diff)
+            {
+                _shootTimer = urand(1800, 2600);
+                if (!me->IsWithinMeleeRange(me->GetVictim()))
+                    DoCastVictim(SPELL_PARATROOPER_SHOOT);
+            }
+            else
+                _shootTimer -= diff;
+
+            DoMeleeAttackIfReady();
+        }
+
+    private:
+        uint32 _shootTimer = 2000;
     };
 
     CreatureAI* GetAI(Creature* creature) const override
