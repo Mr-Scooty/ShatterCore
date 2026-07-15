@@ -150,6 +150,7 @@ enum LostIslesAct34Spells
     SPELL_THRALL_ATTACK_1           = 74019,
     SPELL_THRALL_ATTACK_2           = 74020,
     SPELL_THRALL_ATTACK_3           = 74021,
+    SPELL_THRALL_FORCE_OF_NATURE    = 74023,
 
     // Zone exit
     SPELL_SET_SAIL                  = 74924
@@ -1239,12 +1240,15 @@ public:
 
         void JustEngagedWith(Unit* /*who*/) override
         {
-            _events.ScheduleEvent(EVENT_GALLYWIX_PUNCH, 5s, 8s);
-            _events.ScheduleEvent(EVENT_GALLYWIX_CHANNEL, 40s, 50s);
+            // Sniff: Call A Meeting opens ~2s after engage, Unload Toxic
+            // Assets first fires ~30s in. 74006 is not scheduled here - it is
+            // the 250ms pulse of the Revenue Stream channel (74005), handled
+            // by spell_lost_isles_revenue_stream.
+            _events.ScheduleEvent(EVENT_GALLYWIX_CHANNEL, 28s, 34s);
             _events.ScheduleEvent(EVENT_GALLYWIX_SPELL_3, 18s, 25s);
             _events.ScheduleEvent(EVENT_GALLYWIX_SPELL_4, 22s, 35s);
             _events.ScheduleEvent(EVENT_GALLYWIX_DEBUFF, 25s, 40s);
-            _events.ScheduleEvent(EVENT_GALLYWIX_PULL, 15s, 20s);
+            _events.ScheduleEvent(EVENT_GALLYWIX_PULL, 2s);
         }
 
         void DamageTaken(Unit* /*attacker*/, uint32& damage) override
@@ -1281,11 +1285,6 @@ public:
             {
                 switch (eventId)
                 {
-                    case EVENT_GALLYWIX_PUNCH:
-                        if (!_surrendered && sSpellMgr->GetSpellInfo(SPELL_GALLYWIX_PUNCH))
-                            DoCastVictim(SPELL_GALLYWIX_PUNCH);
-                        _events.ScheduleEvent(EVENT_GALLYWIX_PUNCH, 15s, 27s);
-                        break;
                     case EVENT_GALLYWIX_CHANNEL:
                         if (!_surrendered && sSpellMgr->GetSpellInfo(SPELL_GALLYWIX_CHANNEL))
                             DoCastVictim(SPELL_GALLYWIX_CHANNEL);
@@ -1400,6 +1399,35 @@ public:
 };
 
 // 39594 - Thrall at the finale: batters Gallywix alongside the player.
+// 74005 - Revenue Stream: the signature money-beam channel. Each 250ms tick of
+// the periodic dummy fires the 74006 visual pulse (sniff: 11-13 pulses per
+// channel; 74006 is never a standalone cast).
+class spell_lost_isles_revenue_stream : public SpellScriptLoader
+{
+public:
+    spell_lost_isles_revenue_stream() : SpellScriptLoader("spell_lost_isles_revenue_stream") { }
+
+    class spell_lost_isles_revenue_stream_AuraScript : public AuraScript
+    {
+    public:
+        void OnPeriodic(AuraEffect const* /*aurEff*/)
+        {
+            if (Unit* caster = GetCaster())
+                caster->CastSpell(GetTarget(), SPELL_GALLYWIX_PUNCH, true);
+        }
+
+        void Register() override
+        {
+            OnEffectPeriodic.Register(&spell_lost_isles_revenue_stream_AuraScript::OnPeriodic, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY);
+        }
+    };
+
+    AuraScript* GetAuraScript() const override
+    {
+        return new spell_lost_isles_revenue_stream_AuraScript();
+    }
+};
+
 class npc_thrall_gallywix_fight : public CreatureScript
 {
 public:
@@ -1407,7 +1435,7 @@ public:
 
     struct npc_thrall_gallywix_fightAI : public ScriptedAI
     {
-        npc_thrall_gallywix_fightAI(Creature* creature) : ScriptedAI(creature), _attackTimer(6000) { }
+        npc_thrall_gallywix_fightAI(Creature* creature) : ScriptedAI(creature), _attackTimer(6000), _natureTimer(15000) { }
 
         void UpdateAI(uint32 diff) override
         {
@@ -1427,10 +1455,23 @@ public:
             }
             else
                 _attackTimer -= diff;
+
+            // Sniff: Force of Nature (three whirlwinds) every ~90s while the
+            // Trade Prince brawl is running.
+            if (_natureTimer <= diff)
+            {
+                _natureTimer = urand(85000, 95000);
+                if (Creature* gallywix = me->FindNearestCreature(NPC_TRADE_PRINCE_GALLYWIX, 60.0f, true))
+                    if (gallywix->IsInCombat())
+                        DoCastSelf(SPELL_THRALL_FORCE_OF_NATURE);
+            }
+            else
+                _natureTimer -= diff;
         }
 
     private:
         uint32 _attackTimer;
+        uint32 _natureTimer;
     };
 
     CreatureAI* GetAI(Creature* creature) const override
@@ -1667,6 +1708,7 @@ void AddSC_lost_isles_act34()
     new go_platform_control_panel();
     new spell_lost_isles_escape_velocity();
     new boss_trade_prince_gallywix();
+    new spell_lost_isles_revenue_stream();
     new npc_thrall_gallywix_fight();
     new npc_ultimate_footbomb_uniform();
     new npc_lost_isles_battleworg();
