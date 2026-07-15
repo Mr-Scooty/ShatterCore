@@ -81,6 +81,7 @@ enum LostIslesAct34Creatures
     NPC_IZZY_CAPTIVE                = 38647,
     NPC_GOBBER_CAPTIVE              = 38746,
     NPC_GOBLIN_SURVIVOR_MINE        = 38409,
+    NPC_KEZAN_CITIZEN_MINE          = 38745,
     NPC_SOULSTONE_CREDIT            = 39276,
     NPC_MINE_CART_RIDE              = 39329,
     NPC_MINE_CART_GIVER             = 39341,
@@ -121,6 +122,10 @@ enum LostIslesAct34Spells
     SPELL_ACE_FREED                 = 73602,
     SPELL_IZZY_FREED                = 73613,
     SPELL_GOBBER_FREED              = 73614,
+
+    // Morale Boost
+    SPELL_KAJA_COLA_DRINK           = 73599,
+    SPELL_TOSS_EMPTY_CAN            = 70486,
 
     // Throw It On the Ground!
     SPELL_SOULSTONE_VISUAL          = 73703,
@@ -845,6 +850,7 @@ public:
                 case NPC_IZZY_CAPTIVE:
                 case NPC_GOBBER_CAPTIVE:
                 case NPC_GOBLIN_SURVIVOR_MINE:
+                case NPC_KEZAN_CITIZEN_MINE:
                     return true;
                 default:
                     return false;
@@ -875,15 +881,27 @@ public:
                 default:                                                  break;
             }
 
-            player->KilledMonsterCredit(target->GetEntry());
+            // Both prisoner entries count toward the 38409 survivor objective
+            // (sniff: 3 of the 6 rescues hit Kezan Citizens crediting 38409).
+            player->KilledMonsterCredit(freedSpell ? target->GetEntry() : NPC_GOBLIN_SURVIVOR_MINE);
 
             if (freedSpell && sSpellMgr->GetSpellInfo(freedSpell))
-                player->CastSpell(player, freedSpell, true);
-
-            if (target->GetEntry() == NPC_GOBLIN_SURVIVOR_MINE)
             {
+                player->CastSpell(player, freedSpell, true);
+                // The freed version takes over - remove the captive so Ace/
+                // Izzy/Gobber don't stand next to their own doubles.
+                target->DespawnOrUnsummon(1500ms, 120s);
+            }
+            else
+            {
+                // Sniff: the prisoner chugs the cola, tosses the empty can
+                // and yells an "idea" line before wandering off.
+                target->CastSpell(target, SPELL_KAJA_COLA_DRINK, true);
+                target->CastSpell(target, SPELL_TOSS_EMPTY_CAN, true);
+                if (target->IsAIEnabled())
+                    target->AI()->Talk(0, player);
                 target->HandleEmoteCommand(EMOTE_ONESHOT_CHEER);
-                target->DespawnOrUnsummon(4000, 60s);
+                target->DespawnOrUnsummon(5000, 60s);
             }
         }
 
