@@ -69,6 +69,7 @@ enum LostIslesAct34Creatures
     NPC_GOBLIN_ZOMBIE_3             = 38815,
     NPC_GOBLIN_ZOMBIE_4             = 38816,
     NPC_VOLCANOTH                   = 38855,
+    NPC_SASSY_LOST_PEAK             = 38928,
     NPC_VOLCANOTH_CREDIT            = 38868,
     NPC_ERUPTION_BUNNY              = 38985,
     NPC_FLYING_BOMBER               = 38918,
@@ -313,14 +314,17 @@ public:
         void Reset() override
         {
             _events.Reset();
-            if (sSpellMgr->GetSpellInfo(SPELL_VOLCANOTH_AURA))
-                DoCastSelf(SPELL_VOLCANOTH_AURA, true);
+            // Sniff: the cosmetic flame breath (73016) is an OUT-of-combat
+            // ambience on a ~52s cadence; 72996 ("First Aid") never belongs
+            // to the boss - it is Doc Zapnozzle's camp ambience.
+            _events.ScheduleEvent(EVENT_VOLCANOTH_BREATH, 10s, 30s);
         }
 
         void JustEngagedWith(Unit* /*who*/) override
         {
-            _events.ScheduleEvent(EVENT_VOLCANOTH_BREATH, 8s, 12s);
-            _events.ScheduleEvent(EVENT_VOLCANOTH_CONE, 15s, 20s);
+            _events.CancelEvent(EVENT_VOLCANOTH_BREATH);
+            Talk(0); // "Stay out of the way of Volcanoth's breath!" (~2s after engage in sniff)
+            _events.ScheduleEvent(EVENT_VOLCANOTH_CONE, 4s); // sniff: first breath ~4s in
         }
 
         void JustDied(Unit* /*killer*/) override
@@ -339,33 +343,37 @@ public:
             }
 
             me->SummonCreature(NPC_ERUPTION_BUNNY, me->GetPosition(), TEMPSUMMON_TIMED_DESPAWN, 30s);
+
+            // Sassy calls the player over for the escape flight (sniffed with the credit).
+            if (Creature* sassy = me->FindNearestCreature(NPC_SASSY_LOST_PEAK, 150.0f))
+                sassy->AI()->Talk(0);
         }
 
         void UpdateAI(uint32 diff) override
         {
-            if (!UpdateVictim())
-                return;
-
             _events.Update(diff);
 
             while (uint32 eventId = _events.ExecuteEvent())
             {
                 switch (eventId)
                 {
-                    case EVENT_VOLCANOTH_BREATH:
-                        if (sSpellMgr->GetSpellInfo(SPELL_VOLCANOTH_BREATH))
-                            DoCastVictim(SPELL_VOLCANOTH_BREATH);
-                        _events.ScheduleEvent(EVENT_VOLCANOTH_BREATH, 10s, 15s);
+                    case EVENT_VOLCANOTH_BREATH: // OOC cosmetic flame breath (sniff ~52s)
+                        if (!me->IsInCombat())
+                            DoCastSelf(SPELL_VOLCANOTH_BREATH);
+                        _events.ScheduleEvent(EVENT_VOLCANOTH_BREATH, 45s, 60s);
                         break;
                     case EVENT_VOLCANOTH_CONE:
                         if (sSpellMgr->GetSpellInfo(SPELL_VOLCANOTH_CONE))
                             DoCastVictim(SPELL_VOLCANOTH_CONE);
-                        _events.ScheduleEvent(EVENT_VOLCANOTH_CONE, 18s, 24s);
+                        _events.ScheduleEvent(EVENT_VOLCANOTH_CONE, 9700ms); // sniff: fixed 9.7s cadence
                         break;
                     default:
                         break;
                 }
             }
+
+            if (!UpdateVictim())
+                return;
 
             DoMeleeAttackIfReady();
         }
@@ -559,6 +567,7 @@ public:
             if (Player* target = me->SelectNearestPlayer(40.0f))
                 AttackStart(target);
         }
+
     };
 
     CreatureAI* GetAI(Creature* creature) const override
