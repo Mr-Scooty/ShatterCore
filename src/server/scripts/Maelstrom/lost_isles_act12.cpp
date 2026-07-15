@@ -120,6 +120,8 @@ enum LostIslesAct12Spells
     SPELL_SUMMON_CYCLONE            = 68408,
     SPELL_CYCLONE_END               = 68439,
     SPELL_CYCLONE_ABANDON           = 68438,
+    SPELL_TO_THE_WILD_OVERLOOK      = 68409,
+    SPELL_SUMMON_FREED_THRALL       = 69079,
 
     // Up, Up & Away!
     SPELL_SUMMON_SLING_ROCKET       = 68804,
@@ -845,12 +847,15 @@ public:
             if (pointId != std::size(GyrochoppaPath) - 1)
                 return;
 
+            // Retail: no credit here - "Find the Precious Cargo!" whisper, the
+            // player is dropped into the water and the credit comes from
+            // gossiping the caged Thrall below deck.
             if (Player* player = ObjectAccessor::GetPlayer(*me, _passengerGUID))
             {
-                player->KilledMonsterCredit(NPC_THRALL_CLIFF);
+                Talk(0, player);
                 player->ExitVehicle();
             }
-            me->DespawnOrUnsummon(3000);
+            me->DespawnOrUnsummon(1000);
         }
 
         void UpdateAI(uint32 diff) override
@@ -864,6 +869,7 @@ public:
                 {
                     me->SetCanFly(true);
                     me->SetDisableGravity(true);
+                    me->SetSpeedRate(MOVE_FLIGHT, 6.43f); // sniff: 45 yd/s
                     me->GetMotionMaster()->MoveSmoothPath(uint32(std::size(GyrochoppaPath) - 1), GyrochoppaPath, std::size(GyrochoppaPath), false, true);
                 }
             }
@@ -880,6 +886,48 @@ public:
     }
 };
 
+// Warchief's Revenge (14243): the ride is fully server-driven (P3 sniff) - lift
+// off the Vengeance Wake, loop a 22-point circuit over both ships while the
+// player fires Lightning Strike (68445), then auto-fly to the Wild Overlook
+// once the 50th sailor falls.
+Position const CycloneLiftOffPath[] =
+{
+    { 984.95f, 3826.14f, 10.03f },
+    { 995.30f, 3830.47f, 11.08f },
+    { 1005.22f, 3832.42f, 14.53f }
+};
+
+Position const CycloneCircuitPath[] =
+{
+    { 1042.18f, 3857.24f, 23.60f }, { 1071.38f, 3852.88f, 21.19f },
+    { 1097.26f, 3826.48f, 18.91f }, { 1097.90f, 3780.77f, 20.30f },
+    { 1062.80f, 3755.34f, 22.85f }, { 1033.11f, 3773.80f, 23.60f },
+    { 1021.79f, 3827.31f, 20.99f }, { 1004.84f, 3861.21f, 19.96f },
+    { 962.51f, 3859.35f, 20.30f },  { 937.91f, 3841.93f, 19.27f },
+    { 903.89f, 3827.22f, 19.57f },  { 867.18f, 3849.85f, 21.32f },
+    { 866.32f, 3895.80f, 21.52f },  { 893.65f, 3935.71f, 20.88f },
+    { 936.51f, 3944.06f, 21.13f },  { 968.71f, 3914.84f, 20.38f },
+    { 952.70f, 3861.26f, 24.55f },  { 936.18f, 3820.98f, 21.94f },
+    { 943.95f, 3785.92f, 22.27f },  { 975.88f, 3771.54f, 20.71f },
+    { 1004.32f, 3782.39f, 21.71f }, { 1022.35f, 3831.35f, 24.63f }
+};
+
+Position const CycloneDeparturePath[] =
+{
+    { 956.42f, 3740.38f, 70.96f },  { 950.88f, 3662.27f, 14.80f },
+    { 915.74f, 3451.17f, 2.30f },   { 907.14f, 3327.42f, 23.49f },
+    { 960.32f, 3212.72f, 111.31f }, { 995.90f, 3143.98f, 145.03f },
+    { 1007.96f, 3070.12f, 147.64f },{ 901.75f, 2926.98f, 147.64f },
+    { 872.49f, 2765.59f, 119.89f }  // Wild Overlook
+};
+
+enum CyclonePoints
+{
+    POINT_CYCLONE_LIFTOFF           = 1,
+    POINT_CYCLONE_CIRCUIT           = 2,
+    POINT_CYCLONE_OVERLOOK          = 3
+};
+
 class npc_lost_isles_cyclone : public CreatureScript
 {
 public:
@@ -887,13 +935,13 @@ public:
 
     struct npc_lost_isles_cycloneAI : public VehicleAI
     {
-        npc_lost_isles_cycloneAI(Creature* creature) : VehicleAI(creature) { }
+        npc_lost_isles_cycloneAI(Creature* creature) : VehicleAI(creature), _checkTimer(1000), _departing(false) { }
 
         void IsSummonedBy(Unit* /*summoner*/) override
         {
             me->SetReactState(REACT_PASSIVE);
+            me->SetCanFly(true);
             me->SetDisableGravity(true);
-            me->SetControlled(true, UNIT_STATE_ROOT);
         }
 
         void PassengerBoarded(Unit* passenger, int8 seatId, bool apply) override
@@ -901,14 +949,116 @@ public:
             if (seatId != 0 || !passenger->IsPlayer())
                 return;
 
-            if (!apply && me->IsSummon())
+            if (apply)
+            {
+                _passengerGUID = passenger->GetGUID();
+                me->SetSpeedRate(MOVE_FLIGHT, 1.63f); // sniff: 11.4 yd/s circuit
+                me->GetMotionMaster()->MoveSmoothPath(POINT_CYCLONE_LIFTOFF, CycloneLiftOffPath, std::size(CycloneLiftOffPath), false, true);
+            }
+            else if (!_departing && me->IsSummon())
                 me->DespawnOrUnsummon(2000);
         }
+
+        void MovementInform(uint32 type, uint32 pointId) override
+        {
+            if (type != EFFECT_MOTION_TYPE && type != POINT_MOTION_TYPE)
+                return;
+
+            switch (pointId)
+            {
+                case POINT_CYCLONE_LIFTOFF:
+                    me->GetMotionMaster()->MoveSmoothPath(POINT_CYCLONE_CIRCUIT, CycloneCircuitPath, std::size(CycloneCircuitPath), false, true);
+                    break;
+                case POINT_CYCLONE_CIRCUIT:
+                    // Loop the circuit until the player finishes the objective.
+                    if (!_departing)
+                        me->GetMotionMaster()->MoveSmoothPath(POINT_CYCLONE_CIRCUIT, CycloneCircuitPath, std::size(CycloneCircuitPath), false, true);
+                    break;
+                case POINT_CYCLONE_OVERLOOK:
+                    if (Player* player = ObjectAccessor::GetPlayer(*me, _passengerGUID))
+                        player->ExitVehicle();
+                    me->DespawnOrUnsummon(1000);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            VehicleAI::UpdateAI(diff);
+
+            if (_checkTimer <= diff)
+            {
+                _checkTimer = 1000;
+                if (!_departing)
+                {
+                    Player* player = ObjectAccessor::GetPlayer(*me, _passengerGUID);
+                    if (player && player->GetVehicle() && player->GetVehicle()->GetBase() == me
+                        && player->GetQuestStatus(QUEST_WARCHIEFS_REVENGE) == QUEST_STATUS_COMPLETE)
+                    {
+                        _departing = true;
+                        player->CastSpell(me, SPELL_CYCLONE_END, true);
+                        player->CastSpell(player, SPELL_TO_THE_WILD_OVERLOOK, true);
+                        player->TextEmote("Heading to the Wild Overlook.", player, true);
+                        me->SetSpeedRate(MOVE_FLIGHT, 4.65f); // sniff: 32.6 yd/s
+                        me->GetMotionMaster()->MoveSmoothPath(POINT_CYCLONE_OVERLOOK, CycloneDeparturePath, std::size(CycloneDeparturePath), false, true);
+                    }
+                }
+            }
+            else
+                _checkTimer -= diff;
+        }
+
+    private:
+        ObjectGuid _passengerGUID;
+        uint32 _checkTimer;
+        bool _departing;
     };
 
     CreatureAI* GetAI(Creature* creature) const override
     {
         return new npc_lost_isles_cycloneAI(creature);
+    }
+};
+
+// 36622 - Freed Thrall: sprints out of the hold when Meet Me Up Top is
+// accepted (private per-player runner, sniff path).
+Position const FreedThrallPath[] =
+{
+    { 995.57f, 3856.96f, 3.39f },
+    { 993.15f, 3852.02f, 3.31f },
+    { 990.72f, 3847.07f, 3.23f },
+    { 983.96f, 3841.88f, 3.23f },
+    { 972.67f, 3817.29f, 3.23f },
+    { 974.84f, 3812.63f, 3.23f },
+    { 980.87f, 3811.54f, 3.23f },
+    { 983.33f, 3817.62f, 8.58f }
+};
+
+class npc_lost_isles_freed_thrall : public CreatureScript
+{
+public:
+    npc_lost_isles_freed_thrall() : CreatureScript("npc_lost_isles_freed_thrall") { }
+
+    struct npc_lost_isles_freed_thrallAI : public ScriptedAI
+    {
+        npc_lost_isles_freed_thrallAI(Creature* creature) : ScriptedAI(creature) { }
+
+        void IsSummonedBy(Unit* summoner) override
+        {
+            me->SetReactState(REACT_PASSIVE);
+            if (summoner && summoner->IsPlayer())
+                Talk(0, summoner);
+            me->SetWalk(false);
+            me->GetMotionMaster()->MoveSmoothPath(1, FreedThrallPath, std::size(FreedThrallPath), false, false);
+            me->DespawnOrUnsummon(6s);
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_lost_isles_freed_thrallAI(creature);
     }
 };
 
@@ -1332,6 +1482,7 @@ void AddSC_lost_isles_act12()
     new npc_lost_isles_bastia();
     new npc_lost_isles_gyrochoppa();
     new npc_lost_isles_cyclone();
+    new npc_lost_isles_freed_thrall();
     new npc_lost_isles_sling_rocket();
     new go_rocket_sling();
     new spell_lost_isles_remote_fireworks();
