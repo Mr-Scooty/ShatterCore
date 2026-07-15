@@ -1111,12 +1111,18 @@ public:
 
             player->KilledMonsterCredit(NPC_CAPTURED_GOBLIN);
 
-            if (sSpellMgr->GetSpellInfo(SPELL_ESCAPE_VELOCITY_LAUNCH))
-                captive->CastSpell(captive, SPELL_ESCAPE_VELOCITY_LAUNCH, true);
-            else
-                captive->GetMotionMaster()->MoveJump(captive->GetPositionX(), captive->GetPositionY(), captive->GetPositionZ() + 60.0f, 15.0f, 40.0f);
-
-            captive->DespawnOrUnsummon(3000, 30s);
+            // 73948 only carries the rocket-flame aura - the ascent is
+            // server-side movement (sniff: ~4.5s of rumbling, then the cage
+            // shoots ~200yd straight up and vanishes at the apex).
+            captive->CastSpell(captive, SPELL_ESCAPE_VELOCITY_LAUNCH, true);
+            if (captive->IsAIEnabled())
+                captive->AI()->Talk(0, player);
+            captive->m_Events.AddEventAtOffset([captive]()
+            {
+                captive->SetDisableGravity(true);
+                captive->GetMotionMaster()->MoveCharge(captive->GetPositionX(), captive->GetPositionY(), captive->GetPositionZ() + 200.0f, 40.0f, 2);
+            }, 4500ms);
+            captive->DespawnOrUnsummon(10s, 30s);
         }
 
         void Register() override
