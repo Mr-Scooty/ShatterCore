@@ -52,7 +52,8 @@ enum LostIslesAct12Quests
     QUEST_WARCHIEFS_REVENGE         = 14243,
     QUEST_UP_UP_AND_AWAY            = 14244,
     QUEST_ITS_A_TOWN_IN_A_BOX       = 14245,
-    QUEST_A_GOBLIN_IN_SHARKS_CLOTHING = 24817
+    QUEST_A_GOBLIN_IN_SHARKS_CLOTHING = 24817,
+    QUEST_SURRENDER_OR_ELSE         = 24868
 };
 
 enum LostIslesAct12Creatures
@@ -76,6 +77,10 @@ enum LostIslesAct12Creatures
     NPC_WILD_CLUCKER                = 38111,
     NPC_CLUSTER_CLUCK_CREDIT        = 38117,
     NPC_MECHASHARK                  = 38318,
+    NPC_ACE_SURRENDER               = 38455,
+    NPC_ESCORT_NAGA_HATCHLING       = 38457,
+    NPC_FACELESS_OF_THE_DEEP        = 38448,
+    NPC_FACELESS_VOID_ZONE          = 38450,
     NPC_NAGA_HATCHLING_1            = 38412,
     NPC_NAGA_HATCHLING_2            = 44580,
     NPC_POOL_PONY_CREDIT            = 38413
@@ -134,6 +139,17 @@ enum LostIslesAct12Spells
 
     // A Goblin in Shark's Clothing
     SPELL_SUMMON_MECHASHARK         = 71648,
+
+    // Surrender or Else!
+    SPELL_SUMMON_ACE                = 72058,
+    SPELL_SUMMON_NAGA_HATCHLINGS    = 72073,
+    SPELL_GOBLIN_BANNER             = 72077,
+    SPELL_FACELESS_FREEZE_ANIM      = 72126,
+    SPELL_ABSORPTION_SHIELD         = 72055,
+    SPELL_FACELESS_BEAM             = 72076,
+    SPELL_TENTACLE_BASE             = 71910,
+    SPELL_SHADOW_CRASH              = 75903,
+    SPELL_SURRENDER_KILL_CREDIT     = 72035,
 
     // Irresistible Pool Pony
     SPELL_SUMMON_HATCHLING_1        = 71919,
@@ -1274,6 +1290,307 @@ public:
 
 // 71919/71918/83115/83116 - rescue a Naga Hatchling (summons the follower
 // natively; the clicked static hatchling is credited and removed here).
+// -----------------------------------------------------------------------------
+// Surrender or Else! (24868)
+// -----------------------------------------------------------------------------
+
+// Accepting the quest summons Ace and 12 leashed Naga Hatchlings (P3 sniff).
+// Ace marches the hostage parade from the town gate to the spawning pool; when
+// the player crosses areatrigger 5721 he demands the leader's surrender and the
+// Faceless of the Deep emerges instead.
+Position const AceEscortEnd = { 168.72f, 1941.92f, 5.01f };
+Position const FacelessSpawnPos = { 132.346f, 1938.53f, -2.433f, 6.248f };
+Position const FacelessEmergePos = { 132.346f, 1938.53f, 17.57f };
+Position const FacelessShorePos = { 159.26f, 1937.90f, 4.92f };
+Position const VoidZoneOffset = { 131.56f, 1938.32f, 8.62f };
+
+// Escort waypoints (sniff spline endpoints, mover 354157; Ace runs at speed 7).
+Position const AceEscortPath[] =
+{
+    { 662.885f, 2004.658f, 37.930f },
+    { 643.658f, 1995.648f, 26.779f },
+    { 610.854f, 1986.583f, 15.154f },
+    { 590.583f, 1986.917f, 11.307f },
+    { 564.686f, 1989.228f, 8.517f },
+    { 525.144f, 2000.269f, 3.393f },
+    { 502.488f, 2005.420f, 1.439f },
+    { 479.962f, 1988.922f, 0.981f },
+    { 457.693f, 1963.832f, -0.625f },
+    { 440.606f, 1953.240f, -0.544f },
+    { 417.453f, 1950.856f, 0.110f },
+    { 382.292f, 1949.703f, -0.512f },
+    { 349.755f, 1949.040f, -0.512f },
+    { 315.863f, 1949.023f, -0.362f },
+    { 281.234f, 1948.004f, 1.811f },
+    { 232.854f, 1946.912f, -0.490f },
+    { 200.722f, 1946.203f, 1.330f },
+    { 168.722f, 1941.919f, 5.010f }
+};
+
+enum SurrenderOrElseData
+{
+    ACTION_ACE_DEMAND_SURRENDER     = 1,
+    ACTION_ACE_FLEE                 = 2,
+    POINT_ACE_ESCORT_END            = 1,
+    POINT_FACELESS_EMERGE           = 1,
+    POINT_FACELESS_SHORE            = 2
+};
+
+class npc_lost_isles_ace_surrender : public CreatureScript
+{
+public:
+    npc_lost_isles_ace_surrender() : CreatureScript("npc_lost_isles_ace_surrender") { }
+
+    struct npc_lost_isles_ace_surrenderAI : public ScriptedAI
+    {
+        npc_lost_isles_ace_surrenderAI(Creature* creature) : ScriptedAI(creature), _yellIndex(0), _eventStarted(false) { }
+
+        void IsSummonedBy(Unit* summoner) override
+        {
+            if (summoner)
+                _ownerGUID = summoner->GetGUID();
+
+            me->SetReactState(REACT_PASSIVE);
+            me->CastSpell(me, SPELL_GOBLIN_BANNER, true);
+
+            _events.ScheduleEvent(1 /*TALK_LEASH*/, 1500ms);
+            _events.ScheduleEvent(2 /*TALK_READY*/, 7200ms);
+            _events.ScheduleEvent(3 /*START_WALK*/, 9s);
+        }
+
+        void DoAction(int32 action) override
+        {
+            if (action == ACTION_ACE_DEMAND_SURRENDER && !_eventStarted)
+            {
+                _eventStarted = true;
+                _events.CancelEvent(4);
+                if (Player* owner = ObjectAccessor::GetPlayer(*me, _ownerGUID))
+                    Talk(4, owner);
+                _events.ScheduleEvent(5 /*SUMMON_FACELESS*/, 1100ms);
+            }
+            else if (action == ACTION_ACE_FLEE)
+            {
+                Talk(5, ObjectAccessor::GetPlayer(*me, _ownerGUID));
+                me->SetWalk(false);
+                me->SetSpeedRate(MOVE_RUN, 1.5f); // sniff: flees at 10.5 yd/s
+                me->GetMotionMaster()->MovePoint(100, { 262.08f, 1947.28f, -0.47f });
+                me->DespawnOrUnsummon(8s);
+            }
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            _events.Update(diff);
+
+            while (uint32 eventId = _events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                    case 1:
+                    case 2:
+                        Talk(uint8(eventId - 1), ObjectAccessor::GetPlayer(*me, _ownerGUID));
+                        break;
+                    case 3:
+                        me->SetWalk(false); // sniff: Ace runs the whole parade (7.0 yd/s)
+                        me->GetMotionMaster()->MoveSmoothPath(POINT_ACE_ESCORT_END, AceEscortPath, std::size(AceEscortPath), false, false);
+                        _events.ScheduleEvent(4 /*WALK_YELL*/, 25s, 30s);
+                        break;
+                    case 4:
+                        Talk(2 + (_yellIndex++ % 2));
+                        _events.ScheduleEvent(4, 22s, 28s);
+                        break;
+                    case 5:
+                        if (Player* owner = ObjectAccessor::GetPlayer(*me, _ownerGUID))
+                            if (Creature* faceless = owner->SummonCreature(NPC_FACELESS_OF_THE_DEEP, FacelessSpawnPos, TEMPSUMMON_MANUAL_DESPAWN))
+                                faceless->AI()->SetGUID(me->GetGUID(), 1);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+    private:
+        EventMap _events;
+        ObjectGuid _ownerGUID;
+        uint8 _yellIndex;
+        bool _eventStarted;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_lost_isles_ace_surrenderAI(creature);
+    }
+};
+
+class npc_lost_isles_faceless_of_the_deep : public CreatureScript
+{
+public:
+    npc_lost_isles_faceless_of_the_deep() : CreatureScript("npc_lost_isles_faceless_of_the_deep") { }
+
+    struct npc_lost_isles_faceless_of_the_deepAI : public ScriptedAI
+    {
+        npc_lost_isles_faceless_of_the_deepAI(Creature* creature) : ScriptedAI(creature), _beamTimer(300), _spraying(true) { }
+
+        void IsSummonedBy(Unit* summoner) override
+        {
+            if (summoner)
+                _ownerGUID = summoner->GetGUID();
+
+            me->SetReactState(REACT_PASSIVE);
+            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC);
+            me->SetDisableGravity(true);
+            me->CastSpell(me, SPELL_FACELESS_FREEZE_ANIM, true);
+            me->CastSpell(me, SPELL_ABSORPTION_SHIELD, true);
+
+            _events.ScheduleEvent(1 /*EMERGE*/, 2400ms);
+            _events.ScheduleEvent(2 /*ROAR*/, 10400ms);
+            _events.ScheduleEvent(3 /*TAUNT_1*/, 15500ms);
+            _events.ScheduleEvent(4 /*TAUNT_2*/, 22s);
+            _events.ScheduleEvent(5 /*ACE_FLEES*/, 26400ms);
+            _events.ScheduleEvent(6 /*DIVE*/, 30500ms);
+        }
+
+        void SetGUID(ObjectGuid const& guid, int32 id) override
+        {
+            if (id == 1)
+                _aceGUID = guid;
+        }
+
+        void MovementInform(uint32 type, uint32 pointId) override
+        {
+            if (type != EFFECT_MOTION_TYPE && type != POINT_MOTION_TYPE)
+                return;
+
+            if (pointId == POINT_FACELESS_SHORE)
+            {
+                me->SetDisableGravity(false);
+                Player* owner = ObjectAccessor::GetPlayer(*me, _ownerGUID);
+                if (owner)
+                {
+                    me->SetFacingToObject(owner);
+                    Talk(3, owner);
+                }
+                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC);
+                me->SetReactState(REACT_AGGRESSIVE);
+                if (owner)
+                {
+                    // The hostage hatchlings scatter as the fight begins.
+                    std::list<Creature*> hatchlings;
+                    me->GetCreatureListWithEntryInGrid(hatchlings, NPC_ESCORT_NAGA_HATCHLING, 150.0f);
+                    for (Creature* hatchling : hatchlings)
+                        if (hatchling->ToTempSummon() && hatchling->ToTempSummon()->GetSummonerGUID() == owner->GetGUID())
+                            hatchling->DespawnOrUnsummon(1s);
+                    AttackStart(owner);
+                }
+                _events.ScheduleEvent(8 /*SHADOW_CRASH*/, 10s, 14s);
+            }
+        }
+
+        void JustDied(Unit* /*killer*/) override
+        {
+            me->CastSpell(me, SPELL_SURRENDER_KILL_CREDIT, true);
+            me->DespawnOrUnsummon(7s);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            _events.Update(diff);
+
+            // Water spray while hovering over the pool.
+            if (_spraying)
+            {
+                if (_beamTimer <= diff)
+                {
+                    _beamTimer = 300;
+                    me->CastSpell(me, SPELL_FACELESS_BEAM, true);
+                }
+                else
+                    _beamTimer -= diff;
+            }
+
+            while (uint32 eventId = _events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                    case 1: // emerge from the pool
+                        if (Creature* voidZone = me->SummonCreature(NPC_FACELESS_VOID_ZONE, VoidZoneOffset, TEMPSUMMON_TIMED_DESPAWN, 11000))
+                        {
+                            voidZone->SetControlled(true, UNIT_STATE_ROOT);
+                            voidZone->CastSpell(voidZone, SPELL_TENTACLE_BASE, true);
+                        }
+                        me->GetMotionMaster()->MoveSmoothPath(POINT_FACELESS_EMERGE, &FacelessEmergePos, 1, false, true);
+                        break;
+                    case 2:
+                        me->RemoveAurasDueToSpell(SPELL_FACELESS_FREEZE_ANIM);
+                        me->HandleEmoteCommand(EMOTE_ONESHOT_ROAR);
+                        Talk(0, ObjectAccessor::GetPlayer(*me, _ownerGUID));
+                        break;
+                    case 3:
+                        Talk(1, ObjectAccessor::GetPlayer(*me, _ownerGUID));
+                        break;
+                    case 4:
+                        Talk(2, ObjectAccessor::GetPlayer(*me, _ownerGUID));
+                        break;
+                    case 5:
+                        if (Creature* ace = ObjectAccessor::GetCreature(*me, _aceGUID))
+                            ace->AI()->DoAction(ACTION_ACE_FLEE);
+                        break;
+                    case 6:
+                        _spraying = false;
+                        me->SetSpeedRate(MOVE_FLIGHT, 3.7f); // sniff: shore dive in ~1.2s
+                        me->GetMotionMaster()->MoveSmoothPath(POINT_FACELESS_SHORE, &FacelessShorePos, 1, false, true);
+                        break;
+                    case 8:
+                        DoCastVictim(SPELL_SHADOW_CRASH);
+                        _events.ScheduleEvent(8, 10s, 14s);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            if (UpdateVictim())
+                DoMeleeAttackIfReady();
+        }
+
+    private:
+        EventMap _events;
+        ObjectGuid _ownerGUID;
+        ObjectGuid _aceGUID;
+        uint32 _beamTimer;
+        bool _spraying;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_lost_isles_faceless_of_the_deepAI(creature);
+    }
+};
+
+class at_lost_isles_surrender_or_else : public AreaTriggerScript
+{
+public:
+    at_lost_isles_surrender_or_else() : AreaTriggerScript("at_lost_isles_surrender_or_else") { }
+
+    bool OnTrigger(Player* player, AreaTriggerEntry const* /*trigger*/) override
+    {
+        if (player->GetQuestStatus(QUEST_SURRENDER_OR_ELSE) != QUEST_STATUS_INCOMPLETE)
+            return false;
+
+        std::list<Creature*> aces;
+        player->GetCreatureListWithEntryInGrid(aces, NPC_ACE_SURRENDER, 100.0f);
+        for (Creature* ace : aces)
+            if (ace->ToTempSummon() && ace->ToTempSummon()->GetSummonerGUID() == player->GetGUID())
+            {
+                ace->AI()->DoAction(ACTION_ACE_DEMAND_SURRENDER);
+                return true;
+            }
+
+        return false;
+    }
+};
+
 class spell_lost_isles_pool_pony_click : public SpellScriptLoader
 {
 public:
@@ -1412,6 +1729,15 @@ public:
                 if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
                     CleanupOwnedCreatures(player, { NPC_MECHASHARK });
                 break;
+            case QUEST_SURRENDER_OR_ELSE:
+                if (status == QUEST_STATUS_INCOMPLETE)
+                {
+                    CastAcceptSpell(player, SPELL_SUMMON_ACE);
+                    CastAcceptSpell(player, SPELL_SUMMON_NAGA_HATCHLINGS);
+                }
+                else if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+                    CleanupOwnedCreatures(player, { NPC_ACE_SURRENDER, NPC_ESCORT_NAGA_HATCHLING, NPC_FACELESS_OF_THE_DEEP });
+                break;
             default:
                 break;
         }
@@ -1487,6 +1813,9 @@ void AddSC_lost_isles_act12()
     new go_rocket_sling();
     new spell_lost_isles_remote_fireworks();
     new spell_lost_isles_summon_mechashark();
+    new npc_lost_isles_ace_surrender();
+    new npc_lost_isles_faceless_of_the_deep();
+    new at_lost_isles_surrender_or_else();
     new spell_lost_isles_pool_pony_click();
     new player_script_lost_isles();
 }
