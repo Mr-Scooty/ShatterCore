@@ -83,6 +83,7 @@ enum LostIslesAct34Creatures
     NPC_GOBLIN_SURVIVOR_MINE        = 38409,
     NPC_KEZAN_CITIZEN_MINE          = 38745,
     NPC_SOULSTONE_CREDIT            = 39276,
+    NPC_ASSISTANT_GREELY_MINE       = 39199,
     NPC_MINE_CART_RIDE              = 39329,
     NPC_MINE_CART_GIVER             = 39341,
     NPC_MINE_CART_CREDIT            = 39335,
@@ -938,8 +939,11 @@ public:
                 return;
 
             player->KilledMonsterCredit(NPC_SOULSTONE_CREDIT);
-            if (sSpellMgr->GetSpellInfo(SPELL_SOULSTONE_VISUAL))
-                player->CastSpell(player, SPELL_SOULSTONE_VISUAL, true);
+            // 73703 is NOT a visual - it summons another lootable soulstone
+            // chest; retail only Blastshadow casts it (on death). Greely
+            // celebrates the smash instead (sniffed with the credit).
+            if (Creature* greely = player->FindNearestCreature(NPC_ASSISTANT_GREELY_MINE, 100.0f))
+                greely->AI()->Talk(2, player);
         }
 
         void Register() override
