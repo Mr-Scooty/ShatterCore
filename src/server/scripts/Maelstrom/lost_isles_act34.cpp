@@ -1047,7 +1047,10 @@ public:
             while (uint32 eventId = _events.ExecuteEvent())
             {
                 if (eventId == EVENT_CART_DEPART)
+                {
+                    me->SetSpeedRate(MOVE_RUN, 2.2f); // sniff: ~17.6 yd/s, the ride takes ~18.5s
                     me->GetMotionMaster()->MoveSmoothPath(uint32(std::size(MineCartPath) - 1), MineCartPath, std::size(MineCartPath), false, false);
+                }
             }
         }
 
