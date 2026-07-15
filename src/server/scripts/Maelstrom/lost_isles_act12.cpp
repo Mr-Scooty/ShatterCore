@@ -1066,7 +1066,10 @@ public:
 
             if (sSpellMgr->GetSpellInfo(SPELL_CLUCKER_FIREWORKS))
                 clucker->CastSpell(clucker, SPELL_CLUCKER_FIREWORKS, true);
-            clucker->DespawnOrUnsummon(4000, 60s);
+            // Retail (P3 sniff): the spooked clucker bolts and keeps running
+            // until it leaves view; it does not vanish on the spot.
+            clucker->GetMotionMaster()->MoveFleeing(player, 8000);
+            clucker->DespawnOrUnsummon(8000, 60s);
         }
 
         void Register() override
