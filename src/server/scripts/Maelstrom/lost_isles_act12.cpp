@@ -46,6 +46,7 @@ enum LostIslesAct12Quests
     QUEST_DONT_GO_INTO_THE_LIGHT    = 14239,
     QUEST_MINER_TROUBLES            = 14021,
     QUEST_BACK_TO_AGGRA             = 14303,
+    QUEST_INFRARED_INFRADEAD        = 14238,
     QUEST_TO_THE_CLIFFS             = 14240,
     QUEST_PRECIOUS_CARGO            = 14242,
     QUEST_WARCHIEFS_REVENGE         = 14243,
@@ -65,6 +66,7 @@ enum LostIslesAct12Creatures
     NPC_MINER_TROUBLES_CREDIT       = 35816,
     NPC_PYGMY_WITCHDOCTOR           = 35838,
     NPC_WEED_WHACKER_BUNNY          = 35903,
+    NPC_ORC_SCOUT                   = 36100,
     NPC_BASTIA                      = 36585,
     NPC_GYROCHOPPA                  = 36143,
     NPC_THRALL_CLIFF                = 36145,
@@ -107,6 +109,10 @@ enum LostIslesAct12Spells
     SPELL_WHACKER_BUNNY_RIDE        = 68217,
     SPELL_WHACKER_BUNNY_BEAM        = 68214,
     SPELL_WHACKER_BUNNY_DESPAWN     = 68215,
+
+    // Infrared = Infradead
+    SPELL_HEAT_VISION               = 68338, // dummy aura + force-cast 68336 (summon Orc Scout)
+    SPELL_SEE_QUEST_INVIS_2         = 69141, // detect invisibility type 8 (assassin invis from 68322)
 
     // To the Cliffs / Precious Cargo / Warchief's Revenge
     SPELL_SUMMON_BASTIA             = 68973,
@@ -462,6 +468,45 @@ public:
     CreatureAI* GetAI(Creature* creature) const override
     {
         return new npc_lost_isles_ore_cartAI(creature);
+    }
+};
+
+// -----------------------------------------------------------------------------
+// Infrared = Infradead (14238)
+// -----------------------------------------------------------------------------
+
+// 68338 - Infrared = Infradead: Orc Scout. The SI:7 Assassins carry 68322
+// (stealth + invisibility type 8); the client's heat shimmer comes from their
+// 68327 dummy, but the server-side reveal needs a type-8 detect aura on the
+// player - link the native See Quest Invis 2 (69141) to the retail accept aura.
+class spell_lost_isles_heat_vision : public SpellScriptLoader
+{
+public:
+    spell_lost_isles_heat_vision() : SpellScriptLoader("spell_lost_isles_heat_vision") { }
+
+    class spell_lost_isles_heat_vision_AuraScript : public AuraScript
+    {
+    public:
+        void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+        {
+            GetTarget()->CastSpell(GetTarget(), SPELL_SEE_QUEST_INVIS_2, true);
+        }
+
+        void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+        {
+            GetTarget()->RemoveAurasDueToSpell(SPELL_SEE_QUEST_INVIS_2);
+        }
+
+        void Register() override
+        {
+            AfterEffectApply.Register(&spell_lost_isles_heat_vision_AuraScript::OnApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+            AfterEffectRemove.Register(&spell_lost_isles_heat_vision_AuraScript::OnRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        }
+    };
+
+    AuraScript* GetAuraScript() const override
+    {
+        return new spell_lost_isles_heat_vision_AuraScript();
     }
 };
 
@@ -1158,6 +1203,13 @@ public:
                 if (status == QUEST_STATUS_REWARDED)
                     PhasingHandler::OnConditionChange(player); // 170 -> 171
                 break;
+            case QUEST_INFRARED_INFRADEAD:
+                if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+                {
+                    player->RemoveAurasDueToSpell(SPELL_HEAT_VISION);
+                    CleanupOwnedCreatures(player, { NPC_ORC_SCOUT });
+                }
+                break;
             case QUEST_TO_THE_CLIFFS:
                 if (status == QUEST_STATUS_INCOMPLETE)
                     CastAcceptSpell(player, SPELL_SUMMON_BASTIA);
@@ -1267,6 +1319,7 @@ void AddSC_lost_isles_act12()
     new spell_lost_isles_dont_go_into_the_light();
     new npc_frightened_miner();
     new npc_lost_isles_ore_cart();
+    new spell_lost_isles_heat_vision();
     new spell_lost_isles_weed_whacker();
     new spell_lost_isles_weed_whacker_aura();
     new npc_weed_whacker_bunny();
