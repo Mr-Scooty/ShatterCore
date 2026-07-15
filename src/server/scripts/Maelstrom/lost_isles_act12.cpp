@@ -53,6 +53,7 @@ enum LostIslesAct12Quests
     QUEST_UP_UP_AND_AWAY            = 14244,
     QUEST_ITS_A_TOWN_IN_A_BOX       = 14245,
     QUEST_A_GOBLIN_IN_SHARKS_CLOTHING = 24817,
+    QUEST_IRRESISTIBLE_POOL_PONY    = 24864,
     QUEST_SURRENDER_OR_ELSE         = 24868
 };
 
@@ -152,6 +153,7 @@ enum LostIslesAct12Spells
     SPELL_SURRENDER_KILL_CREDIT     = 72035,
 
     // Irresistible Pool Pony
+    SPELL_POOL_PONY                 = 71914,
     SPELL_SUMMON_HATCHLING_1        = 71919,
     SPELL_SUMMON_HATCHLING_2        = 71918,
     SPELL_SUMMON_HATCHLING_3        = 83115,
@@ -1591,6 +1593,57 @@ public:
     }
 };
 
+// 71914 - Irresistible Pool Pony: retail's serverside proximity trigger (71920)
+// does not exist in the 4.3.4 client data, so the "irresistible" part is scripted:
+// while the pony aura holds, nearby pool hatchlings are lured automatically
+// (spellclick remains as a fallback).
+static void SchedulePoolPonyLure(Player* player)
+{
+    player->m_Events.AddEventAtOffset([player]()
+    {
+        if (!player->HasAura(SPELL_POOL_PONY) || player->GetQuestStatus(QUEST_IRRESISTIBLE_POOL_PONY) != QUEST_STATUS_INCOMPLETE)
+            return;
+
+        std::list<Creature*> hatchlings;
+        player->GetCreatureListWithEntryInGrid(hatchlings, NPC_NAGA_HATCHLING_1, 8.0f);
+        std::list<Creature*> hatchlings2;
+        player->GetCreatureListWithEntryInGrid(hatchlings2, NPC_NAGA_HATCHLING_2, 8.0f);
+        hatchlings.splice(hatchlings.end(), hatchlings2);
+
+        for (Creature* hatchling : hatchlings)
+            if (hatchling->IsAlive() && !hatchling->IsSummon())
+                player->CastSpell(hatchling, SPELL_SUMMON_HATCHLING_1, true);
+
+        SchedulePoolPonyLure(player);
+    }, 2500ms);
+}
+
+class spell_lost_isles_pool_pony_aura : public SpellScriptLoader
+{
+public:
+    spell_lost_isles_pool_pony_aura() : SpellScriptLoader("spell_lost_isles_pool_pony_aura") { }
+
+    class spell_lost_isles_pool_pony_aura_AuraScript : public AuraScript
+    {
+    public:
+        void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+        {
+            if (Player* player = GetTarget()->ToPlayer())
+                SchedulePoolPonyLure(player);
+        }
+
+        void Register() override
+        {
+            AfterEffectApply.Register(&spell_lost_isles_pool_pony_aura_AuraScript::OnApply, EFFECT_0, SPELL_AURA_WATER_BREATHING, AURA_EFFECT_HANDLE_REAL);
+        }
+    };
+
+    AuraScript* GetAuraScript() const override
+    {
+        return new spell_lost_isles_pool_pony_aura_AuraScript();
+    }
+};
+
 class spell_lost_isles_pool_pony_click : public SpellScriptLoader
 {
 public:
@@ -1816,6 +1869,7 @@ void AddSC_lost_isles_act12()
     new npc_lost_isles_ace_surrender();
     new npc_lost_isles_faceless_of_the_deep();
     new at_lost_isles_surrender_or_else();
+    new spell_lost_isles_pool_pony_aura();
     new spell_lost_isles_pool_pony_click();
     new player_script_lost_isles();
 }
