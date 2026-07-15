@@ -91,6 +91,8 @@ enum LostIslesAct12Spells
 
     // Miner Troubles
     SPELL_SUMMON_ORE_CART           = 68064,
+    SPELL_ORE_CART_TRANSFORM        = 68065,
+    SPELL_ORE_CART_CHAIN            = 68122,
     SPELL_MINER_CLEANUP             = 68060,
 
     // Capturing the Unknown
@@ -252,14 +254,31 @@ MinerWaypoint const MinerRoute[] =
     { { 635.80f, 2919.50f, -0.95f }, 0,     -1 },
     { { 647.74f, 2927.78f, -0.02f }, 0,     -1 },
     { { 658.50f, 2936.43f, 0.29f },  0,     -1 },
-    { { 666.17f, 2947.39f, 0.12f },  0,     -1 }  // final chamber: witchdoctor fight
+    { { 666.17f, 2947.39f, 0.12f },  10000, -1 }, // final chamber: witchdoctor fight
+    { { 654.54f, 2974.84f, 1.53f },  0,     -1 },
+    { { 660.71f, 2962.35f, 0.96f },  0,     -1 }  // final stop: credit + farewell (sniff 09:07:11)
+};
+
+// After the credit the miner runs back out along the tunnel and despawns
+// mid-run (sniff 09:07:17-09:07:26).
+Position const MinerRunOffRoute[] =
+{
+    { 654.05f, 2934.90f, 0.10f },
+    { 632.76f, 2920.28f, -1.30f },
+    { 622.06f, 2898.40f, -3.63f },
+    { 613.32f, 2877.02f, -6.60f },
+    { 603.03f, 2870.68f, -6.60f }
 };
 
 enum MinerEvents
 {
     EVENT_MINER_START_WALK          = 1,
-    EVENT_MINER_NEXT_POINT          = 2
+    EVENT_MINER_NEXT_POINT          = 2,
+    EVENT_MINER_SECOND_EMOTE        = 3,
+    EVENT_MINER_RUN_OFF             = 4
 };
+
+uint32 const MINER_RUNOFF_POINT_BASE = 100;
 
 class npc_frightened_miner : public CreatureScript
 {
@@ -302,7 +321,23 @@ public:
 
         void MovementInform(uint32 type, uint32 pointId) override
         {
-            if (type != POINT_MOTION_TYPE || pointId != _pointIndex)
+            if (type != POINT_MOTION_TYPE)
+                return;
+
+            // Run-off legs after the credit.
+            if (pointId >= MINER_RUNOFF_POINT_BASE)
+            {
+                uint32 runoffIndex = pointId - MINER_RUNOFF_POINT_BASE + 1;
+                if (runoffIndex >= std::size(MinerRunOffRoute))
+                {
+                    me->DespawnOrUnsummon(200ms);
+                    return;
+                }
+                me->GetMotionMaster()->MovePoint(MINER_RUNOFF_POINT_BASE + runoffIndex, MinerRunOffRoute[runoffIndex]);
+                return;
+            }
+
+            if (pointId != _pointIndex)
                 return;
 
             MinerWaypoint const& point = MinerRoute[_pointIndex];
@@ -312,11 +347,14 @@ public:
             ++_pointIndex;
             if (_pointIndex >= std::size(MinerRoute))
             {
-                // Final chamber reached: the static Pygmy Witchdoctor picks
-                // the fight; its death (SAI) grants the credit. Say farewell
-                // and head out.
+                // Final stop reached (retail: credit fires here, NOT on the
+                // witchdoctor's death - the witchdoctor may still be fighting).
+                me->HandleEmoteCommand(EMOTE_ONESHOT_TALK_NO_SHEATHE);
+                if (Player* owner = ObjectAccessor::GetPlayer(*me, _ownerGUID))
+                    owner->KilledMonsterCredit(NPC_MINER_TROUBLES_CREDIT);
                 Talk(4);
-                me->DespawnOrUnsummon(15000);
+                _events.ScheduleEvent(EVENT_MINER_SECOND_EMOTE, 1500ms);
+                _events.ScheduleEvent(EVENT_MINER_RUN_OFF, 6s);
                 return;
             }
 
@@ -336,6 +374,17 @@ public:
                         if (_pointIndex < std::size(MinerRoute))
                             me->GetMotionMaster()->MovePoint(_pointIndex, MinerRoute[_pointIndex].Pos);
                         break;
+                    case EVENT_MINER_SECOND_EMOTE:
+                        me->HandleEmoteCommand(EMOTE_ONESHOT_TALK_NO_SHEATHE);
+                        break;
+                    case EVENT_MINER_RUN_OFF:
+                        _runningOff = true;
+                        me->CombatStop(true);
+                        me->SetWalk(false);
+                        me->GetMotionMaster()->MovePoint(MINER_RUNOFF_POINT_BASE, MinerRunOffRoute[0]);
+                        // Failsafe if a run-off leg never completes.
+                        me->DespawnOrUnsummon(25s);
+                        break;
                     default:
                         break;
                 }
@@ -345,7 +394,7 @@ public:
             if (_watchdog <= diff)
             {
                 _watchdog = 5000;
-                if (!me->IsInCombat() && !me->isMoving() && _pointIndex < std::size(MinerRoute) && _events.Empty())
+                if (!_runningOff && !me->IsInCombat() && !me->isMoving() && _pointIndex < std::size(MinerRoute) && _events.Empty())
                     me->GetMotionMaster()->MovePoint(_pointIndex, MinerRoute[_pointIndex].Pos);
             }
             else
@@ -360,11 +409,59 @@ public:
         ObjectGuid _ownerGUID;
         uint32 _pointIndex;
         uint32 _watchdog;
+        bool _runningOff = false;
     };
 
     CreatureAI* GetAI(Creature* creature) const override
     {
         return new npc_frightened_minerAI(creature);
+    }
+};
+
+// 35814 - Miner Troubles Ore Cart: transforms, tethers to the miner (68122)
+// and trundles along behind him (retail: independent follower, no vehicle).
+class npc_lost_isles_ore_cart : public CreatureScript
+{
+public:
+    npc_lost_isles_ore_cart() : CreatureScript("npc_lost_isles_ore_cart") { }
+
+    struct npc_lost_isles_ore_cartAI : public ScriptedAI
+    {
+        npc_lost_isles_ore_cartAI(Creature* creature) : ScriptedAI(creature), _checkTimer(2000) { }
+
+        void IsSummonedBy(Unit* summoner) override
+        {
+            if (!summoner)
+                return;
+
+            _minerGUID = summoner->GetGUID();
+            me->SetReactState(REACT_PASSIVE);
+            me->CastSpell(me, SPELL_ORE_CART_TRANSFORM, true);
+            me->CastSpell(summoner, SPELL_ORE_CART_CHAIN, true);
+            me->GetMotionMaster()->MoveFollow(summoner, 2.0f, float(M_PI));
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            if (_checkTimer <= diff)
+            {
+                _checkTimer = 2000;
+                Unit* miner = ObjectAccessor::GetUnit(*me, _minerGUID);
+                if (!miner || !miner->IsAlive())
+                    me->DespawnOrUnsummon(1200ms); // retail: cart destroyed ~1.2s after the miner
+            }
+            else
+                _checkTimer -= diff;
+        }
+
+    private:
+        ObjectGuid _minerGUID;
+        uint32 _checkTimer;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_lost_isles_ore_cartAI(creature);
     }
 };
 
@@ -1046,7 +1143,9 @@ public:
                 if (status == QUEST_STATUS_INCOMPLETE)
                 {
                     if (!FindOwnedCreature(player, NPC_FRIGHTENED_MINER))
-                        player->SummonCreature(NPC_FRIGHTENED_MINER, MinerSpawnPos, TEMPSUMMON_MANUAL_DESPAWN);
+                        // Retail summon prop 2261 carries the personal-spawn flag:
+                        // every rescuer gets their own private escort.
+                        player->SummonCreature(NPC_FRIGHTENED_MINER, MinerSpawnPos, TEMPSUMMON_MANUAL_DESPAWN, 0, 0, player->GetGUID());
                 }
                 else if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
                 {
@@ -1167,6 +1266,7 @@ void AddSC_lost_isles_act12()
     new spell_lost_isles_summon_doc_zapnozzle();
     new spell_lost_isles_dont_go_into_the_light();
     new npc_frightened_miner();
+    new npc_lost_isles_ore_cart();
     new spell_lost_isles_weed_whacker();
     new spell_lost_isles_weed_whacker_aura();
     new npc_weed_whacker_bunny();
