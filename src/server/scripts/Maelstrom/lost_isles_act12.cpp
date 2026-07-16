@@ -45,6 +45,7 @@ enum LostIslesAct12Quests
 {
     QUEST_DONT_GO_INTO_THE_LIGHT    = 14239,
     QUEST_MINER_TROUBLES            = 14021,
+    QUEST_CAPTURING_THE_UNKNOWN     = 14031,
     QUEST_BACK_TO_AGGRA             = 14303,
     QUEST_INFRARED_INFRADEAD        = 14238,
     QUEST_TO_THE_CLIFFS             = 14240,
@@ -66,6 +67,10 @@ enum LostIslesAct12Creatures
     NPC_FRIGHTENED_MINER            = 35813,
     NPC_ORE_CART                    = 35814,
     NPC_MINER_TROUBLES_CREDIT       = 35816,
+    NPC_CAVE_PAINTING_1             = 37872,
+    NPC_CAVE_PAINTING_2             = 37895,
+    NPC_CAVE_PAINTING_3             = 37896,
+    NPC_PYGMY_ALTAR                 = 37897,
     NPC_PYGMY_WITCHDOCTOR           = 35838,
     NPC_WEED_WHACKER_BUNNY          = 35903,
     NPC_ORC_SCOUT                   = 36100,
@@ -104,9 +109,19 @@ enum LostIslesAct12Spells
     SPELL_MINER_CLEANUP             = 68060,
 
     // Capturing the Unknown
+    SPELL_SNAPFLASH_AI_CAST         = 68279,
     SPELL_KTC_SNAPFLASH             = 68280,
     SPELL_SNAPFLASH_CHANNEL         = 68281,
     SPELL_SNAPFLASH_EFFECT          = 68296,
+    SPELL_REMOVE_SEE_INVIS_1        = 68349,
+    SPELL_REMOVE_SEE_INVIS_2        = 68936,
+    SPELL_REMOVE_SEE_INVIS_3        = 68943,
+    SPELL_REMOVE_SEE_INVIS_4        = 68937,
+    SPELL_SEE_INVIS_1               = 70661,
+    SPELL_SEE_INVIS_2               = 70678,
+    SPELL_SEE_INVIS_3               = 70680,
+    SPELL_SEE_INVIS_4               = 70681,
+    SPELL_CAPTURING_UNKNOWN_ACCEPT  = 70683,
 
     // Weed Whacker
     SPELL_WEED_WHACKER_DUMMY        = 68211,
@@ -717,7 +732,75 @@ public:
 // Capturing the Unknown (14031)
 // -----------------------------------------------------------------------------
 
-// 68280 - KTC Snapflash: start the capture channel on the vignette bunny.
+struct SnapflashTargetInfo
+{
+    uint32 CreatureId;
+    uint32 DetectionSpell;
+    uint32 RemovalSpell;
+};
+
+static constexpr std::array<SnapflashTargetInfo, 4> SnapflashTargets =
+{{
+    { NPC_CAVE_PAINTING_1, SPELL_SEE_INVIS_1, SPELL_REMOVE_SEE_INVIS_1 },
+    { NPC_CAVE_PAINTING_2, SPELL_SEE_INVIS_2, SPELL_REMOVE_SEE_INVIS_2 },
+    { NPC_CAVE_PAINTING_3, SPELL_SEE_INVIS_3, SPELL_REMOVE_SEE_INVIS_3 },
+    { NPC_PYGMY_ALTAR,     SPELL_SEE_INVIS_4, SPELL_REMOVE_SEE_INVIS_4 }
+}};
+
+static SnapflashTargetInfo const* GetSnapflashTargetInfo(uint32 creatureId)
+{
+    for (SnapflashTargetInfo const& targetInfo : SnapflashTargets)
+        if (targetInfo.CreatureId == creatureId)
+            return &targetInfo;
+
+    return nullptr;
+}
+
+static void ApplySnapflashDetection(Player* player)
+{
+    if (player->GetQuestStatus(QUEST_CAPTURING_THE_UNKNOWN) != QUEST_STATUS_INCOMPLETE)
+        return;
+
+    for (SnapflashTargetInfo const& targetInfo : SnapflashTargets)
+        if (!player->GetReqKillOrCastCurrentCount(QUEST_CAPTURING_THE_UNKNOWN, targetInfo.CreatureId) &&
+            !player->HasAura(targetInfo.DetectionSpell))
+            player->CastSpell(player, targetInfo.DetectionSpell, true);
+}
+
+static void RemoveSnapflashDetection(Player* player)
+{
+    for (SnapflashTargetInfo const& targetInfo : SnapflashTargets)
+        player->RemoveAurasDueToSpell(targetInfo.DetectionSpell);
+}
+
+// 70683 - quest accept: reveal each of the four differently-invisible markers.
+class spell_lost_isles_capturing_unknown_accept : public SpellScriptLoader
+{
+public:
+    spell_lost_isles_capturing_unknown_accept() : SpellScriptLoader("spell_lost_isles_capturing_unknown_accept") { }
+
+    class spell_lost_isles_capturing_unknown_accept_SpellScript : public SpellScript
+    {
+    public:
+        void HandleAfterCast()
+        {
+            if (Player* player = GetCaster()->ToPlayer())
+                ApplySnapflashDetection(player);
+        }
+
+        void Register() override
+        {
+            AfterCast.Register(&spell_lost_isles_capturing_unknown_accept_SpellScript::HandleAfterCast);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_lost_isles_capturing_unknown_accept_SpellScript();
+    }
+};
+
+// 68280 - KTC Snapflash: have the hit marker initiate the retail cast chain.
 class spell_lost_isles_ktc_snapflash : public SpellScriptLoader
 {
 public:
@@ -733,8 +816,7 @@ public:
             if (!caster || !target)
                 return;
 
-            if (sSpellMgr->GetSpellInfo(SPELL_SNAPFLASH_CHANNEL))
-                caster->CastSpell(target, SPELL_SNAPFLASH_CHANNEL, false);
+            target->CastSpell(caster, SPELL_SNAPFLASH_AI_CAST, false);
         }
 
         void Register() override
@@ -749,7 +831,36 @@ public:
     }
 };
 
-// 68296 - Snapflash effect: credit the photographed vignette.
+// 68279 - marker AI cast: make the player channel Snapflash back at the marker.
+class spell_lost_isles_snapflash_ai_cast : public SpellScriptLoader
+{
+public:
+    spell_lost_isles_snapflash_ai_cast() : SpellScriptLoader("spell_lost_isles_snapflash_ai_cast") { }
+
+    class spell_lost_isles_snapflash_ai_cast_SpellScript : public SpellScript
+    {
+    public:
+        void HandleScript(SpellEffIndex /*effIndex*/)
+        {
+            Creature* marker = GetCaster()->ToCreature();
+            Player* player = GetHitUnit() ? GetHitUnit()->ToPlayer() : nullptr;
+            if (marker && player)
+                player->CastSpell(marker, SPELL_SNAPFLASH_CHANNEL, false);
+        }
+
+        void Register() override
+        {
+            OnEffectHitTarget.Register(&spell_lost_isles_snapflash_ai_cast_SpellScript::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_lost_isles_snapflash_ai_cast_SpellScript();
+    }
+};
+
+// 68296 - periodic channel effect: credit the marker and start its reveal cleanup.
 class spell_lost_isles_snapflash_effect : public SpellScriptLoader
 {
 public:
@@ -760,15 +871,18 @@ public:
     public:
         void HandleDummy(SpellEffIndex /*effIndex*/)
         {
-            Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+            Player* player = GetCaster()->ToPlayer();
             Creature* target = GetHitCreature();
-            if (!player)
-                if (Unit* caster = GetCaster())
-                    if (Unit* owner = caster->GetCharmerOrOwner())
-                        player = owner->ToPlayer();
+            if (!player || !target)
+                return;
 
-            if (player && target)
-                player->KilledMonsterCredit(target->GetEntry());
+            SnapflashTargetInfo const* targetInfo = GetSnapflashTargetInfo(target->GetEntry());
+            if (!targetInfo || player->GetQuestStatus(QUEST_CAPTURING_THE_UNKNOWN) != QUEST_STATUS_INCOMPLETE ||
+                player->GetReqKillOrCastCurrentCount(QUEST_CAPTURING_THE_UNKNOWN, targetInfo->CreatureId))
+                return;
+
+            player->KilledMonsterCredit(targetInfo->CreatureId);
+            target->CastSpell(player, targetInfo->RemovalSpell, false);
         }
 
         void Register() override
@@ -780,6 +894,38 @@ public:
     SpellScript* GetSpellScript() const override
     {
         return new spell_lost_isles_snapflash_effect_SpellScript();
+    }
+};
+
+// 68349/68936/68943/68937 - after the short retail cleanup aura expires,
+// stop detecting the corresponding marker so it disappears for that player.
+class spell_lost_isles_snapflash_remove_detection : public SpellScriptLoader
+{
+public:
+    spell_lost_isles_snapflash_remove_detection() : SpellScriptLoader("spell_lost_isles_snapflash_remove_detection") { }
+
+    class spell_lost_isles_snapflash_remove_detection_AuraScript : public AuraScript
+    {
+    public:
+        void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+        {
+            for (SnapflashTargetInfo const& targetInfo : SnapflashTargets)
+                if (targetInfo.RemovalSpell == GetId())
+                {
+                    GetTarget()->RemoveAurasDueToSpell(targetInfo.DetectionSpell);
+                    break;
+                }
+        }
+
+        void Register() override
+        {
+            AfterEffectRemove.Register(&spell_lost_isles_snapflash_remove_detection_AuraScript::HandleRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        }
+    };
+
+    AuraScript* GetAuraScript() const override
+    {
+        return new spell_lost_isles_snapflash_remove_detection_AuraScript();
     }
 };
 
@@ -1687,6 +1833,13 @@ class player_script_lost_isles : public PlayerScript
 public:
     player_script_lost_isles() : PlayerScript("player_script_lost_isles") { }
 
+    void OnPlayerLogin(Player* player) override
+    {
+        // Detection auras normally persist, but repair remaining objectives for
+        // characters whose quest predates this implementation or lost an aura.
+        ApplySnapflashDetection(player);
+    }
+
     void OnPlayerUpdateZone(Player* player, uint32 newZone, uint32 /*newArea*/) override
     {
         // Retail auto-accepts "Don't Go Into the Light!" on washing ashore.
@@ -1707,6 +1860,12 @@ public:
 
         switch (questId)
         {
+            case QUEST_CAPTURING_THE_UNKNOWN:
+                if (status == QUEST_STATUS_INCOMPLETE)
+                    ApplySnapflashDetection(player);
+                else if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_REWARDED)
+                    RemoveSnapflashDetection(player);
+                break;
             case QUEST_MINER_TROUBLES:
                 if (status == QUEST_STATUS_INCOMPLETE)
                 {
@@ -1856,8 +2015,11 @@ void AddSC_lost_isles_act12()
     new spell_lost_isles_weed_whacker_aura();
     new npc_weed_whacker_bunny();
     new spell_lost_isles_exploding_bananas();
+    new spell_lost_isles_capturing_unknown_accept();
     new spell_lost_isles_ktc_snapflash();
+    new spell_lost_isles_snapflash_ai_cast();
     new spell_lost_isles_snapflash_effect();
+    new spell_lost_isles_snapflash_remove_detection();
     new npc_lost_isles_bastia();
     new npc_lost_isles_gyrochoppa();
     new npc_lost_isles_cyclone();
