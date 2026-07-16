@@ -15,4 +15,4 @@ INSERT INTO `smart_scripts` (`entryorguid`,`source_type`,`id`,`link`,`event_type
 (39376,0,0,0,0,0,100,0,25000,35000,30000,45000,11,73867,0,0,0,0,0,2,0,0,0,0,0,0,0,'KTC Oil Bot - In Combat - Cutting Laser'),
 (39376,0,1,0,1,0,100,0,5000,20000,8000,20000,11,73873,2,0,0,0,0,19,23837,15,0,0,0,0,0,'KTC Oil Bot - OOC - Ambient Cutting Laser');
 -- Brute Overseer say groups into one random group.
-UPDATE `creature_text` SET `ID`=`GroupID`, `GroupID`=0 WHERE `CreatureID`=39193;
+UPDATE `creature_text` SET `ID`=`GroupID`, `GroupID`=0 WHERE `CreatureID`=39193 AND `GroupID`<>0;
