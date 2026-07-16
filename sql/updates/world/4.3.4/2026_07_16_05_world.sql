@@ -1,0 +1,94 @@
+-- Pterrordax Scavenger (36719), Shipwreck Shore (4721).
+--
+-- Keep the six original 4.3.4 (build 15595) spawns and give each one a
+-- continuous airborne cyclic spline reconstructed from the retail sniff.
+-- Six later build-30706 spawns cover the same phase and routes and are
+-- duplicates of the Cataclysm flock, so remove only that newer set.
+DELETE FROM `creature_addon`
+WHERE `guid` IN (389370,389374,389377,389380,389381,389382);
+DELETE FROM `creature_movement_override`
+WHERE `SpawnId` IN (389370,389374,389377,389380,389381,389382);
+DELETE FROM `creature`
+WHERE `guid` IN (389370,389374,389377,389380,389381,389382)
+  AND `id`=36719 AND `map`=648 AND `phaseId`=170;
+
+-- The path IDs follow the established spawn GUID * 10 convention.
+DELETE FROM `waypoint_data`
+WHERE `id` IN (2537590,2537600,2537660,2537680,2537690,2537700);
+
+-- Western shore loop (spawn 253760).
+INSERT INTO `waypoint_data` (`id`,`point`,`position_x`,`position_y`,`position_z`) VALUES
+(2537600,0,521.9219,3233.6345,15.87096),
+(2537600,1,526.2083,3210.6301,16.064121),
+(2537600,2,564.63544,3209.0417,17.020844),
+(2537600,3,594.22394,3228.1199,18.44806),
+(2537600,4,592.9427,3258.481,17.069992),
+(2537600,5,553.6927,3267.8699,16.542805);
+
+-- Central shore loop (spawn 253759).
+INSERT INTO `waypoint_data` (`id`,`point`,`position_x`,`position_y`,`position_z`) VALUES
+(2537590,0,607.158,3198.6355,17.188358),
+(2537590,1,560.8802,3189.5955,21.020063),
+(2537590,2,535.29517,3202.573,22.862932),
+(2537590,3,536.48785,3261.6467,20.497995),
+(2537590,4,584.32117,3289.1423,17.100803),
+(2537590,5,635.13196,3252.2908,14.95341);
+
+-- Eastern shore and Savage Glen loop (spawn 253770).
+INSERT INTO `waypoint_data` (`id`,`point`,`position_x`,`position_y`,`position_z`) VALUES
+(2537700,0,705.54517,3204.947,21.379929),
+(2537700,1,683.7882,3211.308,12.7966),
+(2537700,2,675.6215,3193.289,18.407684),
+(2537700,3,714.61456,3148.6614,15.93546),
+(2537700,4,753.80206,3096.823,21.991035),
+(2537700,5,778.78644,3085.513,30.296598),
+(2537700,6,798.86115,3100.2734,30.296597),
+(2537700,7,807.0608,3140.6797,30.296597),
+(2537700,8,783.38544,3162.217,30.296597),
+(2537700,9,724.6597,3193.7805,30.296597);
+
+-- Southern low-altitude loop (spawn 253766).
+INSERT INTO `waypoint_data` (`id`,`point`,`position_x`,`position_y`,`position_z`) VALUES
+(2537660,0,606.9792,3163.6458,11.624939),
+(2537660,1,573.27954,3129.506,13.458276),
+(2537660,2,571.3507,3102.507,18.819386),
+(2537660,3,590.7344,3091.6165,25.208277),
+(2537660,4,611.9948,3103.4915,30.319393),
+(2537660,5,625.5382,3122.382,28.09717),
+(2537660,6,638.33856,3154.1736,25.208277);
+
+-- Vicious Vale boundary loop (spawn 253769).
+INSERT INTO `waypoint_data` (`id`,`point`,`position_x`,`position_y`,`position_z`) VALUES
+(2537690,0,585.6059,3092.289,32.308487),
+(2537690,1,620.8125,3082.2656,36.058502),
+(2537690,2,636.19446,3072.7283,36.058502),
+(2537690,3,641.69446,3048.1614,36.058502),
+(2537690,4,593.8333,3027.0686,40.752964),
+(2537690,5,572.2847,3045.7544,36.058502),
+(2537690,6,565.7031,3070.3057,30.502947);
+
+-- South-eastern loop (spawn 253768).
+INSERT INTO `waypoint_data` (`id`,`point`,`position_x`,`position_y`,`position_z`) VALUES
+(2537680,0,676.38367,3142.8672,31.407106),
+(2537680,1,701.816,3128.639,31.823772),
+(2537680,2,697.3073,3073.1128,33.101547),
+(2537680,3,656.84375,3066.8665,26.323761),
+(2537680,4,632.48956,3099.5435,34.76821),
+(2537680,5,653.6632,3135.2673,25.351538);
+
+UPDATE `creature`
+SET `wander_distance`=0, `MovementType`=3
+WHERE `guid` IN (253759,253760,253766,253768,253769,253770)
+  AND `id`=36719 AND `map`=648 AND `phaseId`=170;
+
+UPDATE `creature_addon`
+SET `waypointPathId`=0,
+    `cyclicSplinePathId`=CASE `guid`
+        WHEN 253759 THEN 2537590
+        WHEN 253760 THEN 2537600
+        WHEN 253766 THEN 2537660
+        WHEN 253768 THEN 2537680
+        WHEN 253769 THEN 2537690
+        WHEN 253770 THEN 2537700
+    END
+WHERE `guid` IN (253759,253760,253766,253768,253769,253770);
