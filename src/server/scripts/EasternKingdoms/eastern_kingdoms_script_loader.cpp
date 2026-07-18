@@ -94,6 +94,10 @@ void AddSC_gilneas_chapter_1();              //Gilneas
 void AddSC_gilneas_chapter_2();
 void AddSC_gilneas_chapter_3();
 void AddSC_gilneas_chapter_4();
+void AddSC_vashjir_intro();                  //Vashj'ir
+void AddSC_vashjir_kelpthar_forest();
+void AddSC_vashjir_shimmering_expanse();
+void AddSC_vashjir_abyssal_depths();
 void AddSC_gnomeregan();                     //Gnomeregan
 void AddSC_instance_gnomeregan();
 void AddSC_instance_grim_batol();            //Grim Batol
@@ -329,6 +333,10 @@ void AddEasternKingdomsScripts()
     AddSC_gilneas_chapter_2();
     AddSC_gilneas_chapter_3();
     AddSC_gilneas_chapter_4();
+    AddSC_vashjir_intro();                  //Vashj'ir
+    AddSC_vashjir_kelpthar_forest();
+    AddSC_vashjir_shimmering_expanse();
+    AddSC_vashjir_abyssal_depths();
     AddSC_gnomeregan();                     //Gnomeregan
     AddSC_instance_gnomeregan();
     AddSC_instance_grim_batol();            //Grim Batol
