@@ -121,8 +121,9 @@ enum ShimmeringCreatures
     NPC_GENERIC_CONTROLLER_CSA      = 40789,
 
     // Honor and Privilege / Full Circle
-    NPC_JORLAN_TRUEBLADE            = 40645,
-    NPC_RESCUE_BALLOON              = 41572,
+    NPC_JORLAN_TRUEBLADE            = 40645, // Alliance surface spotter (25898)
+    NPC_BLOODGUARD_TOLDREK          = 40921, // Horde surface spotter (25972)
+    NPC_RESCUE_BALLOON              = 41572, // shared by both factions
     NPC_CHIEF_ENGINEER_YOON         = 42488,
     NPC_CAPTAIN_GLOVAAL_SUB         = 48423,
     NPC_FIRST_LIEUTENANT_WILEY      = 48429,
@@ -208,14 +209,18 @@ enum ShimmeringQuests
     QUEST_VORTEX                    = 25441,
     QUEST_NESPIRAH                  = 25890,
     QUEST_WAKING_THE_BEAST          = 25922,
-    QUEST_VISIONS_INVASION          = 25760, // vision 1
-    QUEST_VISIONS_SLAUGHTER         = 25755, // vision 2
-    QUEST_VISIONS_RISE              = 25626, // vision 3
-    QUEST_FATHOM_LORDS_CALL         = 25637,
-    QUEST_AT_ALL_COSTS              = 25860,
-    QUEST_FINAL_JUDGEMENT           = 25951,
-    QUEST_HONOR_AND_PRIVILEGE       = 25898,
-    QUEST_FULL_CIRCLE               = 26219
+    QUEST_VISIONS_INVASION          = 25760, // vision 1 (A)
+    QUEST_VISIONS_INVASION_H        = 25957, // vision 1 (H)
+    QUEST_VISIONS_SLAUGHTER         = 25755, // vision 2 (A)
+    QUEST_VISIONS_SLAUGHTER_H       = 25966, // vision 2 (H)
+    QUEST_VISIONS_RISE              = 25626, // vision 3 (A)
+    QUEST_VISIONS_RISE_H            = 26135, // vision 3 (H)
+    QUEST_FATHOM_LORDS_CALL         = 25637, // shared
+    QUEST_AT_ALL_COSTS              = 25860, // shared
+    QUEST_FINAL_JUDGEMENT           = 25951, // shared
+    QUEST_HONOR_AND_PRIVILEGE       = 25898, // A
+    QUEST_HONOR_AND_PRIVILEGE_H     = 25972, // H (Toldrek, shared balloon 41572)
+    QUEST_FULL_CIRCLE               = 26219  // A (Horde 26221 sub not sniffed yet)
 };
 
 // creature_text group numbers this module drives (rows owned by the SQL agents)
@@ -285,9 +290,10 @@ enum ShimmeringTexts
     SAY_GLOVAAL_FIRE                = 2, // "Fire! Fire! Blow it out of the water!"
     SAY_GLOVAAL_DONT_WORRY          = 3, // "Don't worry, number two..."
 
-    // 40645 Jorlan Trueblade (surface copy)
-    SAY_JORLAN_FRESH_AIR            = 0, // "Fresh air! ... fire the flare in their direction."
-    SAY_JORLAN_NO_WAY_MISS          = 1  // "Ha ha! There's no way they'll miss that..."
+    // 40645 Jorlan Trueblade / 40921 Blood Guard Toldrek (surface copies,
+    // identical group contract for both factions)
+    SAY_SPOTTER_FRESH_AIR           = 0, // "Fresh air! ... fire the flare in their direction."
+    SAY_SPOTTER_NO_WAY_MISS         = 1  // "Ha ha! There's no way they'll miss that..."
 };
 
 enum ShimmeringPhases
@@ -330,7 +336,8 @@ Creature* FindPlayerSummon(Player* player, uint32 entry, float range = 150.0f)
 
 struct BattlemaidenVision
 {
-    uint32 QuestId;
+    uint32 QuestId;      // Alliance
+    uint32 QuestIdHorde; // Horde mirror (same credits, same item 55171)
     uint32 AuraId;
     uint32 VehicleEntry;
     uint32 BunnyEntry;
@@ -340,10 +347,16 @@ struct BattlemaidenVision
 
 BattlemaidenVision const BattlemaidenVisions[] =
 {
-    { QUEST_VISIONS_INVASION,  SPELL_NAZJAR_BATTLEMAIDEN_V1, NPC_BATTLEMAIDEN_VISION_1, NPC_TRANSFORM_BUNNY_VISION_1, SPELL_FORCECAST_BATTLEMAIDEN_V1, SPELL_VISION_1_CREDIT },
-    { QUEST_VISIONS_SLAUGHTER, SPELL_NAZJAR_BATTLEMAIDEN_V2, NPC_BATTLEMAIDEN_VISION_2, NPC_TRANSFORM_BUNNY_VISION_2, SPELL_FORCECAST_BATTLEMAIDEN_V2, SPELL_VISION_2_CREDIT },
-    { QUEST_VISIONS_RISE,      SPELL_NAZJAR_BATTLEMAIDEN_V3, NPC_BATTLEMAIDEN_VISION_3, NPC_TRANSFORM_BUNNY_VISION_3, SPELL_FORCECAST_BATTLEMAIDEN_V3, SPELL_VISION_3_CREDIT }
+    { QUEST_VISIONS_INVASION,  QUEST_VISIONS_INVASION_H,  SPELL_NAZJAR_BATTLEMAIDEN_V1, NPC_BATTLEMAIDEN_VISION_1, NPC_TRANSFORM_BUNNY_VISION_1, SPELL_FORCECAST_BATTLEMAIDEN_V1, SPELL_VISION_1_CREDIT },
+    { QUEST_VISIONS_SLAUGHTER, QUEST_VISIONS_SLAUGHTER_H, SPELL_NAZJAR_BATTLEMAIDEN_V2, NPC_BATTLEMAIDEN_VISION_2, NPC_TRANSFORM_BUNNY_VISION_2, SPELL_FORCECAST_BATTLEMAIDEN_V2, SPELL_VISION_2_CREDIT },
+    { QUEST_VISIONS_RISE,      QUEST_VISIONS_RISE_H,      SPELL_NAZJAR_BATTLEMAIDEN_V3, NPC_BATTLEMAIDEN_VISION_3, NPC_TRANSFORM_BUNNY_VISION_3, SPELL_FORCECAST_BATTLEMAIDEN_V3, SPELL_VISION_3_CREDIT }
 };
+
+bool IsOnVisionQuest(Player const* player, BattlemaidenVision const& vision)
+{
+    return player->GetQuestStatus(vision.QuestId) == QUEST_STATUS_INCOMPLETE
+        || player->GetQuestStatus(vision.QuestIdHorde) == QUEST_STATUS_INCOMPLETE;
+}
 
 // Retail exit teleport for vision 1 (KS sniff SMSG_MOVE_TELEPORT)
 Position const VisionOneExitPos = { -7188.67f, 4719.97f, -595.90f, 5.376f };
@@ -1201,7 +1214,7 @@ class spell_vashjir_blade_of_the_battlemaiden : public SpellScript
         {
             if (vision.BunnyEntry != bunny->GetEntry())
                 continue;
-            if (player->GetQuestStatus(vision.QuestId) != QUEST_STATUS_INCOMPLETE || player->HasAura(vision.AuraId))
+            if (!IsOnVisionQuest(player, vision) || player->HasAura(vision.AuraId))
                 return;
             bunny->CastSpell(player, vision.ForcecastSpell, true);
             return;
@@ -1558,9 +1571,15 @@ struct npc_vashjir_temple_credit_bunny : public NullCreatureAI
         me->GetPlayerListInGrid(players, 40.0f);
         for (Player* player : players)
         {
-            if (!player->IsAlive() || player->GetQuestStatus(QUEST_VISIONS_RISE) != QUEST_STATUS_INCOMPLETE)
+            if (!player->IsAlive())
                 continue;
-            if (player->GetReqKillOrCastCurrentCount(QUEST_VISIONS_RISE, int32(me->GetEntry())) > 0)
+
+            uint32 questId = 0;
+            if (player->GetQuestStatus(QUEST_VISIONS_RISE) == QUEST_STATUS_INCOMPLETE)
+                questId = QUEST_VISIONS_RISE;
+            else if (player->GetQuestStatus(QUEST_VISIONS_RISE_H) == QUEST_STATUS_INCOMPLETE)
+                questId = QUEST_VISIONS_RISE_H;
+            if (!questId || player->GetReqKillOrCastCurrentCount(questId, int32(me->GetEntry())) > 0)
                 continue;
 
             player->KilledMonsterCredit(me->GetEntry());
@@ -1895,10 +1914,23 @@ private:
 };
 
 /*######
-## Quest 25898 - Honor and Privilege
-## 77741 - Rescue Flare: dummy; the flare arcs for ~5 s, then the balloon is
-## credited and the surface Jorlan reacts.
+## Quests 25898 (A) / 25972 (H) - Honor and Privilege
+## 77741 - Rescue Flare (shared spell): dummy; the flare arcs for ~5 s, then
+## the shared balloon 41572 is credited and the faction's surface spotter
+## reacts (kelpthar BattleRoster-style faction split).
 ######*/
+
+struct RescueFlareRoster
+{
+    uint32 QuestId;
+    uint32 SpotterEntry;
+};
+
+RescueFlareRoster const RescueFlareRosters[] =
+{
+    { QUEST_HONOR_AND_PRIVILEGE,   NPC_JORLAN_TRUEBLADE },   // Alliance
+    { QUEST_HONOR_AND_PRIVILEGE_H, NPC_BLOODGUARD_TOLDREK }  // Horde
+};
 
 class spell_vashjir_rescue_flare : public SpellScript
 {
@@ -1906,16 +1938,24 @@ class spell_vashjir_rescue_flare : public SpellScript
     {
         Unit* caster = GetCaster();
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->GetQuestStatus(QUEST_HONOR_AND_PRIVILEGE) != QUEST_STATUS_INCOMPLETE)
+        if (!player)
             return;
 
-        player->m_Events.AddEventAtOffset([player]()
+        for (RescueFlareRoster const& roster : RescueFlareRosters)
         {
-            player->KilledMonsterCredit(NPC_RESCUE_BALLOON);
-            if (Creature* jorlan = player->FindNearestCreature(NPC_JORLAN_TRUEBLADE, 80.0f))
-                if (jorlan->IsAIEnabled())
-                    jorlan->AI()->Talk(SAY_JORLAN_NO_WAY_MISS, player);
-        }, 5s);
+            if (player->GetQuestStatus(roster.QuestId) != QUEST_STATUS_INCOMPLETE)
+                continue;
+
+            uint32 spotterEntry = roster.SpotterEntry;
+            player->m_Events.AddEventAtOffset([player, spotterEntry]()
+            {
+                player->KilledMonsterCredit(NPC_RESCUE_BALLOON);
+                if (Creature* spotter = player->FindNearestCreature(spotterEntry, 80.0f))
+                    if (spotter->IsAIEnabled())
+                        spotter->AI()->Talk(SAY_SPOTTER_NO_WAY_MISS, player);
+            }, 5s);
+            return;
+        }
     }
 
     void Register() override
@@ -2090,13 +2130,16 @@ public:
                             battlemaiden->AI()->Talk(WHISPER_BATTLEMAIDEN_ABILITY, player);
                 break;
             case QUEST_VISIONS_SLAUGHTER:
+            case QUEST_VISIONS_SLAUGHTER_H:
             case QUEST_VISIONS_RISE:
+            case QUEST_VISIONS_RISE_H:
                 if (status == QUEST_STATUS_INCOMPLETE)
                     player->CastSpell(player, SPELL_BATTLEMAIDEN_BACKUP, true); // retail accept-cast
                 else if (status == QUEST_STATUS_NONE)
                     AbandonVision(player, questId);
                 break;
             case QUEST_VISIONS_INVASION:
+            case QUEST_VISIONS_INVASION_H:
                 if (status == QUEST_STATUS_NONE)
                     AbandonVision(player, questId);
                 break;
@@ -2106,7 +2149,9 @@ public:
                     player->CastSpell(player, SPELL_PHASE_TEMPLE_183, true);
                 break;
             case QUEST_HONOR_AND_PRIVILEGE:
-                // quest_template_addon SourceSpellID backstop (surface reveal)
+            case QUEST_HONOR_AND_PRIVILEGE_H:
+                // quest_template_addon SourceSpellID backstop (retail invis-13
+                // reveal; the fork's actual reveal is phase_area 224 rows)
                 if (status == QUEST_STATUS_INCOMPLETE)
                     player->CastSpell(player, SPELL_SEE_QUEST_INVIS_5, true);
                 break;
@@ -2133,7 +2178,7 @@ private:
     static void AbandonVision(Player* player, uint32 questId)
     {
         for (BattlemaidenVision const& vision : BattlemaidenVisions)
-            if (vision.QuestId == questId && player->HasAura(vision.AuraId))
+            if ((vision.QuestId == questId || vision.QuestIdHorde == questId) && player->HasAura(vision.AuraId))
             {
                 EndBattlemaidenVision(player, vision.AuraId);
                 break;
