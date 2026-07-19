@@ -83,6 +83,7 @@ UPDATE `smart_scripts` SET `link`=1 WHERE `entryorguid`=39669 AND `source_type`=
 
 -- Whisper/summon gating conditions (smart_event source 22: SourceGroup = id+1, SourceEntry = entryorguid)
 DELETE FROM `conditions` WHERE `SourceTypeOrReferenceId`=22 AND `SourceEntry` IN (46316,-342346);
+DELETE FROM `conditions` WHERE `SourceTypeOrReferenceId`=15 AND `SourceGroup`=11444 AND `ConditionValue1`=25598;
 INSERT INTO `conditions` (`SourceTypeOrReferenceId`, `SourceGroup`, `SourceEntry`, `SourceId`, `ElseGroup`, `ConditionTypeOrReference`, `ConditionTarget`, `ConditionValue1`, `ConditionValue2`, `ConditionValue3`, `NegativeCondition`, `ErrorType`, `ErrorTextId`, `ScriptName`, `Comment`) VALUES
 (22, 1, 46316, 0, 0, 9, 0, 25587, 0, 0, 0, 0, 0, '', 'Gimme Shelter KC OOC LOS: only players on 25587'),
 (22, 1, -342346, 0, 0, 9, 0, 25587, 0, 0, 0, 0, 0, '', 'Signal bunny OOC LOS: only players on 25587'),
